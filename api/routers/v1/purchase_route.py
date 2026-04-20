@@ -12,17 +12,17 @@ router=APIRouter(
     prefix="/purchases"
 )
 
-SHOP_ID="string"
+SHOP_ID="TESTING-SHOP-ID"
 ADDED_BY="siva-user"
 
 ASYNC_PG_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 
-@router.post("/")
+@router.post("")
 async def create(data:CreatePurchaseSchema,session:ASYNC_PG_SESSION):
     return await HandlePurchaseRequest(session=session).create(data=data,added_by=ADDED_BY,shop_id=SHOP_ID)
 
 
-@router.put("/")
+@router.put("")
 async def update(data:UpdatePurchaseSchema,session:ASYNC_PG_SESSION):
     return await HandlePurchaseRequest(session=session).update(data=data,user_id=ADDED_BY)
 
@@ -32,6 +32,6 @@ async def delete(purchase_id:str,session:ASYNC_PG_SESSION):
     return await HandlePurchaseRequest(session=session).delete(shop_id=SHOP_ID,id=purchase_id)
 
 
-@router.get("/")
+@router.get("")
 async def get(session:ASYNC_PG_SESSION,timezone:Optional[TimeZoneEnum]=Query(TimeZoneEnum.Asia_Kolkata),type:PurchaseTypeEnums=Query(...),q:Optional[str]="",limit:Optional[int]=10,offset:int=1):
     return await HandlePurchaseRequest(session=session).get(shop_id=SHOP_ID,timezone=timezone,query=q,limit=limit,offset=offset,type=type)

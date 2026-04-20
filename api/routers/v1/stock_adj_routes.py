@@ -11,7 +11,7 @@ router=APIRouter(
 PG_ASYNC_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 SHOP_ID="string"
 
-@router.post('/')
+@router.post('')
 async def create(data:StockAdjCreateSchema,session:PG_ASYNC_SESSION):
     return await HandleStockAdjRequest(session=session).create(data=data)
 
@@ -23,7 +23,7 @@ async def create(data:StockAdjCreateSchema,session:PG_ASYNC_SESSION):
 async def delete(stock_adj_id:str,session:PG_ASYNC_SESSION):
     return await HandleStockAdjRequest(session=session).delete(stock_adj_id=stock_adj_id,shop_id=SHOP_ID)
 
-@router.get('/')
+@router.get('')
 async def get_all(session:PG_ASYNC_SESSION,q:Optional[str]=Query(''),limit:Optional[int]=Query(10),offset:int=Query(1),timezone:Optional[TimeZoneEnum]=Query(TimeZoneEnum.Asia_Kolkata)):
     return await HandleStockAdjRequest(session=session).get(
         shop_id=SHOP_ID,

@@ -10,11 +10,11 @@ router=APIRouter(
 
 PG_ASYNC_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 
-@router.post('/')
+@router.post('')
 async def create(data:AddInventorySchema,session:PG_ASYNC_SESSION):
     return await HandleInventoryRequest(session=session).create(data=data,account_id="")
 
-@router.put('/')
+@router.put('')
 async def update(data:UpdateInventorySchema,session:PG_ASYNC_SESSION):
     return await HandleInventoryRequest(session=session).update(data=data,account_id="")
 
@@ -22,7 +22,7 @@ async def update(data:UpdateInventorySchema,session:PG_ASYNC_SESSION):
 async def delete(inventory_id:str,shop_id:str,session:PG_ASYNC_SESSION):
     return await HandleInventoryRequest(session=session).delete(inventory_id=inventory_id,shop_id=shop_id)
 
-@router.get('/')
+@router.get('')
 async def get_all(session:PG_ASYNC_SESSION,shop_id:str=Query(...),q:Optional[str]=Query(''),limit:Optional[int]=Query(10),offset:int=Query(1),timezone:Optional[TimeZoneEnum]=Query(TimeZoneEnum.Asia_Kolkata)):
     return await HandleInventoryRequest(session=session).get(
         shop_id=shop_id,
