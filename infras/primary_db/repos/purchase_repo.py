@@ -37,7 +37,8 @@ class PurchaseRepo(BaseRepoModel):
             Purchase.id==data.id,
             Purchase.shop_id==data.shop_id
         ).values(
-            datas=data.datas
+            datas=data.datas,
+            purchase_view=data.purchase_view,
         ).returning(Purchase.id)
 
         is_updated=(await self.session.execute(data_toupdate)).scalar_one_or_none()

@@ -30,9 +30,9 @@ async def get_all(session:PG_ASYNC_SESSION,shop_id:str=Query(...),q:Optional[str
         query=q,
         limit=limit,
         offset=offset,
-        read_db=True
+        read_db=False
     )
 
 @router.get('/by/{inventory_id}/{shop_id}')
 async def getby_inventory_id(session:PG_ASYNC_SESSION,inventory_id:str,shop_id:str,timezone:Optional[TimeZoneEnum]=Query(TimeZoneEnum.Asia_Kolkata)):
-    return await HandleInventoryRequest(session=session).getby_id(inventory_id=inventory_id,shop_id=shop_id,timezone=timezone,read_db=True)
+    return await HandleInventoryRequest(session=session).getby_id(inventory_id=inventory_id,shop_id=shop_id,timezone=timezone,read_db=False)

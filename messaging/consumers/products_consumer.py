@@ -30,7 +30,7 @@ class ProductsConsumer(BaseConsumerModel):
             inventory_data:dict=event_data.get('inventory')
             is_new=product_data['is_new']
             ic(inventory_data)
-            data=AddInventorySchema(**inventory_data)
+            data=AddInventorySchema(datas=inventory_data)
             
 
             async with AsyncInventoryLocalSession() as session:
@@ -49,20 +49,16 @@ class ProductsConsumer(BaseConsumerModel):
                 )
             res=res.model_dump(mode='json')
             ic(res)
-            readdb_data=ReadDbInventoryCreateModel(
-                inventory_id=res.get('id'),
-                added_by=res.get('added_by'),
-                **inventory_data
-            )
+            # readdb_data=ReadDbInventoryCreateModel(
+            #     inventory_id=res.get('id'),
+            #     added_by=res.get('added_by'),
+            #     **inventory_data
+            # )
 
             return SuccessMessagingTypDict(
                 response=res,
                 set_response=False,
                 mark_completed=True,
-                read_db=ReadDbBaseModel(
-                    payload=readdb_data,
-                    method='create'
-                )
             )
         
         except (BussinessError,RetryableError,FatalError):
@@ -87,7 +83,7 @@ class ProductsConsumer(BaseConsumerModel):
 
         ic(inventory_data)
 
-        data=UpdateInventorySchema(**inventory_data)
+        data=UpdateInventorySchema(datas=inventory_data)
 
         async with AsyncInventoryLocalSession() as session:
             res=await InventoryService(session=session).update(data=data,product_data=product_data)
@@ -102,22 +98,10 @@ class ProductsConsumer(BaseConsumerModel):
                 ),
             )
         
-        readdb_data=ReadDbInventoryUpdateModel(
-            **inventory_data
-        )
         return SuccessMessagingTypDict(
             response=res,
             set_response=False,
             mark_completed=True,
-            read_db=ReadDbBaseModel(
-                payload=readdb_data,
-                method='update',
-                condition={
-                    'inventory_id':inventory_data.get('id'),
-                    'shop_id':inventory_data.get('shop_id'),
-                    'barcode':inventory_data.get('barcode')
-                }
-            )
         )
     
 

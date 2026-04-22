@@ -10,5 +10,6 @@ class Purchase(BASE):
     shop_id=Column(String,nullable=False)
     type=Column(String,nullable=False)
     purchase_view=Column(Boolean,nullable=False)
+    
     datas=Column(JSONB,nullable=False)
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())

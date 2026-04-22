@@ -12,6 +12,7 @@ class AddInventoryDbSchema(BaseModel):
     buy_price:float
     sell_price:float
     datas:Optional[dict]={}
+    added_by:str
 
 
 class UpdateInventoryDbSchema(BaseModel):
@@ -21,13 +22,7 @@ class UpdateInventoryDbSchema(BaseModel):
     stocks:Optional[int]=None
     buy_price:Optional[float]=None
     sell_price:Optional[float]=None
-    image_urls:Optional[List[str]]=None
-    product_name:Optional[str]=None
-    product_description:Optional[str]=None
-    product_category:Optional[InventoryProductCategoryEnum]=None
-    offer_online:Optional[str]=None
-    offer_offline:Optional[str]=None
-    offer_type:Optional[str]=None
+    datas:Optional[dict]={}
 
     model_config={
         'use_enum_values':True

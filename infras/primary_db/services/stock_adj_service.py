@@ -24,18 +24,24 @@ class StockAdjService(BaseServiceModel):
     async def create(self, data:StockAdjCreateSchema):
         ic(data)
         stock_adj_id=generate_uuid()
-        data_toadd=StockAdjCreateDbSchema(**data.model_dump(mode='json'),id=stock_adj_id)
+        data_toadd=StockAdjCreateDbSchema(
+           id=stock_adj_id,
+           shop_id=data.datas.shop_id,
+           datas=data.datas.model_dump(mode='json')
+        )
+
         increament_qty={}
         decrement_qty={}
-
-        for product in data.datas['products']:
-            if product['type']==StockAdjustmentTypesEnum.INCREMENT.value:
-                increament_qty[product['barcode']]=product['qty']
-            elif product['type']==StockAdjustmentTypesEnum.DECREMENT.value:
-                decrement_qty[product['barcode']]=product['qty']
+        ic(data.datas.products)
+        for product in data.datas.products:
+            ic(product)
+            if product.type.value==StockAdjustmentTypesEnum.INCREMENT.value:
+                increament_qty[product.barcode]=product.quantity
+            elif product.type.value==StockAdjustmentTypesEnum.DECREMENT.value:
+                decrement_qty[product.barcode]=product.quantity
             else:
                 return False
-            
+        ic(increament_qty,decrement_qty) 
         if len(increament_qty)<1 and len(decrement_qty)<1:
             return False
         
@@ -45,10 +51,10 @@ class StockAdjService(BaseServiceModel):
             ic(increament_qty)
             ic(decrement_qty)
             if increament_qty and len(increament_qty)>0:
-                inv_incr_res=await InventoryService(session=self.session).update_qty_bulk(shop_id=data.shop_id,data=increament_qty)
+                inv_incr_res=await InventoryService(session=self.session).update_qty_bulk(shop_id=data.datas.shop_id,data=increament_qty)
                 ic(inv_incr_res)
             if decrement_qty and len(decrement_qty)>0:
-                inv_decr_res=await InventoryService(session=self.session).update_qty_decr_bulk(shop_id=data.shop_id,data=decrement_qty)
+                inv_decr_res=await InventoryService(session=self.session).update_qty_decr_bulk(shop_id=data.datas.shop_id,data=decrement_qty)
                 ic(inv_decr_res)
             
         return res

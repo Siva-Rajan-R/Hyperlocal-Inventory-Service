@@ -19,7 +19,8 @@ class InventoryRepo(BaseRepoModel):
             Inventory.added_by,
             Inventory.buy_price,
             Inventory.sell_price,
-            Inventory.stocks
+            Inventory.stocks,
+            Inventory.datas
         )
 
         super().__init__(session)
@@ -28,7 +29,7 @@ class InventoryRepo(BaseRepoModel):
     async def create(self, data:AddInventoryDbSchema):
         ic(data)
         datas_toadd=[
-            Inventory(**data.model_dump(mode="json",exclude_unset=True,exclude_none=True,exclude=['product_name','product_description','product_category','offer_offline','offer_online','offer_type'])),
+            Inventory(**data.model_dump(mode="json",exclude_unset=True,exclude_none=True,exclude=['offer_offline','offer_online','offer_type'])),
         ]
 
         res=self.session.add_all(datas_toadd)
@@ -45,17 +46,18 @@ class InventoryRepo(BaseRepoModel):
         inven_data=data.model_dump(mode="json",exclude=['id','shop_id','barcode','offer_offline','offer_online','offer_type'],exclude_unset=True)
         
         if inven_data or len(inven_data)>0:
-            ic("inside nn")
+            ic("inside nn",inven_data)
             inve_toupdate=(
-                    update(Inventory)
-                    .where(
-                        Inventory.id==data.id,
-                        Inventory.shop_id==data.shop_id,
-                        Inventory.barcode==data.barcode
-                    )
-                    .values(inven_data)
+                update(Inventory)
+                .where(
+                    Inventory.id==data.id,
+                    Inventory.shop_id==data.shop_id,
+                    Inventory.barcode==data.barcode
+                )
+                .values(**inven_data)
             ).returning(Inventory.id)
             inven_updated=(await self.session.execute(inve_toupdate)).scalar_one_or_none()
+            ic(inven_updated)
 
             if not inven_updated:
                 return False
@@ -108,6 +110,52 @@ class InventoryRepo(BaseRepoModel):
             Inventory.shop_id==shop_id
         ).values(
             stocks=Inventory.stocks + case(
+                data,
+                value=Inventory.barcode
+            )
+        ).returning(Inventory.id)
+
+        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
+        ic(is_updated)
+        return is_updated
+    
+
+    @start_db_transaction
+    async def bulk_sellprice_update(self,data:dict,shop_id:str):
+        """
+        Docstring for bulk_qty_update
+        THe data contains product barcode as a key & the qty to increment as a value
+        """
+        inv_qty_toupdate=update(
+            Inventory
+        ).where(
+            Inventory.barcode.in_(data.keys()),
+            Inventory.shop_id==shop_id
+        ).values(
+            sell_price=case(
+                data,
+                value=Inventory.barcode
+            )
+        ).returning(Inventory.id)
+
+        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
+        ic(is_updated)
+        return is_updated
+    
+
+    @start_db_transaction
+    async def bulk_buyprice_update(self,data:dict,shop_id:str):
+        """
+        Docstring for bulk_qty_update
+        THe data contains product barcode as a key & the qty to increment as a value
+        """
+        inv_qty_toupdate=update(
+            Inventory
+        ).where(
+            Inventory.barcode.in_(data.keys()),
+            Inventory.shop_id==shop_id
+        ).values(
+            buy_price=case(
                 data,
                 value=Inventory.barcode
             )

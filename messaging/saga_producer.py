@@ -8,12 +8,14 @@ from hyperlocal_platform.infras.saga.schemas import CreateSagaStateSchema,Update
 from hyperlocal_platform.infras.saga.repo import SagaStatesRepo
 from hyperlocal_platform.infras.saga.main import AsyncInfraDbLocalSession
 from hyperlocal_platform.core.typed_dicts.saga_status_typ_dict import SagaStateErrorTypDict,SagaStateExecutionTypDict
+from icecream import ic
 
 
 class SagaProducer:
     @staticmethod
     async def emit(saga_payload:CreateSagaStateSchema,routing_key:str,exchange_name:str,headers:Optional[dict]={},):
         rabbitmq_msg_obj=RabbitMQMessagingConfig()
+        ic("Inside Saga Producer")
         async with AsyncInfraDbLocalSession() as session:
             is_saga_created=await SagaStatesRepo(session=session).create(data=saga_payload)
 

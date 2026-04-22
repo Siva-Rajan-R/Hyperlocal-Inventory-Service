@@ -18,48 +18,94 @@ class PurchaseService(BaseServiceModel):
         self.session=session
         self.purchase_repo_obj=PurchaseRepo(session=session)
 
-    async def create(self,data:CreatePurchaseSchema,added_by:str,inventory_update_data:dict,shop_id:str):
+    async def create(self,data:CreatePurchaseSchema,added_by:str,shop_id:str):
         purchase_id=generate_uuid()
         purchase_view=True
-        if data.type.value == PurchaseTypeEnums.PO_CREATE.value:
-            purchase_view=False
-        data_toadd=CreatePurchaseDbSchema(**data.model_dump(mode='json'),purchase_view=purchase_view,added_by=added_by,id=purchase_id)
-        res=await self.purchase_repo_obj.create(data=data_toadd)
-        ic(res,inventory_update_data)
+        barcodes=[]
+        stock_toupdate={}
+        sellprice_toupdate={}
+        buyprice_toupdate={}
 
-        if res and len(inventory_update_data)>0:
+        for product in data.datas.products:
+            barcodes.append(product.barcode)
+            stock_toupdate[product.barcode]=product.quantity
+            sellprice_toupdate[product.barcode]=product.sell_price
+            buyprice_toupdate[product.barcode]=product.buy_price
+
+
+        ic(barcodes,stock_toupdate)
+        inventory_service_obj=InventoryService(session=self.session)
+        checked_results=await inventory_service_obj.bulk_check(barcodes=barcodes,shop_id=shop_id)
+        if len(checked_results)!=len(barcodes):
+            return False
+        
+        if data.datas.type.value == PurchaseTypeEnums.PO_CREATE.value:
+            purchase_view=False
+
+        data_toadd=CreatePurchaseDbSchema(
+            datas=data.datas.model_dump(mode='json'),
+            id=purchase_id,
+            added_by=added_by,
+            shop_id=shop_id,
+            purchase_view=purchase_view,
+            type=data.datas.type
+        )
+        res=await self.purchase_repo_obj.create(data=data_toadd)
+        ic(res)
+
+        if res and len(stock_toupdate)>0:
             ic("hello ullai")
-            return await InventoryService(session=self.session).update_qty_bulk(shop_id=shop_id,data=inventory_update_data)
+            await InventoryService(session=self.session).update_qty_bulk(shop_id=shop_id,data=stock_toupdate)
+            await InventoryService(session=self.session).update_buyprice_bulk(shop_id=shop_id,data=buyprice_toupdate)
+            await InventoryService(session=self.session).update_sellprice_bulk(shop_id=shop_id,data=sellprice_toupdate)
     
         return res
     
 
-    async def update(self,data:UpdatePurchaseSchema,inventory_update_data:dict,shop_id:str):
-        ic("before inv update data",inventory_update_data)
-        ic(data.id,data.shop_id)
-        purchase=await self.getby_id(purchase_id=data.id,shop_id=data.shop_id)
+    async def update(self,data:UpdatePurchaseSchema,shop_id:str):
+        ic(data.datas.id,data.datas.shop_id)
+        purchase=await self.getby_id(purchase_id=data.datas.id,shop_id=data.datas.shop_id)
         ic(purchase)
         if not purchase:
             return False
-        ic(purchase)
-        ic(len(purchase['datas']['products']),len(data.datas['products']))
-        if len(purchase['datas']['products'])!=len(data.datas['products']):
+
+        ic(len(purchase['datas']['products']),len(data.datas.products))
+        if len(purchase['datas']['products'])!=len(data.datas.products):
             return False
         
         purchase_view=False
-        if data.type.value==PurchaseTypeEnums.PO_UPDATE.value:
+        if data.datas.type==PurchaseTypeEnums.PO_UPDATE.value:
             purchase_view=True
-
+        ic(purchase_view)
         data_toupdate=UpdatePurchaseDbSchema(
-            **data.model_dump(mode='json'),
+            datas=data.datas.model_dump(mode='json'),
+            shop_id=data.datas.shop_id,
+            id=data.datas.id,
+            type=data.datas.type,
             purchase_view=purchase_view
         )
 
         res = await self.purchase_repo_obj.update(data=data_toupdate)
         ic(res)
         if res:
-            ic("After inv update data",inventory_update_data)
-            return await InventoryService(session=self.session).update_qty_bulk(shop_id=shop_id,data=inventory_update_data)
+            barcodes=[]
+            stock_toupdate={}
+            sellprice_toupdate={}
+            buyprice_toupdate={}
+
+            for product in purchase['datas']['products']:
+                barcodes.append(product['barcode'])
+                stock_toupdate[product['barcode']]=product['quantity']
+                sellprice_toupdate[product['barcode']]=product['sell_price']
+                buyprice_toupdate[product['barcode']]=product['buy_price']
+
+                ic(barcodes,stock_toupdate,sellprice_toupdate,buyprice_toupdate)
+            
+            await InventoryService(session=self.session).update_qty_bulk(shop_id=shop_id,data=stock_toupdate)
+            await InventoryService(session=self.session).update_buyprice_bulk(shop_id=shop_id,data=buyprice_toupdate)
+            await InventoryService(session=self.session).update_sellprice_bulk(shop_id=shop_id,data=sellprice_toupdate)
+        
+        return res
     
 
     async def delete(self,shop_id:str,id:str):

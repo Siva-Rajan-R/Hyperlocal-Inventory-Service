@@ -25,22 +25,8 @@ class HandleInventoryRequest:
     async def create(self,data:AddInventorySchema,account_id:str):
         """
         Instead of creation, we need to trigger the event that event will handle the adding
-        """
-        if data.offer_offline or data.offer_online:
-            online=validate_offer_input(data.offer_offline)
-            offline=validate_offer_input(data.offer_online)
-            if not online or not offline:
-                raise HTTPException(
-                    status_code=400,
-                    detail=ErrorResponseTypDict(
-                       status_code=400,
-                       msg="Error : Creating inventory",
-                       description="Enter a valid offer format",
-                       success=False
-                    )
-                )
-        
-        if (await InventoryService(session=self.session).getby_id(inventory_barcode_id=data.barcode,shop_id=data.shop_id,timezone=TimeZoneEnum.Asia_Kolkata)):
+        """ 
+        if (await InventoryService(session=self.session).getby_id(inventory_barcode_id=data.datas.barcode,shop_id=data.datas.shop_id,timezone=TimeZoneEnum.Asia_Kolkata)):
             raise HTTPException(
                 status_code=409,
                 detail=ErrorResponseTypDict(
@@ -53,8 +39,11 @@ class HandleInventoryRequest:
         
         
         saga_id:str=generate_uuid()
-        data={'inventory':data.model_dump(mode="json",exclude_unset=True)}
-        data['inventory']['account_id']=account_id
+        inventory_datas=data.datas.model_dump(mode="json")
+        inventory_datas['account_id']=account_id
+
+        data={'inventory':inventory_datas}
+
         return await SagaProducer.emit(
             saga_payload=CreateSagaStateSchema(
                 id=saga_id,
@@ -87,22 +76,22 @@ class HandleInventoryRequest:
         """
         Instead of Updating, we need to trigger the event that event will handle the adding
         """
-        if data.offer_offline or data.offer_online:
-            online=validate_offer_input(data.offer_offline)
-            offline=validate_offer_input(data.offer_online)
-            if not online or not offline:
-                raise HTTPException(
-                    status_code=400,
-                    detail=ErrorResponseTypDict(
-                       status_code=400,
-                       msg="Error : Creating inventory",
-                       description="Enter a valid offer format",
-                       success=False
-                    )
-                )
+        # if data.offer_offline or data.offer_online:
+        #     online=validate_offer_input(data.offer_offline)
+        #     offline=validate_offer_input(data.offer_online)
+        #     if not online or not offline:
+        #         raise HTTPException(
+        #             status_code=400,
+        #             detail=ErrorResponseTypDict(
+        #                status_code=400,
+        #                msg="Error : Creating inventory",
+        #                description="Enter a valid offer format",
+        #                success=False
+        #             )
+        #         )
             
         
-        if not await InventoryService(session=self.session).getby_id(inventory_barcode_id=data.id,shop_id=data.shop_id,timezone=TimeZoneEnum.Asia_Kolkata):
+        if not await InventoryService(session=self.session).getby_id(inventory_barcode_id=data.datas.id,shop_id=data.datas.shop_id,timezone=TimeZoneEnum.Asia_Kolkata):
             raise HTTPException(
                 status_code=404,
                 detail=ErrorResponseTypDict(
@@ -114,8 +103,11 @@ class HandleInventoryRequest:
             )
         
         saga_id:str=generate_uuid()
-        data={'inventory':data.model_dump(mode="json",exclude_unset=True)}
-        data['inventory']['account_id']=account_id
+        inventory_datas=data.datas.model_dump(mode="json")
+        inventory_datas['account_id']=account_id
+
+        data={'inventory':inventory_datas}
+
         return await SagaProducer.emit(
             saga_payload=CreateSagaStateSchema(
                 id=saga_id,

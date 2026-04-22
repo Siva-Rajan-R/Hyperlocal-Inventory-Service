@@ -17,19 +17,25 @@ class InventoryService(BaseServiceModel):
         """
         Need to check shop existence and product data, then added by
         """
-        req_prod_name,req_prod_desc,req_prod_category=data.product_name.lower(),data.product_description.lower(),data.product_category.lower()
+        req_prod_name,req_prod_desc,req_prod_category=data.datas.name.lower(),data.datas.description.lower(),data.datas.category.lower()
         prod_name,prod_desc,prod_category=product_data.get('name'),product_data.get('description'),product_data.get('category')
 
         if not prod_name or not prod_desc or not prod_category:
             return False
         
-        if req_prod_name==prod_name.lower() and req_prod_desc==prod_desc.lower() and req_prod_category==prod_category.lower():
-            data.product_name=None
-            data.product_description=None
-            data.product_category=None
         ic(data.model_dump())
         inventory_id:str=generate_uuid()
-        data=AddInventoryDbSchema(**data.model_dump(mode='json'),id=inventory_id,added_by=added_by)
+
+        data=AddInventoryDbSchema(
+            datas=data.datas.model_dump(mode='json'),
+            shop_id=data.datas.shop_id,
+            barcode=data.datas.barcode,
+            stocks=data.datas.stocks,
+            buy_price=data.datas.buy_price,
+            sell_price=data.datas.sell_price,
+            id=inventory_id,
+            added_by=added_by
+        )
         return await InventoryRepo(session=self.session).create(data=data)
     
 
@@ -44,38 +50,24 @@ class InventoryService(BaseServiceModel):
     
 
     async def update(self,data:UpdateInventorySchema,product_data:dict):
-        req_prod_infos=[data.product_name,data.product_description,data.product_category]
+        req_prod_infos=[data.datas.name,data.datas.description,data.datas.category]
         prod_infos=[product_data.get('name'),product_data.get('description'),product_data.get('category')]
-        prod_toadd={
-            'product_name':None,
-            'product_description':None,
-            'product_category':None
-        }
+
 
         ic("Hi Hell01")
         if len(req_prod_infos)!=len(prod_infos):
             return False
         ic("Hi Hell02")
-        
-        # first check, to find out what are the fields are need to change
-        for req_p,prod,key in zip(req_prod_infos,prod_infos,['product_name','product_description','product_category']):
-            if req_p!=prod:
-                prod_toadd[key]=req_p
-        
-        # second check, to refill the remaining fields, if its all or not none 
-        if prod_toadd['product_category'] or prod_toadd['product_description'] or prod_toadd['product_name']:
-            for prod,key in zip(prod_infos,['product_name','product_description','product_category']):
-                if prod_toadd[key] is None:
-                    prod_toadd[key]=prod
-
-
-        ic(f"finalized product data to add is => {prod_toadd}")
-        data.product_name=prod_toadd['product_name']
-        data.product_description=prod_toadd['product_description']
-        data.product_category=prod_toadd['product_category']
 
         data=UpdateInventoryDbSchema(
-            **data.model_dump(mode='json',exclude_unset=True,exclude_none=True)
+            id=data.datas.id,
+            shop_id=data.datas.shop_id,
+            barcode=data.datas.barcode,
+            stocks=data.datas.stocks,
+            buy_price=data.datas.buy_price,
+            sell_price=data.datas.sell_price,
+            datas=data.datas.model_dump(mode='json',exclude_unset=True,exclude_none=True)
+
         )
         
         ic(data)
@@ -90,6 +82,20 @@ class InventoryService(BaseServiceModel):
         THe data contains product barcode as a key & the qty to increment as a value
         """
         return await InventoryRepo(session=self.session).bulk_qty_update(data=data,shop_id=shop_id)
+    
+    async def update_sellprice_bulk(self,shop_id:str,data:dict):
+        """
+        Docstring for update_qty_bulk
+        THe data contains product barcode as a key & the qty to increment as a value
+        """
+        return await InventoryRepo(session=self.session).bulk_sellprice_update(data=data,shop_id=shop_id)
+    
+    async def update_buyprice_bulk(self,shop_id:str,data:dict):
+        """
+        Docstring for update_qty_bulk
+        THe data contains product barcode as a key & the qty to increment as a value
+        """
+        return await InventoryRepo(session=self.session).bulk_buyprice_update(data=data,shop_id=shop_id)
     
 
     async def update_qty_decr_bulk(self,shop_id:str,data:dict):
@@ -118,6 +124,9 @@ class InventoryService(BaseServiceModel):
             query=inventory_barcode_id,
             full=False
         )
+    
+    async def bulk_check(self,barcodes:List[str],shop_id:str):
+        return await InventoryRepo(session=self.session).bulk_check(barcodes=barcodes,shop_id=shop_id)
     
     
     async def search(self, query, limit = 5):

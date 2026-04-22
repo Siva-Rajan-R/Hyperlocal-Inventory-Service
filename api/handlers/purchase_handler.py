@@ -24,7 +24,7 @@ class HandlePurchaseRequest:
     async def create(self,data:CreatePurchaseSchema,added_by:str,shop_id:str):
         ic(self.purchase_types)
         
-        if data.type.value==PurchaseTypeEnums.PO_UPDATE.value:
+        if data.datas.type.value==PurchaseTypeEnums.PO_UPDATE.value:
             raise HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
@@ -35,112 +35,32 @@ class HandlePurchaseRequest:
                 )
             )
         # await validate_fields(service_name="PURCHASE",shop_id=data.shop_id,incoming_fields=data.datas)
+
+        res=await PurchaseService(session=self.session).create(data=data,added_by=added_by,shop_id=shop_id)
         
-        cached_datas=await PurchaseProductCacheModel(shop_id=shop_id,user_id=added_by).get()
-        ic(cached_datas)
-        inverntory_update_data={}
-        data_to_check=[]
-
-        if not cached_datas:
-            cached_datas={'barcodes':[]}
-
-        for product in data.datas['products']:
-            if product['barcode'] not in cached_datas['barcodes']:
-                data_to_check.append(product['barcode'])
-            inverntory_update_data[product['barcode']]=product['qty']
-        
-        product_to_check=[]
-        if len(data_to_check)>0:
-            checked_prods=await InventoryRepo(session=self.session).bulk_check(barcodes=data_to_check,shop_id=shop_id)
-            product_to_check.extend(list(set(data_to_check)^set(checked_prods)))
-
-        if data.type.value==PurchaseTypeEnums.PO_CREATE.value:
-            inverntory_update_data={}
-
-        saga_steps={
-            'products.create':SagaStepsValueEnum.PENDING
-        }
-        saga_id=generate_uuid()
-        saga_data={
-            'data':data,
-            'product_to_check':product_to_check,
-            'inventory_update_data':inverntory_update_data,
-            'additional_data':{'shop_id':shop_id,'user_id':added_by}
-        }
-        saga_exchange_name="purchase.purchase.products.exchange"
-        saga_routing_key=generate_routingkey(
-            domain="PURCHASE",
-            work_for="PURCHASE",
-            action=RoutingkeyActions.CREATE,
-            state=RoutingkeyState.REQUESTED,
-            version=RoutingkeyVersions.V1
-        )
-        supplier_verify=False
-
-        supplier_cached_data=await PurchaseSupplierCacheModel(shop_id=shop_id,user_id=added_by).get()
-        ic(supplier_cached_data)
-        if not supplier_cached_data and len(product_to_check)>0:
-            ic("ullai 1")
-            saga_data={**saga_data,"supplier_verify":True}
-            saga_steps={**saga_steps,"supplier:create":SagaStepsValueEnum.PENDING}
-            supplier_verify=True
-        
-        if not supplier_cached_data and len(product_to_check)==0:
-            ic("ullai 2")
-            saga_data={**saga_data,"supplier_verify":True}
-            saga_steps={**saga_steps,"supplier:create":SagaStepsValueEnum.PENDING}
-            saga_exchange_name="purchase.purchase.suppliers.exchange"
-            supplier_verify=True
-        
-        ic(supplier_verify)
-
-        
-
-        if len(product_to_check)>0 or supplier_verify:
-            return await SagaProducer.emit(
-                saga_payload=CreateSagaStateSchema(
-                    id=saga_id,
-                    status=SagaStatusEnum.PENDING,
-                    type="create",
-                    steps=saga_steps,
-                    execution=SagaStateExecutionTypDict(
-                        step='purchase:requested',
-                        service="PURCHASE"
-                    ),
-                    data=saga_data
-                ),
-                routing_key=saga_routing_key,
-                exchange_name=saga_exchange_name,
-                headers={
-                    'saga_id':saga_id
-                }
-            )
-        ic(inverntory_update_data)
-        res=await self.purchase_service_obj.create(data=data,added_by=added_by,inventory_update_data=inverntory_update_data,shop_id=shop_id)
-
-        if res:
-            return SuccessResponseTypDict(
-                detail=BaseResponseTypDict(
-                    msg="Purchase created successfully",
-                    status_code=201,
-                    success=True
+        if not res:
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponseTypDict(
+                    msg="Error : Creating Purchase",
+                    status_code=400,
+                    description=f"Invalid data types",
+                    success=False
                 )
             )
         
-        raise HTTPException(
-            status_code=400,
-            detail=ErrorResponseTypDict(
-                msg="Error : Creating Purchase",
-                status_code=400,
-                description=f"Invalid data types",
-                success=False
+        return SuccessResponseTypDict(
+            detail=BaseResponseTypDict(
+                msg="Purchase Created successfully",
+                status_code=200,
+                success=True
             )
         )
     
 
     async def update(self,data:UpdatePurchaseSchema,user_id:str):
         ic(self.purchase_types)
-        if data.type.value!=PurchaseTypeEnums.PO_UPDATE.value:
+        if data.datas.type!=PurchaseTypeEnums.PO_UPDATE.value:
             raise HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
@@ -152,36 +72,7 @@ class HandlePurchaseRequest:
             )
         
 
-        cached_datas=await PurchaseProductCacheModel(shop_id=data.shop_id,user_id=user_id).get()
-        inverntory_update_data={}
-        data_to_check=[]
-
-        if not cached_datas:
-            cached_datas={'barcodes':[]}
-
-        for product in data.datas['products']:
-            if product['barcode'] not in cached_datas['barcodes']:
-                data_to_check.append(product['barcode'])
-            inverntory_update_data[product['barcode']]=product['recived_qty']
-        
-        product_to_check=[]
-        if len(data_to_check)>0:
-            checked_prods=await InventoryRepo(session=self.session).bulk_check(barcodes=data_to_check,shop_id=data.shop_id)
-            product_to_check.extend(list(set(data_to_check)^set(checked_prods)))
-        
-
-        if len(product_to_check)>0:
-            raise HTTPException(
-                status_code=400,
-                detail=ErrorResponseTypDict(
-                    description="Invalid Purchase id for updating the purchase",
-                    msg="Error : Updating Purchase",
-                    success=False,
-                    status_code=400
-                )
-            )
-        ic(inverntory_update_data)
-        res=await self.purchase_service_obj.update(data=data,inventory_update_data=inverntory_update_data,shop_id=data.shop_id)
+        res=await self.purchase_service_obj.update(data=data,shop_id=data.datas.shop_id)
 
         if res:
             return SuccessResponseTypDict(

@@ -12,7 +12,7 @@ router=APIRouter(
     prefix="/purchases"
 )
 
-SHOP_ID="TESTING-SHOP-ID"
+SHOP_ID="37d5519b-51a1-5854-982b-4d6524171017"
 ADDED_BY="siva-user"
 
 ASYNC_PG_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
