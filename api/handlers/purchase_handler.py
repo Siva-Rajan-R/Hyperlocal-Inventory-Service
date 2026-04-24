@@ -129,6 +129,9 @@ class HandlePurchaseRequest:
             data=res
         )
     
+    async def getby_id(self,purchase_id:str,shop_id:str):
+        return await self.purchase_service_obj.getby_id(purchase_id=purchase_id,shop_id=shop_id)
+    
 
     async def pre_purchase(self,data:CreatePurchaseSchema,user_id:str):
         data_to_check=[]

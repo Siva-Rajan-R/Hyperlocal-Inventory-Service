@@ -35,3 +35,7 @@ async def delete(purchase_id:str,session:ASYNC_PG_SESSION):
 @router.get("")
 async def get(session:ASYNC_PG_SESSION,timezone:Optional[TimeZoneEnum]=Query(TimeZoneEnum.Asia_Kolkata),type:PurchaseTypeEnums=Query(...),q:Optional[str]="",limit:Optional[int]=10,offset:int=1):
     return await HandlePurchaseRequest(session=session).get(shop_id=SHOP_ID,timezone=timezone,query=q,limit=limit,offset=offset,type=type)
+
+@router.get("/{purchase_id}")
+async def getby_id(purchase_id:str,session:ASYNC_PG_SESSION):
+    return await HandlePurchaseRequest(session=session).getby_id(purchase_id=purchase_id,shop_id=SHOP_ID)
