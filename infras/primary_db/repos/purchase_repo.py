@@ -8,7 +8,7 @@ from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional
 from icecream import ic
-from core.data_formats.enums.purchase_enums import PurchaseTypeEnums
+from core.data_formats.enums.purchase_enums import PurchaseTypeEnums,PurchaseViewsEnums
 
 
 class PurchaseRepo(BaseRepoModel):
@@ -57,13 +57,19 @@ class PurchaseRepo(BaseRepoModel):
 
     
 
-    async def get(self,timezone:TimeZoneEnum,shop_id:str,type:PurchaseTypeEnums,query:Optional[str]="",limit:Optional[int]=None,offset:Optional[int]=None):
+    async def get(self,timezone:TimeZoneEnum,shop_id:str,view:PurchaseViewsEnums,query:Optional[str]="",limit:Optional[int]=None,offset:Optional[int]=None):
         created_at=func.date(func.timezone(timezone.value,Purchase.created_at))
+        view_mapper={
+            PurchaseViewsEnums.PURCHASE_VIEW.value:(Purchase.purchase_view==True),
+            PurchaseViewsEnums.STOCKADJUSTMENT_VIEW.value:(Purchase.purchase_view==True),
+            PurchaseViewsEnums.PO_VIEW.value:(and_(Purchase.purchase_view==False,Purchase.type==PurchaseTypeEnums.PO_CREATE.value))
+        }
+
         query_stmt=select(
             *self.purchase_cols,
             created_at
         ).where(
-            Purchase.type==type.value,
+            view_mapper[view.value],
             Purchase.shop_id==shop_id
         )
 

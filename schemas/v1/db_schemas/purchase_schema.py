@@ -9,6 +9,7 @@ class CreatePurchaseDbSchema(BaseModel):
     added_by:str
     type:PurchaseTypeEnums
     purchase_view:bool
+    supplier_id:str
     datas:dict
 
 class UpdatePurchaseDbSchema(BaseModel):

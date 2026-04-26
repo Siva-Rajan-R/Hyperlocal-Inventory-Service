@@ -4,3 +4,8 @@ b={'b':2}
 c={**a,'h':'eelo'}
 
 print(c)
+
+a=[1]
+
+if not a:
+    print('empty')

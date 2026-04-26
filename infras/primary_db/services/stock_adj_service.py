@@ -13,6 +13,7 @@ from ..repos.stock_adj_repo import StockAdjRepo
 from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
 from ..services.inventory_service import InventoryService
 from core.data_formats.enums.stock_adj_enums import StockAdjustmentTypesEnum
+from infras.primary_db.repos.inventory_repo import InventoryRepo
 
 
 class StockAdjService(BaseServiceModel):
@@ -30,32 +31,79 @@ class StockAdjService(BaseServiceModel):
            datas=data.datas.model_dump(mode='json')
         )
 
-        increament_qty={}
-        decrement_qty={}
+        inv_increament_qty={}
+        inv_decrement_qty={}
+
+        varient_increament_qty={}
+        varient_decrement_qty={}
+
+        batch_increament_qty={}
+        batch_decrement_qty={}
+
+        inv_serialno_increaments={}
+        inv_serialno_decrements={}
+
+        variant_serialno_increaments={}
+        variant_serialno_decrements={}
+
         ic(data.datas.products)
         for product in data.datas.products:
             ic(product)
             if product.type.value==StockAdjustmentTypesEnum.INCREMENT.value:
-                increament_qty[product.barcode]=product.quantity
+                if product.varient_id:
+                    varient_increament_qty[product.varient_id]=product.quantity
+                    if product.serial_numbers and len(product.serial_numbers)>0:
+                        variant_serialno_increaments[product.varient_id]=product.serial_numbers
+
+                if product.batch_id:
+                    batch_increament_qty[product.batch_id]=product.quantity
+
+                if not product.varient_id:
+                    inv_increament_qty[product.barcode]=product.quantity
+                    if product.serial_numbers and len(product.serial_numbers)>0:
+                        inv_serialno_increaments[product.barcode]=product.serial_numbers
+
             elif product.type.value==StockAdjustmentTypesEnum.DECREMENT.value:
-                decrement_qty[product.barcode]=product.quantity
+                if product.varient_id:
+                    varient_decrement_qty[product.varient_id]=product.quantity
+                    if product.serial_numbers and len(product.serial_numbers)>0:
+                        variant_serialno_decrements[product.varient_id]=product.serial_numbers
+                if product.batch_id:
+                    batch_decrement_qty[product.batch_id]=product.quantity
+                if not product.varient_id:
+                    inv_decrement_qty[product.barcode]=product.quantity
+                    if product.serial_numbers and len(product.serial_numbers)>0:
+                        inv_serialno_decrements[product.barcode]=product.serial_numbers
             else:
                 return False
-        ic(increament_qty,decrement_qty) 
-        if len(increament_qty)<1 and len(decrement_qty)<1:
-            return False
+        ic(inv_increament_qty,inv_decrement_qty,varient_increament_qty,varient_decrement_qty,batch_increament_qty,batch_decrement_qty,inv_serialno_increaments,inv_serialno_decrements,variant_serialno_increaments,variant_serialno_decrements)
         
         res=await self.stock_adj_repo_obj.create(data=data_toadd)
         ic(res)
         if res:
-            ic(increament_qty)
-            ic(decrement_qty)
-            if increament_qty and len(increament_qty)>0:
-                inv_incr_res=await InventoryService(session=self.session).update_qty_bulk(shop_id=data.datas.shop_id,data=increament_qty)
-                ic(inv_incr_res)
-            if decrement_qty and len(decrement_qty)>0:
-                inv_decr_res=await InventoryService(session=self.session).update_qty_decr_bulk(shop_id=data.datas.shop_id,data=decrement_qty)
-                ic(inv_decr_res)
+            ic(inv_increament_qty)
+            ic(inv_decrement_qty)
+            # increament
+            # invntory
+            inv_incr_res=await InventoryService(session=self.session).update_qty_bulk(shop_id=data.datas.shop_id,data=inv_increament_qty)
+            inv_serialno_incr_res=await InventoryRepo(session=self.session).bulk_serialnumber_update(shop_id=data.datas.shop_id,data=inv_serialno_increaments)
+            # batches
+            batch_incr_res=await InventoryRepo(session=self.session).bulk_batch_qty_update(shop_id=data.datas.shop_id,data=batch_increament_qty)
+            # varients
+            varient_incr_res=await InventoryRepo(session=self.session).bulk_variant_qty_update(shop_id=data.datas.shop_id,data=varient_increament_qty)
+            varient_serialno_incr_res=await InventoryRepo(session=self.session).bulk_variant_serialnumber_update(shop_id=data.datas.shop_id,data=variant_serialno_increaments)
+            ic(inv_incr_res,varient_incr_res,batch_incr_res,inv_serialno_incr_res,varient_serialno_incr_res)
+
+            # Decremamnt
+            # inventory
+            inv_decr_res=await InventoryService(session=self.session).update_qty_decr_bulk(shop_id=data.datas.shop_id,data=inv_decrement_qty)
+            inv_serialno_decr_res=await InventoryRepo(session=self.session).bulk_serialnumber_remove(shop_id=data.datas.shop_id,data=inv_serialno_decrements)
+            # batches
+            batch_decr_res=await InventoryRepo(session=self.session).bulk_batch_decr_qty_update(shop_id=data.datas.shop_id,data=batch_decrement_qty)
+            # varients
+            varient_decr_res=await InventoryRepo(session=self.session).bulk_variant_decr_qty_update(shop_id=data.datas.shop_id,data=varient_decrement_qty)
+            varient_serialno_decr_res=await InventoryRepo(session=self.session).bulk_variant_serialnumber_remove(shop_id=data.datas.shop_id,data=variant_serialno_decrements)
+            ic(inv_decr_res,varient_decr_res,batch_decr_res,inv_serialno_decr_res,varient_serialno_decr_res)
             
         return res
 

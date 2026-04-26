@@ -8,6 +8,7 @@ class Purchase(BASE):
     id=Column(String,primary_key=True)
     added_by=Column(String,nullable=False)
     shop_id=Column(String,nullable=False)
+    supplier_id=Column(String,nullable=False)
     type=Column(String,nullable=False)
     purchase_view=Column(Boolean,nullable=False)
     

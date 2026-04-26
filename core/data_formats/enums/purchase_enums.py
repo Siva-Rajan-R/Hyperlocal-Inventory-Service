@@ -5,3 +5,9 @@ class PurchaseTypeEnums(Enum):
     PO_UPDATE="PO_UPDATE"
     DIRECT="DIRECT"
     PRODUCTION="PRODUCTION"
+
+
+class PurchaseViewsEnums(Enum):
+    PO_VIEW="PO_VIEW"
+    PURCHASE_VIEW="PURCHASE_VIEW"
+    STOCKADJUSTMENT_VIEW="STOCKADJUSTMENT_VIEW"

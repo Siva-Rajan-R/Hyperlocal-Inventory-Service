@@ -4,7 +4,7 @@ from typing import Optional,List
 from sqlalchemy.ext.asyncio import AsyncSession
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from hyperlocal_platform.core.models.req_res_models import SuccessResponseTypDict,ErrorResponseTypDict,BaseResponseTypDict
-from core.data_formats.enums.purchase_enums import PurchaseTypeEnums
+from core.data_formats.enums.purchase_enums import PurchaseTypeEnums,PurchaseViewsEnums
 from icecream import ic
 from fastapi.exceptions import HTTPException
 from core.utils.validate_fields import convert_field_type,validate_fields
@@ -117,8 +117,8 @@ class HandlePurchaseRequest:
         )
     
 
-    async def get(self,shop_id:str,timezone:TimeZoneEnum,type:PurchaseTypeEnums,limit:Optional[int]=None,offset:Optional[int]=None,query:Optional[str]=""):
-        res=await self.purchase_service_obj.get(timezone=timezone,shop_id=shop_id,type=type,limit=limit,offset=offset,query=query)
+    async def get(self,shop_id:str,timezone:TimeZoneEnum,view:PurchaseViewsEnums,limit:Optional[int]=None,offset:Optional[int]=None,query:Optional[str]=""):
+        res=await self.purchase_service_obj.get(timezone=timezone,shop_id=shop_id,view=view,limit=limit,offset=offset,query=query)
 
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(

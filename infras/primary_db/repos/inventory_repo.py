@@ -1,9 +1,11 @@
 from models.repo_models.base_repo_model import BaseRepoModel
 from models.service_models.base_service_model import BaseServiceModel
-from sqlalchemy import select,update,delete,func,or_,and_,String,case
+from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text
+from sqlalchemy.dialects.postgresql import JSONB,ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..models.inventory_model import Inventory
-from schemas.v1.db_schemas.inventory_schema import InventoryProductCategoryEnum,AddInventoryDbSchema,UpdateInventoryDbSchema
+from ..models.inventory_model import Inventory,InventoryVariants,InventoryBathces
+from schemas.v1.db_schemas.inventory_schema import InventoryProductCategoryEnum,AddInventoryDbSchema,UpdateInventoryDbSchema,UpdateVarientProductDbSchema,InventoryBatchDbSchema
+from schemas.v1.request_schemas.inventory_schema import ProductVarientsUpdateSchema
 from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_transaction
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional,List
@@ -28,8 +30,9 @@ class InventoryRepo(BaseRepoModel):
     @start_db_transaction
     async def create(self, data:AddInventoryDbSchema):
         ic(data)
+        filtered_data=data.model_dump(mode="json",exclude_unset=True,exclude_none=True,exclude=['offer_offline','offer_online','offer_type'])
         datas_toadd=[
-            Inventory(**data.model_dump(mode="json",exclude_unset=True,exclude_none=True,exclude=['offer_offline','offer_online','offer_type'])),
+            Inventory(**filtered_data),
         ]
 
         res=self.session.add_all(datas_toadd)
@@ -103,6 +106,8 @@ class InventoryRepo(BaseRepoModel):
         Docstring for bulk_qty_update
         THe data contains product barcode as a key & the qty to increment as a value
         """
+        if not data:
+            return True
         inv_qty_toupdate=update(
             Inventory
         ).where(
@@ -121,11 +126,358 @@ class InventoryRepo(BaseRepoModel):
     
 
     @start_db_transaction
+    async def bulk_variant_qty_update(self,data:dict,shop_id:str):
+        """
+        Docstring for bulk_qty_update
+        THe data contains product barcode as a key & the qty to increment as a value
+        """
+        if not data:
+            return True
+        inv_qty_toupdate=update(
+            InventoryVariants
+        ).where(
+            InventoryVariants.id.in_(data.keys()),
+            InventoryVariants.shop_id==shop_id
+        ).values(
+            stocks=InventoryVariants.stocks + case(
+                data,
+                value=InventoryVariants.id
+            )
+        ).returning(InventoryVariants.id)
+
+        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
+        ic(is_updated)
+        return is_updated
+    
+    @start_db_transaction
+    async def bulk_variant_decr_qty_update(self,data:dict,shop_id:str):
+        """
+        Docstring for bulk_qty_update
+        THe data contains product barcode as a key & the qty to increment as a value
+        """
+        if not data:
+            return True
+        inv_qty_toupdate=update(
+            InventoryVariants
+        ).where(
+            InventoryVariants.id.in_(data.keys()),
+            InventoryVariants.shop_id==shop_id
+        ).values(
+            stocks=InventoryVariants.stocks - case(
+                data,
+                value=InventoryVariants.id
+            )
+        ).returning(InventoryVariants.id)
+
+        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
+        ic(is_updated)
+        return is_updated
+    
+    @start_db_transaction
+    async def bulk_batch_qty_update(self,data:dict,shop_id:str):
+        """
+        Docstring for bulk_qty_update
+        THe data contains product barcode as a key & the qty to increment as a value
+        """
+        if not data:
+            return True
+        inv_qty_toupdate=update(
+            InventoryBathces
+        ).where(
+            or_(
+                InventoryBathces.id.in_(data.keys()),
+                InventoryBathces.name.in_(data.keys())
+            ),
+            InventoryBathces.shop_id==shop_id
+        ).values(
+            stocks=InventoryBathces.stocks + case(
+                data,
+                value=InventoryBathces.id
+            )
+        ).returning(InventoryBathces.id)
+
+        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
+        ic(is_updated)
+        return is_updated
+    
+    @start_db_transaction
+    async def bulk_batch_decr_qty_update(self,data:dict,shop_id:str):
+        """
+        Docstring for bulk_qty_update
+        THe data contains product barcode as a key & the qty to increment as a value
+        """
+
+        if not data:
+            return True
+        
+        inv_qty_toupdate=update(
+            InventoryBathces
+        ).where(
+            or_(
+                InventoryBathces.id.in_(data.keys()),
+                InventoryBathces.name.in_(data.keys())
+            ),
+            InventoryBathces.shop_id==shop_id
+        ).values(
+            stocks=InventoryBathces.stocks - case(
+                data,
+                value=InventoryBathces.id
+            )
+        ).returning(InventoryBathces.id)
+
+        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
+        ic(is_updated)
+        return is_updated
+    
+    
+    @start_db_transaction
+    async def bulk_inventory_batch_qty_add_update(self,datas:List[InventoryBatchDbSchema]):
+        for data in datas:
+            inv_qty_toupdate = (
+                update(InventoryBathces)
+                .where(
+                    or_(
+                        InventoryBathces.id == data.id,
+                        InventoryBathces.name == data.name
+                    ),
+                    InventoryBathces.shop_id == data.shop_id,
+                    InventoryBathces.inventory_id == data.inventory_id,
+                    (InventoryBathces.variant_id == data.variant_id)
+                    if data.variant_id else True,
+                )
+                .values(
+                    stocks=InventoryBathces.stocks + data.stocks  # ✅ FIX
+                )
+                .returning(InventoryBathces.id)
+            )
+
+            is_updated = (await self.session.execute(inv_qty_toupdate)).scalars().all()
+
+            if not is_updated:
+                self.session.add(
+                    InventoryBathces(**data.model_dump())
+                )
+            
+        return True
+    
+
+    @start_db_transaction
+    async def bulk_serialnumber_update(self, data: dict, shop_id: str):
+        """
+        data = {
+            barcode: [serial_numbers]
+        }
+        """
+        if not data:
+            return True
+
+        update_stmt = (
+            update(Inventory)
+            .where(
+                Inventory.barcode.in_(data.keys()),
+                Inventory.shop_id == shop_id
+            )
+            .values(
+                datas=func.jsonb_set(
+                    Inventory.datas,
+                    cast(['serial_numbers'], ARRAY(Text)),  # ✅ FIX
+                    func.coalesce(
+                        Inventory.datas['serial_numbers'],
+                        cast('[]', JSONB)
+                    ) + case(
+                        {k: cast(v, JSONB) for k, v in data.items()},
+                        value=Inventory.barcode
+                    )
+                )
+            )
+            .returning(Inventory.id)
+        )
+
+        result = await self.session.execute(update_stmt)
+        return result.scalars().all()
+    
+    @start_db_transaction
+    async def bulk_serialnumber_remove(self, data: dict, shop_id: str):
+
+        if not data:
+            return []
+
+        results = []
+
+        for barcode, remove_list in data.items():
+
+            elem = func.jsonb_array_elements_text(
+                func.coalesce(
+                    func.coalesce(Inventory.datas, cast('{}', JSONB))['serial_numbers'],
+                    cast('[]', JSONB)
+                )
+            ).table_valued("value").alias("elem")
+
+            update_stmt = (
+                update(Inventory)
+                .where(
+                    Inventory.barcode == barcode,
+                    Inventory.shop_id == shop_id
+                )
+                .values(
+                    datas=func.jsonb_set(
+                        func.coalesce(Inventory.datas, cast('{}', JSONB)),  # ✅ KEY FIX
+                        cast(['serial_numbers'], ARRAY(Text)),
+                        func.coalesce(
+                            select(
+                                func.jsonb_agg(elem.c.value)
+                            )
+                            .select_from(elem)
+                            .where(
+                                ~elem.c.value.in_(remove_list)
+                            )
+                            .scalar_subquery(),
+                            cast('[]', JSONB)
+                        ),
+                        True   # ✅ create key if missing
+                    )
+                )
+                .returning(Inventory.id)
+            )
+
+            res = await self.session.execute(update_stmt)
+            results.extend(res.scalars().all())
+
+        return results
+    
+    @start_db_transaction
+    async def bulk_variant_serialnumber_update(self, data: dict, shop_id: str):
+        """
+        data = {
+            variant_id: [serial_numbers]
+        }
+        """
+
+        if not data:
+            return True
+
+        update_stmt = (
+            update(InventoryVariants)
+            .where(
+                InventoryVariants.id.in_(data.keys()),
+                InventoryVariants.shop_id == shop_id
+            )
+            .values(
+                datas=func.jsonb_set(
+                    InventoryVariants.datas,
+                    cast(['serial_numbers'], ARRAY(Text)),  # ✅ FIX
+                    func.coalesce(
+                        InventoryVariants.datas['serial_numbers'],
+                        cast('[]', JSONB)
+                    ) + case(
+                        {k: cast(v, JSONB) for k, v in data.items()},
+                        value=InventoryVariants.id
+                    )
+                )
+            )
+            .returning(InventoryVariants.id)
+        )
+
+        result = await self.session.execute(update_stmt)
+        return result.scalars().all()
+    
+    @start_db_transaction
+    async def bulk_variant_serialnumber_remove(self, data: dict, shop_id: str):
+
+        if not data:
+            return []
+
+        remove_case = case(
+            *[(InventoryVariants.id == k, cast(v, JSONB)) for k, v in data.items()],
+            else_=cast('[]', JSONB)
+        )
+
+        # ✅ TEXT-based extraction (key fix)
+        elem = func.jsonb_array_elements_text(
+            func.coalesce(
+                InventoryVariants.datas['serial_numbers'],
+                cast('[]', JSONB)
+            )
+        ).table_valued("value").alias("elem")
+
+        update_stmt = (
+            update(InventoryVariants)
+            .where(
+                InventoryVariants.id.in_(list(data.keys())),
+                InventoryVariants.shop_id == shop_id
+            )
+            .values(
+                datas=func.jsonb_set(
+                    InventoryVariants.datas,
+                    cast(['serial_numbers'], ARRAY(Text)),
+                    func.coalesce(
+                        select(
+                            func.jsonb_agg(elem.c.value)  # text → jsonb auto
+                        )
+                        .select_from(elem)
+                        .where(
+                            ~elem.c.value.in_(
+                                select(
+                                    func.jsonb_array_elements_text(remove_case)
+                                )
+                            )
+                        )
+                        .scalar_subquery(),
+                        cast('[]', JSONB)
+                    )
+                )
+            )
+            .returning(InventoryVariants.id)
+        )
+
+        result = await self.session.execute(update_stmt)
+        return result.scalars().all()
+    
+
+    @start_db_transaction
+    async def bulk_variant_update(self,datas:List[UpdateVarientProductDbSchema]):
+        result=[]
+        for update_data in datas:
+            structured_data=update_data.model_dump(mode='json',exclude=["shop_id","id","inventory_id","barcode","stocks"],exclude_none=True,exclude_unset=True)
+            is_updated=(await self.session.execute(
+                update(
+                    InventoryVariants
+                ).where(
+                    InventoryVariants.id==update_data.id,
+                    InventoryVariants.shop_id==update_data.shop_id,
+                    InventoryVariants.inventory_id==update_data.inventory_id
+                ).values(
+                    **structured_data
+                ).returning(InventoryVariants.id)
+            )).scalar_one_or_none()
+
+            if not is_updated:
+                self.session.add(
+                    InventoryVariants(
+                        **update_data.model_dump()
+                    )
+                )
+                ic("Variant Added:",update_data.id)
+                result.append(update_data.id)
+            if is_updated:
+                ic("Variant Updated:",update_data.id)
+                result.append(is_updated)
+
+        ic("Bulk Variant Update Result:",result)
+        if len(result)==len(datas):
+            return True
+        ic("Failed to update all variants")
+        return False
+
+    @start_db_transaction
     async def bulk_sellprice_update(self,data:dict,shop_id:str):
         """
         Docstring for bulk_qty_update
         THe data contains product barcode as a key & the qty to increment as a value
         """
+        if not data:
+            return True
+        ic(data)
         inv_qty_toupdate=update(
             Inventory
         ).where(
@@ -139,7 +491,7 @@ class InventoryRepo(BaseRepoModel):
         ).returning(Inventory.id)
 
         is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic(is_updated)
+        ic("Sell Price Updated:",is_updated)
         return is_updated
     
 
@@ -149,6 +501,9 @@ class InventoryRepo(BaseRepoModel):
         Docstring for bulk_qty_update
         THe data contains product barcode as a key & the qty to increment as a value
         """
+        if not data:
+            return True
+        ic(data)
         inv_qty_toupdate=update(
             Inventory
         ).where(
@@ -162,7 +517,58 @@ class InventoryRepo(BaseRepoModel):
         ).returning(Inventory.id)
 
         is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
+        ic("Buy Price Updated:",is_updated)
         ic(is_updated)
+        return is_updated
+    
+
+    @start_db_transaction
+    async def bulk_variant_sellprice_update(self,data:dict,shop_id:str):
+        """
+        Docstring for bulk_qty_update
+        THe data contains product barcode as a key & the qty to increment as a value
+        """
+        if not data:
+            return True
+        inv_qty_toupdate=update(
+            InventoryVariants
+        ).where(
+            InventoryVariants.id.in_(data.keys()),
+            InventoryVariants.shop_id==shop_id
+        ).values(
+            sell_price=case(
+                data,
+                value=InventoryVariants.id
+            )
+        ).returning(InventoryVariants.id)
+
+        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
+        ic("Variant Sell Price Updated:",is_updated)
+        return is_updated
+    
+
+    @start_db_transaction
+    async def bulk_variant_buyprice_update(self,data:dict,shop_id:str):
+        """
+        Docstring for bulk_qty_update
+        THe data contains product barcode as a key & the qty to increment as a value
+        """
+        if not data:
+            return True
+        inv_qty_toupdate=update(
+            InventoryVariants
+        ).where(
+            InventoryVariants.id.in_(data.keys()),
+            InventoryVariants.shop_id==shop_id
+        ).values(
+            buy_price=case(
+                data,
+                value=InventoryVariants.id
+            )
+        ).returning(InventoryVariants.id)
+
+        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
+        ic("Variant Buy Price Updated:",is_updated)
         return is_updated
     
     @start_db_transaction
@@ -171,6 +577,8 @@ class InventoryRepo(BaseRepoModel):
         Docstring for bulk_qty_update
         THe data contains product barcode as a key & the qty to increment as a value
         """
+        if not data:
+            return True
         inv_qty_toupdate=update(
             Inventory
         ).where(
@@ -184,21 +592,45 @@ class InventoryRepo(BaseRepoModel):
         ).returning(Inventory.id)
 
         is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic(is_updated)
+        ic("Quantity Updated:",is_updated)
         return is_updated
     
-    async def bulk_check(self,shop_id:str,barcodes:list):
+    async def bulk_check(self,shop_id:str,barcodes:list,additional_conditions: Optional[tuple]=()):
         check_stmt=(
             select(
-                Inventory.barcode
+                Inventory.id,
+                Inventory.barcode,
+                Inventory.datas
             )
             .where(
                 Inventory.barcode.in_(barcodes),
-                Inventory.shop_id==shop_id
+                Inventory.shop_id==shop_id,
+                *additional_conditions
             )
         )
 
-        results=(await self.session.execute(check_stmt)).scalars().all()
+        results=(await self.session.execute(check_stmt)).mappings().all()
+
+        ic(results)
+
+        return results
+    
+
+    async def bulk_varient_check(self,shop_id:str,variants_id:list,additional_conditions: Optional[tuple]=()):
+        check_stmt=(
+            select(
+                InventoryVariants.id,
+                InventoryVariants.inventory_id,
+                InventoryVariants.datas
+            )
+            .where(
+                InventoryVariants.id.in_(variants_id),
+                InventoryVariants.shop_id==shop_id,
+                *additional_conditions
+            )
+        )
+
+        results=(await self.session.execute(check_stmt)).mappings().all()
 
         ic(results)
 

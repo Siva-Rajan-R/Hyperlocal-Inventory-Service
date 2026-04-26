@@ -26,6 +26,31 @@ class HandleInventoryRequest:
         """
         Instead of creation, we need to trigger the event that event will handle the adding
         """ 
+        
+        if data.datas.has_varients and len(data.datas.varients)<1:
+            raise HTTPException(
+                status_code=422,
+                detail=ErrorResponseTypDict(
+                    status_code=422,
+                    msg="Error : Invalida datas",
+                    description="Varients could not be empty if the product have an varient means ",
+                    success=False
+                )
+            )
+        
+        
+        if (not data.datas.has_varients) and (data.datas.has_serialno_tracking and len(data.datas.serial_numbers)!=data.datas.stocks):
+            raise HTTPException(
+                status_code=422,
+                detail=ErrorResponseTypDict(
+                    status_code=422,
+                    msg="Error : Invalida datas",
+                    description="Serial number should be match to the stocks",
+                    success=False
+                )
+            )
+        
+
         if (await InventoryService(session=self.session).getby_id(inventory_barcode_id=data.datas.barcode,shop_id=data.datas.shop_id,timezone=TimeZoneEnum.Asia_Kolkata)):
             raise HTTPException(
                 status_code=409,
@@ -36,7 +61,9 @@ class HandleInventoryRequest:
                     success=False
                 )
             )
-        
+            
+
+
         
         saga_id:str=generate_uuid()
         inventory_datas=data.datas.model_dump(mode="json")
@@ -76,22 +103,8 @@ class HandleInventoryRequest:
         """
         Instead of Updating, we need to trigger the event that event will handle the adding
         """
-        # if data.offer_offline or data.offer_online:
-        #     online=validate_offer_input(data.offer_offline)
-        #     offline=validate_offer_input(data.offer_online)
-        #     if not online or not offline:
-        #         raise HTTPException(
-        #             status_code=400,
-        #             detail=ErrorResponseTypDict(
-        #                status_code=400,
-        #                msg="Error : Creating inventory",
-        #                description="Enter a valid offer format",
-        #                success=False
-        #             )
-        #         )
-            
-        
-        if not await InventoryService(session=self.session).getby_id(inventory_barcode_id=data.datas.id,shop_id=data.datas.shop_id,timezone=TimeZoneEnum.Asia_Kolkata):
+        inventory_exists= await InventoryService(session=self.session).getby_id(inventory_barcode_id=data.datas.id,shop_id=data.datas.shop_id,timezone=TimeZoneEnum.Asia_Kolkata)
+        if not inventory_exists:
             raise HTTPException(
                 status_code=404,
                 detail=ErrorResponseTypDict(
@@ -101,6 +114,31 @@ class HandleInventoryRequest:
                     status_code=404
                 )
             )
+        if data.datas.has_varients and len(data.datas.varients)<1:
+            raise HTTPException(
+                status_code=422,
+                detail=ErrorResponseTypDict(
+                    status_code=422,
+                    msg="Error : Invalida datas",
+                    description="Varients could not be empty if the product have an varient means ",
+                    success=False
+                )
+            )
+
+        
+        if (not data.datas.has_varients) and (data.datas.has_serialno_tracking and len(data.datas.serial_numbers)!=inventory_exists['stocks']):
+            raise HTTPException(
+                status_code=422,
+                detail=ErrorResponseTypDict(
+                    status_code=422,
+                    msg="Error : Invalida datas",
+                    description="Serial number should be match to the stocks",
+                    success=False
+                )
+            )
+            
+        
+        
         
         saga_id:str=generate_uuid()
         inventory_datas=data.datas.model_dump(mode="json")
