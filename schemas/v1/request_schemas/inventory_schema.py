@@ -8,6 +8,10 @@ class ProductBatchesSchema(BaseModel):
     mfg_date:date
     batch_name:str
     stocks:int
+    datas:Optional[dict]={}
+    model_config={
+        "extra":"allow"
+    }
 
 class ProductVarientsCreateSchema(BaseModel):
     barcode:str
@@ -17,6 +21,10 @@ class ProductVarientsCreateSchema(BaseModel):
     stocks:int
     datas:Optional[dict]={}
 
+    model_config={
+        "extra":"allow"
+    }
+
 class ProductVarientsUpdateSchema(BaseModel):
     id:Optional[str]=None
     buy_price:float
@@ -25,6 +33,9 @@ class ProductVarientsUpdateSchema(BaseModel):
     stocks:int
     barcode:str
     datas:Optional[dict]={}
+    model_config={
+        "extra":"allow"
+    }
 
 
 class InventoryCreateMandatoryFields(BaseModel):
