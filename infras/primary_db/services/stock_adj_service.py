@@ -24,12 +24,7 @@ class StockAdjService(BaseServiceModel):
 
     async def create(self, data:StockAdjCreateSchema):
         ic(data)
-        stock_adj_id=generate_uuid()
-        data_toadd=StockAdjCreateDbSchema(
-           id=stock_adj_id,
-           shop_id=data.datas.shop_id,
-           datas=data.datas.model_dump(mode='json')
-        )
+        datas_toadd=[]
 
         inv_increament_qty={}
         inv_decrement_qty={}
@@ -50,6 +45,7 @@ class StockAdjService(BaseServiceModel):
         for product in data.datas.products:
             ic(product)
             if product.type.value==StockAdjustmentTypesEnum.INCREMENT.value:
+
                 if product.varient_id:
                     varient_increament_qty[product.varient_id]=product.quantity
                     if product.serial_numbers and len(product.serial_numbers)>0:
@@ -76,9 +72,11 @@ class StockAdjService(BaseServiceModel):
                         inv_serialno_decrements[product.barcode]=product.serial_numbers
             else:
                 return False
+            
+            datas_toadd.append(StockAdjustments(id=generate_uuid(),shop_id=data.datas.shop_id,inventory_id=product.id,variant_id=product.varient_id,batch_id=product.batch_id,type=product.type.value,quantity=product.quantity,datas=product.model_dump(mode='json')))
         ic(inv_increament_qty,inv_decrement_qty,varient_increament_qty,varient_decrement_qty,batch_increament_qty,batch_decrement_qty,inv_serialno_increaments,inv_serialno_decrements,variant_serialno_increaments,variant_serialno_decrements)
         
-        res=await self.stock_adj_repo_obj.create(data=data_toadd)
+        res=await self.stock_adj_repo_obj.create_bulk(datas=datas_toadd)
         ic(res)
         if res:
             ic(inv_increament_qty)

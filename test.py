@@ -5,7 +5,7 @@ c={**a,'h':'eelo'}
 
 print(c)
 
-a=[1]
+a={0}
 
 if not a:
     print('empty')

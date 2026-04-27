@@ -14,6 +14,75 @@ from core.data_formats.enums.stock_adj_enums import StockAdjustmentTypesEnum
 
 class InventoryRepo(BaseRepoModel):
     def __init__(self, session:AsyncSession):
+
+        self.variant_datas=(
+            InventoryVariants.id.label("variant_id"),
+            InventoryVariants.shop_id.label("variant_shop_id"),
+            InventoryVariants.inventory_id.label("variant_inventory_id"),
+            InventoryVariants.batch_id.label("variant_batch_id"),
+            InventoryVariants.stocks.label("variant_stocks"),
+            InventoryVariants.buy_price.label("variant_buy_price"),
+            InventoryVariants.sell_price.label("variant_sell_price"),
+            InventoryVariants.barcode.label("variant_barcode"),
+            InventoryVariants.datas.label("variant_datas"),
+            InventoryVariants.created_at.label("variant_created_at")
+        )
+
+        self.batch_datas=(
+            InventoryBathces.id.label("batch_id"),
+            InventoryBathces.shop_id.label("batch_shop_id"),
+            InventoryBathces.inventory_id.label("batch_inventory_id"),
+            InventoryBathces.variant_id.label("batch_variant_id"),
+            InventoryBathces.stocks.label("batch_stocks"),
+            InventoryBathces.expiry_date.label("batch_expiry_date"),
+        )
+
+        self.cols=(
+    select(
+        Inventory.id,
+        Inventory.barcode,
+        Inventory.stocks,
+        Inventory.datas,
+
+        func.coalesce(
+            func.jsonb_agg(
+                func.distinct(
+                    func.jsonb_build_object(
+                        "id", InventoryVariants.id,
+                        "stocks", InventoryVariants.stocks,
+                        "barcode", InventoryVariants.barcode,
+                        "datas", InventoryVariants.datas,
+
+                        "batches",
+                        func.coalesce(
+                            (
+                                select(
+                                    func.jsonb_agg(
+                                        func.jsonb_build_object(
+                                            "id", InventoryBathces.id,
+                                            "stocks", InventoryBathces.stocks,
+                                            "expiry_date", InventoryBathces.expiry_date,
+                                            "mfg_date", InventoryBathces.manufacturing_date,
+                                            "datas", InventoryBathces.datas,
+                                            "name", InventoryBathces.name
+                                        )
+                                    )
+                                )
+                                .where(InventoryBathces.variant_id == InventoryVariants.id)
+                                .correlate(InventoryVariants)
+                                .scalar_subquery()
+                            ),
+                            cast('[]', JSONB)
+                        )
+                    )
+                )
+            ),
+            cast('[]', JSONB)
+        ).label("variants")
+    )
+    .outerjoin(InventoryVariants, InventoryVariants.inventory_id == Inventory.id)
+    .group_by(Inventory.id)
+)
         self.inv_cols=(
             Inventory.id,
             Inventory.barcode,
@@ -22,7 +91,9 @@ class InventoryRepo(BaseRepoModel):
             Inventory.buy_price,
             Inventory.sell_price,
             Inventory.stocks,
-            Inventory.datas
+            Inventory.datas,
+            self.variant_datas,
+            self.batch_datas,
         )
 
         super().__init__(session)
@@ -206,7 +277,7 @@ class InventoryRepo(BaseRepoModel):
         Docstring for bulk_qty_update
         THe data contains product barcode as a key & the qty to increment as a value
         """
-
+        ic(data)
         if not data:
             return True
         
@@ -389,14 +460,14 @@ class InventoryRepo(BaseRepoModel):
 
         remove_case = case(
             *[(InventoryVariants.id == k, cast(v, JSONB)) for k, v in data.items()],
-            else_=cast('[]', JSONB)
+            else_=cast([], JSONB)
         )
 
         # ✅ TEXT-based extraction (key fix)
         elem = func.jsonb_array_elements_text(
             func.coalesce(
                 InventoryVariants.datas['serial_numbers'],
-                cast('[]', JSONB)
+                cast([], JSONB)
             )
         ).table_valued("value").alias("elem")
 
@@ -639,7 +710,7 @@ class InventoryRepo(BaseRepoModel):
     async def get(self,timezone:TimeZoneEnum,shop_id:str,query:str="",limit:Optional[int]=None,offset:Optional[int]=None,full:Optional[bool]=True):
         created_at=func.date(func.timezone(timezone.value,Inventory.created_at))
         select_stmt=(
-            select(*self.inv_cols,created_at)
+            self.cols
             .where(
                 Inventory.shop_id==shop_id,
                 or_(
@@ -668,7 +739,7 @@ class InventoryRepo(BaseRepoModel):
         ic("Hello")
         results=(
             await self.session.execute(
-                select_stmt
+                select_stmt 
             )
         ).mappings().all()
 

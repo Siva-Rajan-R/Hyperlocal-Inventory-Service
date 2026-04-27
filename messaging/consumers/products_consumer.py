@@ -47,7 +47,7 @@ class ProductsConsumer(BaseConsumerModel):
                     compensation=is_new,
                     compensation_payload=compensation_payload
                 )
-            res=res.model_dump(mode='json')
+            ic(res)
             ic(res)
             # readdb_data=ReadDbInventoryCreateModel(
             #     inventory_id=res.get('id'),

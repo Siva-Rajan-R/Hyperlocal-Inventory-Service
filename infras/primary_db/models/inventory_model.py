@@ -47,6 +47,11 @@ class StockAdjustments(BASE):
     __tablename__="stock_adjustments"
     id=Column(String,primary_key=True)
     shop_id=Column(String,nullable=False)
+    inventory_id=Column(String,nullable=False)
+    variant_id=Column(String,nullable=True)
+    batch_id=Column(String,nullable=True)
+    type=Column(String,nullable=False)
+    quantity=Column(Integer,nullable=False)
     datas=Column(JSONB)
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
