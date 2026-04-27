@@ -8,7 +8,6 @@ class ProductBatchesSchema(BaseModel):
     mfg_date:date
     batch_name:str
     stocks:int
-    datas:Optional[dict]={}
     model_config={
         "extra":"allow"
     }
@@ -19,7 +18,6 @@ class ProductVarientsCreateSchema(BaseModel):
     sell_price:float
     serial_numbers:Optional[List[str]]=[]
     stocks:int
-    datas:Optional[dict]={}
 
     model_config={
         "extra":"allow"
@@ -32,7 +30,6 @@ class ProductVarientsUpdateSchema(BaseModel):
     serial_numbers:Optional[List[str]]=[]
     stocks:int
     barcode:str
-    datas:Optional[dict]={}
     model_config={
         "extra":"allow"
     }

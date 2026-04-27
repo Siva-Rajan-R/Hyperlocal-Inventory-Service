@@ -39,6 +39,8 @@ class UpdateVarientProductDbSchema(BaseModel):
     barcode:str
     stocks:Optional[int]=None
 
+    
+
 
 class InventoryBatchDbSchema(BaseModel):
     id:str

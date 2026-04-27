@@ -39,9 +39,11 @@ async def purchase_helper(session: AsyncSession, data: Union[CreatePurchaseSchem
 
     for product in data.datas.products:
         product_qty=product.quantity if not product.received_qty else product.received_qty
-        inventory_tocheck.append(product.barcode)
+        
         if product.varient_id:
             varients_tocheck.append(product.varient_id)
+        else:
+            inventory_tocheck.append(product.barcode)
 
         stock_toupdate[product.barcode]=product_qty
         sellprice_toupdate[product.barcode]=product.sell_price
@@ -80,6 +82,7 @@ async def purchase_helper(session: AsyncSession, data: Union[CreatePurchaseSchem
 
 
     ic(inventory_tocheck)
+    ic(varients_tocheck)
     if len(inventory_tocheck)>0:
         inventory_service_obj=InventoryService(session=session)
         inv_checked_results=await inventory_service_obj.bulk_check(barcodes=inventory_tocheck,shop_id=shop_id)
