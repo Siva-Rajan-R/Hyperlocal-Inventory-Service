@@ -15,6 +15,7 @@ class ProductVarientsCreateSchema(BaseModel):
     sell_price:float
     serial_numbers:Optional[List[str]]=[]
     stocks:int
+    datas:Optional[dict]={}
 
 class ProductVarientsUpdateSchema(BaseModel):
     id:Optional[str]=None
@@ -23,6 +24,7 @@ class ProductVarientsUpdateSchema(BaseModel):
     serial_numbers:Optional[List[str]]=[]
     stocks:int
     barcode:str
+    datas:Optional[dict]={}
 
 
 class InventoryCreateMandatoryFields(BaseModel):
