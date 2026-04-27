@@ -83,8 +83,9 @@ async def purchase_helper(session: AsyncSession, data: Union[CreatePurchaseSchem
 
     ic(inventory_tocheck)
     ic(varients_tocheck)
+    inventory_service_obj=InventoryService(session=session)
     if len(inventory_tocheck)>0:
-        inventory_service_obj=InventoryService(session=session)
+        
         inv_checked_results=await inventory_service_obj.bulk_check(barcodes=inventory_tocheck,shop_id=shop_id)
 
         ic(inv_checked_results)
