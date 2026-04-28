@@ -54,12 +54,14 @@ class InventoryService(BaseServiceModel):
                 )
         del datas['varients']
         ic(datas)
+        ic(variants_toadd)
+        ic(not data.datas.has_varients,data.datas.has_serialno_tracking)
         # if no variants but serial tracking means checks
         if not data.datas.has_varients and data.datas.has_serialno_tracking:
             if len(data.datas.serial_numbers)!=data.datas.stocks:
                 return False
             
-
+        ic("hello")
         data=AddInventoryDbSchema(
             datas=datas,
             shop_id=data.datas.shop_id,
@@ -72,9 +74,11 @@ class InventoryService(BaseServiceModel):
         )
 
         inventory_res=await InventoryRepo(session=self.session).create(data=data)
+        ic(inventory_res)
         variant_res=None
         if variants_toadd and inventory_res:
             variant_res=await self.session.add_all(variants_toadd)
+            ic(variant_res)
         if inventory_res or variant_res:
             return True
         
