@@ -77,7 +77,7 @@ class InventoryService(BaseServiceModel):
         ic(inventory_res)
         variant_res=None
         if variants_toadd and inventory_res:
-            variant_res=await self.session.add_all(variants_toadd)
+            variant_res=self.session.add_all(variants_toadd)
             ic(variant_res)
         if inventory_res or variant_res:
             return True
