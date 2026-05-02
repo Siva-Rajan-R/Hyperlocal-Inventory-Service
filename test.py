@@ -1,11 +1,8 @@
-a={'a':1}
-b={'b':2}
+a=["siva","hiii","oppp","hey"]
 
-c={**a,'h':'eelo'}
+b=["jeeva","siva","hello"]
 
-print(c)
+c=set(a)
 
-a={0}
-
-if not a:
-    print('empty')
+if b in a:
+    print("yes")

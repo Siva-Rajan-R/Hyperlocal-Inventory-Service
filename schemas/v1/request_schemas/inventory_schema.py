@@ -1,83 +1,97 @@
-from pydantic import BaseModel
+from pydantic import BaseModel,Field
 from typing import List,Optional,Dict
-from datetime import date
+from datetime import date,datetime
 from core.data_formats.enums.inventory_enums import InventoryProductCategoryEnum
+from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 
-class ProductBatchesSchema(BaseModel):
-    expiry_date:date
+
+class OptionalInventorySchema(BaseModel):
+    ...
+
+
+
+
+class InventoryBatchSchema(BaseModel):
+    name:str
+    expiry_data:date
     mfg_date:date
-    batch_name:str
-    stocks:int
-    model_config={
-        "extra":"allow"
-    }
 
-class ProductVarientsCreateSchema(BaseModel):
-    barcode:str
-    buy_price:float
+
+
+class InventoryVariantSchema(BaseModel):
+    name:str
     sell_price:float
-    serial_numbers:Optional[List[str]]=[]
-    stocks:int
-
-    model_config={
-        "extra":"allow"
-    }
-
-class ProductVarientsUpdateSchema(BaseModel):
-    id:Optional[str]=None
     buy_price:float
-    sell_price:float
-    serial_numbers:Optional[List[str]]=[]
     stocks:int
-    barcode:str
-    model_config={
-        "extra":"allow"
-    }
+    serial_numbers:Optional[List]=None
+    batch:Optional[InventoryBatchSchema]=None
+    datas:Optional[dict]=None
 
 
-class InventoryCreateMandatoryFields(BaseModel):
+class CreateInventorySchema(BaseModel):
     shop_id:str
-    barcode:str
+    name:str
+    category:str
+    description:str
+    buy_price:float
+    sell_price:float
     stocks:Optional[int]=None
-    buy_price:float
-    sell_price:float
-    name:str
-    description:str
-    category:str
-    has_varients:bool
-    varients:Optional[List[ProductVarientsCreateSchema]]=[]
-    serial_numbers:Optional[List[str]]=[]
-    has_batch_tracking:bool
-    has_serialno_tracking:bool
-
-
-    model_config={
-        "extra":"allow"
-    }
-
-class AddInventorySchema(BaseModel):
-    datas:InventoryCreateMandatoryFields
-
-
-class InventoryUpdateMandatoryFields(BaseModel):
-    id:str
-    shop_id:str
     barcode:str
-    buy_price:float
-    sell_price:float
-    name:str
-    description:str
-    category:str
-    has_varients:bool
-    varients:Optional[List[ProductVarientsUpdateSchema]]=[]
-    has_batch_tracking:bool
-    has_serialno_tracking:bool
-    serial_numbers:Optional[List[str]]=[]
 
-    model_config={
-        "extra":"allow"
-    }
+    has_variant:Optional[bool]=None
+    has_serialno:Optional[bool]=None
+    has_batch:Optional[bool]=None
+
+    variants:Optional[List[InventoryVariantSchema]]=None
+    serial_numbers:Optional[List]=None
+    batch:Optional[InventoryBatchSchema]=None
+
+    datas:Optional[dict]=None
 
 class UpdateInventorySchema(BaseModel):
-    datas:InventoryUpdateMandatoryFields
+    id:str
+    shop_id:str
+    name:Optional[str]=None
+    category:Optional[str]=None
+    description:Optional[str]=None
+    buy_price:Optional[float]=None
+    sell_price:Optional[float]=None
+
+    has_serialno:Optional[bool]=None
+    has_batch:Optional[bool]=None
+
+    datas:Optional[dict]=None
+
+
+
+class DeleteInventorySchema(BaseModel):
+    id:str
+    shop_id:str
+
+
+class GetAllInventorySchema(BaseModel):
+    query:str=Field(default="",alias="q")
+    limit:int=Field(default=10,le=100)
+    offset:int=Field(default=1)
+    timezone:Optional[TimeZoneEnum]=TimeZoneEnum.Asia_Kolkata
+
+class GetInventoryByShopIdSchema(BaseModel):
+    shop_id:str
+    query:str=Field(default="",alias="q")
+    limit:int=Field(default=10,le=100)
+    offset:int=Field(default=1)
+    timezone:Optional[TimeZoneEnum]=TimeZoneEnum.Asia_Kolkata
+
+
+class GetInventoryByIdSchema(BaseModel):
+    shop_id:str
+    id:Optional[str]=None
+    barcode:Optional[str]=None
+    timezone:Optional[TimeZoneEnum]=TimeZoneEnum.Asia_Kolkata
+
+class VerifySchema(BaseModel):
+    id:Optional[str]=None
+    barcode:Optional[str]=None
+    shop_id:str
+
     

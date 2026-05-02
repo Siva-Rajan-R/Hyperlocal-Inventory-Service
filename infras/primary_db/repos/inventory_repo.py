@@ -1,11 +1,12 @@
 from models.repo_models.base_repo_model import BaseRepoModel
 from models.service_models.base_service_model import BaseServiceModel
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text
 from sqlalchemy.dialects.postgresql import JSONB,ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..models.inventory_model import Inventory,InventoryVariants,InventoryBathces
-from schemas.v1.db_schemas.inventory_schema import InventoryProductCategoryEnum,AddInventoryDbSchema,UpdateInventoryDbSchema,UpdateVarientProductDbSchema,InventoryBatchDbSchema
-from schemas.v1.request_schemas.inventory_schema import ProductVarientsUpdateSchema
+from ..models.inventory_model import Inventory,InventoryVariants,InventoryBatches,InventorySerialNumbers
+from schemas.v1.db_schemas.inventory_schema import InventoryProductCategoryEnum,CreateInventoryDbSchema,UpdateInventoryDbSchema,UpdateVarientProductDbSchema,InventoryBatchDbSchema
+from schemas.v1.request_schemas.inventory_schema import DeleteInventorySchema,GetAllInventorySchema,GetInventoryByIdSchema,GetInventoryByShopIdSchema,VerifySchema
 from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_transaction
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional,List
@@ -14,77 +15,10 @@ from core.data_formats.enums.stock_adj_enums import StockAdjustmentTypesEnum
 
 class InventoryRepo(BaseRepoModel):
     def __init__(self, session:AsyncSession):
-
-        self.variant_datas=(
-            InventoryVariants.id.label("variant_id"),
-            InventoryVariants.shop_id.label("variant_shop_id"),
-            InventoryVariants.inventory_id.label("variant_inventory_id"),
-            InventoryVariants.batch_id.label("variant_batch_id"),
-            InventoryVariants.stocks.label("variant_stocks"),
-            InventoryVariants.buy_price.label("variant_buy_price"),
-            InventoryVariants.sell_price.label("variant_sell_price"),
-            InventoryVariants.barcode.label("variant_barcode"),
-            InventoryVariants.datas.label("variant_datas"),
-            InventoryVariants.created_at.label("variant_created_at")
-        )
-
-        self.batch_datas=(
-            InventoryBathces.id.label("batch_id"),
-            InventoryBathces.shop_id.label("batch_shop_id"),
-            InventoryBathces.inventory_id.label("batch_inventory_id"),
-            InventoryBathces.variant_id.label("batch_variant_id"),
-            InventoryBathces.stocks.label("batch_stocks"),
-            InventoryBathces.expiry_date.label("batch_expiry_date"),
-        )
-
-        self.cols=(
-    select(
-        Inventory.id,
-        Inventory.barcode,
-        Inventory.stocks,
-        Inventory.datas,
-
-        func.coalesce(
-            func.jsonb_agg(
-                func.distinct(
-                    func.jsonb_build_object(
-                        "id", InventoryVariants.id,
-                        "stocks", InventoryVariants.stocks,
-                        "barcode", InventoryVariants.barcode,
-                        "datas", InventoryVariants.datas,
-
-                        "batches",
-                        func.coalesce(
-                            (
-                                select(
-                                    func.jsonb_agg(
-                                        func.jsonb_build_object(
-                                            "id", InventoryBathces.id,
-                                            "stocks", InventoryBathces.stocks,
-                                            "expiry_date", InventoryBathces.expiry_date,
-                                            "mfg_date", InventoryBathces.manufacturing_date,
-                                            "datas", InventoryBathces.datas,
-                                            "name", InventoryBathces.name
-                                        )
-                                    )
-                                )
-                                .where(InventoryBathces.variant_id == InventoryVariants.id)
-                                .correlate(InventoryVariants)
-                                .scalar_subquery()
-                            ),
-                            cast('[]', JSONB)
-                        )
-                    )
-                )
-            ),
-            cast('[]', JSONB)
-        ).label("variants")
-    )
-    .outerjoin(InventoryVariants, InventoryVariants.inventory_id == Inventory.id)
-    .group_by(Inventory.id)
-)
         self.inv_cols=(
             Inventory.id,
+            Inventory.ui_id,
+            Inventory.sequence_id,
             Inventory.barcode,
             Inventory.shop_id,
             Inventory.added_by,
@@ -92,32 +26,61 @@ class InventoryRepo(BaseRepoModel):
             Inventory.sell_price,
             Inventory.stocks,
             Inventory.datas,
-            self.variant_datas,
-            self.batch_datas,
+            Inventory.name,
+            Inventory.description,
+            Inventory.category,
+            Inventory.created_at,
+            Inventory.updated_at,
+            Inventory.has_batch,
+            Inventory.has_serialno,
+            Inventory.has_variant
         )
 
         super().__init__(session)
 
     @start_db_transaction
-    async def create(self, data:AddInventoryDbSchema):
-        ic(data)
-        filtered_data=data.model_dump(mode="json",exclude_unset=True,exclude_none=True,exclude=['offer_offline','offer_online','offer_type'])
-        datas_toadd=[
-            Inventory(**filtered_data),
-        ]
+    async def create(self,data:CreateInventoryDbSchema)-> dict | None:
+        filtered_data=data.model_dump(mode="json",exclude=['offer_offline','offer_online','offer_type'])
+        ic(filtered_data)
+        stmt=(
+            insert(
+                Inventory
+            )
+            .values(
+                **filtered_data
+            )
+            .returning(*self.inv_cols)
+        )
 
-        res=self.session.add_all(datas_toadd)
+        res=(await self.session.execute(stmt)).mappings().one_or_none()
         ic(res)
         return data
     
     @start_db_transaction
-    async def create_bulk(self,datas:List[Inventory]):
-        res=self.session.add_all(datas)
+    async def create_bulk(self,datas:List[Inventory])-> bool:
+        self.session.add_all(datas)
         return True
     
     @start_db_transaction
-    async def update(self,data:UpdateInventoryDbSchema):
-        inven_data=data.model_dump(mode="json",exclude=['id','shop_id','barcode','offer_offline','offer_online','offer_type'],exclude_unset=True)
+    async def create_variant_bulk(self,datas:List[InventoryVariants])-> bool:
+        self.session.add_all(datas)
+        return True
+    
+    @start_db_transaction
+    async def create_batch_bulk(self,datas:List[InventoryBatches])-> bool:
+        self.session.add_all(datas)
+        return True
+    
+    @start_db_transaction
+    async def create_serialno_bulk(self,datas:List[InventorySerialNumbers])-> bool:
+        self.session.add_all(datas)
+        return True
+    
+
+    
+    @start_db_transaction
+    async def update(self,data:UpdateInventoryDbSchema)-> dict | NotImplementedError:
+        inven_data=data.model_dump(mode="json",exclude=['id','shop_id','barcode','offer_offline','offer_online','offer_type'],exclude_unset=True,exclude_none=True)
         
         if inven_data or len(inven_data)>0:
             ic("inside nn",inven_data)
@@ -125,20 +88,17 @@ class InventoryRepo(BaseRepoModel):
                 update(Inventory)
                 .where(
                     Inventory.id==data.id,
-                    Inventory.shop_id==data.shop_id,
-                    Inventory.barcode==data.barcode
+                    Inventory.shop_id==data.shop_id
                 )
                 .values(**inven_data)
-            ).returning(Inventory.id)
-            inven_updated=(await self.session.execute(inve_toupdate)).scalar_one_or_none()
+            ).returning(*self.inv_cols)
+            inven_updated=(await self.session.execute(inve_toupdate)).mappings().one_or_none()
             ic(inven_updated)
 
-            if not inven_updated:
-                return False
-
-            return True
+            return inven_updated
         
-        return True
+        return None
+    
     
     @start_db_transaction
     async def update_qty(self,barcode_inv_id:str,shop_id:str,qty:int):
@@ -158,16 +118,16 @@ class InventoryRepo(BaseRepoModel):
         
     
     @start_db_transaction
-    async def delete(self,inventory_id:str,shop_id:str):
+    async def delete(self,data:DeleteInventorySchema):
         invto_del=(
             delete(Inventory)
             .where(
-                Inventory.id==inventory_id,
-                Inventory.shop_id==shop_id
+                Inventory.id==data.id,
+                Inventory.shop_id==data.shop_id
             )
-        ).returning(Inventory.id)
+        ).returning(*self.inv_cols)
 
-        is_deleted=(await self.session.execute(invto_del)).scalar_one_or_none()
+        is_deleted=(await self.session.execute(invto_del)).mappings().one_or_none()
 
         return is_deleted
     
@@ -253,19 +213,19 @@ class InventoryRepo(BaseRepoModel):
         if not data:
             return True
         inv_qty_toupdate=update(
-            InventoryBathces
+            InventoryBatches
         ).where(
             or_(
-                InventoryBathces.id.in_(data.keys()),
-                InventoryBathces.name.in_(data.keys())
+                InventoryBatches.id.in_(data.keys()),
+                InventoryBatches.name.in_(data.keys())
             ),
-            InventoryBathces.shop_id==shop_id
+            InventoryBatches.shop_id==shop_id
         ).values(
-            stocks=InventoryBathces.stocks + case(
+            stocks=InventoryBatches.stocks + case(
                 data,
-                value=InventoryBathces.id
+                value=InventoryBatches.id
             )
-        ).returning(InventoryBathces.id)
+        ).returning(InventoryBatches.id)
 
         is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
         ic(is_updated)
@@ -282,19 +242,19 @@ class InventoryRepo(BaseRepoModel):
             return True
         
         inv_qty_toupdate=update(
-            InventoryBathces
+            InventoryBatches
         ).where(
             or_(
-                InventoryBathces.id.in_(data.keys()),
-                InventoryBathces.name.in_(data.keys())
+                InventoryBatches.id.in_(data.keys()),
+                InventoryBatches.name.in_(data.keys())
             ),
-            InventoryBathces.shop_id==shop_id
+            InventoryBatches.shop_id==shop_id
         ).values(
-            stocks=InventoryBathces.stocks - case(
+            stocks=InventoryBatches.stocks - case(
                 data,
-                value=InventoryBathces.id
+                value=InventoryBatches.id
             )
-        ).returning(InventoryBathces.id)
+        ).returning(InventoryBatches.id)
 
         is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
         ic(is_updated)
@@ -305,28 +265,28 @@ class InventoryRepo(BaseRepoModel):
     async def bulk_inventory_batch_qty_add_update(self,datas:List[InventoryBatchDbSchema]):
         for data in datas:
             inv_qty_toupdate = (
-                update(InventoryBathces)
+                update(InventoryBatches)
                 .where(
                     or_(
-                        InventoryBathces.id == data.id,
-                        InventoryBathces.name == data.name
+                        InventoryBatches.id == data.id,
+                        InventoryBatches.name == data.name
                     ),
-                    InventoryBathces.shop_id == data.shop_id,
-                    InventoryBathces.inventory_id == data.inventory_id,
-                    (InventoryBathces.variant_id == data.variant_id)
+                    InventoryBatches.shop_id == data.shop_id,
+                    InventoryBatches.inventory_id == data.inventory_id,
+                    (InventoryBatches.variant_id == data.variant_id)
                     if data.variant_id else True,
                 )
                 .values(
-                    stocks=InventoryBathces.stocks + data.stocks  # ✅ FIX
+                    stocks=InventoryBatches.stocks + data.stocks  # ✅ FIX
                 )
-                .returning(InventoryBathces.id)
+                .returning(InventoryBatches.id)
             )
 
             is_updated = (await self.session.execute(inv_qty_toupdate)).scalars().all()
 
             if not is_updated:
                 self.session.add(
-                    InventoryBathces(**data.model_dump())
+                    InventoryBatches(**data.model_dump())
                 )
             
         return True
@@ -707,55 +667,188 @@ class InventoryRepo(BaseRepoModel):
 
         return results
         
-    async def get(self,timezone:TimeZoneEnum,shop_id:str,query:str="",limit:Optional[int]=None,offset:Optional[int]=None,full:Optional[bool]=True):
-        created_at=func.date(func.timezone(timezone.value,Inventory.created_at))
+    async def getby_shop_id(self,data:GetInventoryByShopIdSchema)-> List[dict] | list:
+        created_at=func.date(func.timezone(data.timezone.value,Inventory.created_at))
+        cursor=(data.offset-1)*data.limit
         select_stmt=(
-            self.cols
+            select(*self.inv_cols)
             .where(
-                Inventory.shop_id==shop_id,
+                Inventory.shop_id==data.shop_id,
                 or_(
-                    Inventory.id.ilike(query),
-                    Inventory.barcode.ilike(query),
-                    Inventory.shop_id.ilike(query),
-                    Inventory.added_by.ilike(query),
-                    func.cast(created_at,String).ilike(query)
+                    Inventory.id.ilike(data.query),
+                    Inventory.barcode.ilike(data.query),
+                    Inventory.shop_id.ilike(data.query),
+                    Inventory.added_by.ilike(data.query),
+                    func.cast(created_at,String).ilike(data.query)
                 )
             )
+            .offset(offset=cursor).limit(limit=data.limit)
         )
-
-        if offset is not None and limit is None:
-            raise ValueError("If offset provided means the limit also must be provided")
-        
-        if offset is not None and limit is not None:
-            if offset<1:
-                offset=1
-            offset=(offset-1)*limit
-
-            select_stmt.offset(offset=offset).limit(limit=limit)
-
-        elif limit is not None:
-            select_stmt.limit(limit=limit)
-
-        ic("Hello")
         results=(
             await self.session.execute(
                 select_stmt 
             )
         ).mappings().all()
 
-        ic("jeeva",results)
-        
-        if not full and len(results)==1:
-            results=results[0]
+        return results
+    
+    async def get(self,data:GetAllInventorySchema)-> List[dict] | list:
+        created_at=func.date(func.timezone(data.timezone.value,Inventory.created_at))
+        cursor=(data.offset-1)*data.limit
+        variants_json = case(
+    (
+        Inventory.has_variant == True,
+        func.coalesce(
+            func.jsonb_agg(
+                func.distinct(
+                    func.jsonb_build_object(
+                        "id", InventoryVariants.id,
+                        "name", InventoryVariants.name,
+                        "sell_price", InventoryVariants.sell_price,
+                        "buy_price", InventoryVariants.buy_price,
+                        "stocks", InventoryVariants.stocks,
+                        "datas", InventoryVariants.datas,
+                        "batches",
+                        select(
+                            func.coalesce(
+                                func.jsonb_agg(
+                                    func.jsonb_build_object(
+                                        "id", InventoryBatches.id,
+                                        "name", InventoryBatches.name,
+                                        "expiry_date", InventoryBatches.expiry_date,
+                                        "manufacturing_date", InventoryBatches.manufacturing_date,
+                                        "stocks", InventoryBatches.stocks,
+                                        "serial_numbers",
+                                        select(
+                                            func.coalesce(
+                                                func.jsonb_agg(InventorySerialNumbers.serial_numbers),
+                                                func.cast("[]", JSONB)
+                                            )
+                                        )
+                                        .where(InventorySerialNumbers.batch_id == InventoryBatches.id)
+                                        .correlate(InventoryBatches)
+                                        .scalar_subquery()
+                                    )
+                                ),
+                                func.cast("[]", JSONB)
+                            )
+                        )
+                        .where(InventoryBatches.variant_id == InventoryVariants.id)
+                        .correlate(InventoryVariants)
+                        .scalar_subquery()
+                    )
+                )
+            ).filter(InventoryVariants.id.isnot(None)),
+            func.cast("[]", JSONB)
+        )
+    ),
+    else_=
+        # 🔥 NO VARIANT CASE
+        func.coalesce(
+            func.jsonb_agg(
+                func.distinct(
+                    func.jsonb_build_object(
+                        "id", Inventory.id,
+                        "name", Inventory.name,
+
+                        "batches",
+                        select(
+                            func.coalesce(
+                                func.jsonb_agg(
+                                    func.jsonb_build_object(
+                                        "id", InventoryBatches.id,
+                                        "name", InventoryBatches.name,
+                                        "expiry_date", InventoryBatches.expiry_date,
+                                        "manufacturing_date", InventoryBatches.manufacturing_date,
+                                        "stocks", InventoryBatches.stocks,
+                                        "serial_numbers",
+                                        select(
+                                            func.coalesce(
+                                                func.jsonb_agg(InventorySerialNumbers.serial_numbers),
+                                                func.cast("[]", JSONB)
+                                            )
+                                        )
+                                        .where(InventorySerialNumbers.batch_id == InventoryBatches.id)
+                                        .correlate(InventoryBatches)
+                                        .scalar_subquery()
+                                    )
+                                ),
+                                func.cast("[]", JSONB)
+                            )
+                        )
+                        .where(InventoryBatches.inventory_id == Inventory.id)
+                        .correlate(Inventory)
+                        .scalar_subquery()
+                    )
+                )
+            ),
+            func.cast("[]", JSONB)
+        )
+).label("variants")
+        select_stmt=(
+            select(
+                *self.inv_cols,
+                variants_json
+            )
+            .outerjoin(
+        InventoryVariants,
+        InventoryVariants.inventory_id == Inventory.id
+    )
+    .group_by(Inventory.id)
+            .where(
+                or_(
+                    Inventory.id.ilike(data.query),
+                    Inventory.barcode.ilike(data.query),
+                    Inventory.shop_id.ilike(data.query),
+                    Inventory.added_by.ilike(data.query),
+                    func.cast(created_at,String).ilike(data.query)
+                )
+            )
+            .offset(offset=cursor).limit(limit=data.limit)
+        )
+        results=(
+            await self.session.execute(
+                select_stmt 
+            )
+        ).mappings().all()
 
         return results
     
-    async def getby_id(self):
-        """
-        Its just a wrapper method for the base repo model
-        Instead use the get method with full = False
-        """
-        ...
+    async def getby_id(self,data:GetInventoryByIdSchema)-> dict | None:
+        stmt=(
+            select(
+                *self.inv_cols
+            )
+            .where(
+                or_(Inventory.id==data.id,
+                Inventory.barcode==data.barcode),
+                Inventory.shop_id==data.shop_id
+            )
+        )
+
+        res=(await self.session.execute(stmt)).mappings().one_or_none()
+
+        return res
+
+
+    async def verify(self,data:VerifySchema):
+        stmt=(
+            select(
+                Inventory.id
+            )
+            .where(
+                or_(Inventory.id==data.id,
+                Inventory.shop_id==data.shop_id),
+                Inventory.barcode==data.barcode
+            )
+        )
+
+        result=(await self.session.execute(stmt)).scalar_one_or_none()
+
+        if result:
+            return {'id':result,'exists':True}
+        
+        return {'id':'','exists':False}
 
     async def search(self, query, limit = 5):
         """

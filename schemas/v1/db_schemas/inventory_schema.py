@@ -2,31 +2,41 @@ from pydantic import BaseModel
 from typing import List,Optional
 from core.data_formats.enums.inventory_enums import InventoryProductCategoryEnum
 from datetime import date
-from ..request_schemas.inventory_schema import InventoryCreateMandatoryFields,ProductVarientsUpdateSchema
 
 
-class AddInventoryDbSchema(BaseModel):
+class CreateInventoryDbSchema(BaseModel):
     id:str
     shop_id:str
-    barcode:str
-    stocks:int
+    name:str
+    category:str
+    description:str
     buy_price:float
     sell_price:float
-    datas:Optional[dict]={}
+    stocks:Optional[int]=None
+    barcode:str
+
+    has_variant:Optional[bool]=None
+    has_serialno:Optional[bool]=None
+    has_batch:Optional[bool]=None
+
+    datas:Optional[dict]=None
     added_by:str
+
 
 
 class UpdateInventoryDbSchema(BaseModel):
     id:str
-    barcode:str
     shop_id:str
+    name:Optional[str]=None
+    category:Optional[str]=None
+    description:Optional[str]=None
     buy_price:Optional[float]=None
     sell_price:Optional[float]=None
-    datas:Optional[dict]={}
 
-    model_config={
-        'use_enum_values':True
-    }
+    has_serialno:Optional[bool]=None
+    has_batch:Optional[bool]=None
+
+    datas:Optional[dict]=None
 
 
 class UpdateVarientProductDbSchema(BaseModel):
@@ -42,12 +52,46 @@ class UpdateVarientProductDbSchema(BaseModel):
     
 
 
+# class InventoryBatchDbSchema(BaseModel):
+#     id:str
+#     shop_id:str
+#     inventory_id:str
+#     variant_id:Optional[str]=None
+#     name:str
+#     stocks:int
+#     expiry_date:Optional[date]=None
+#     manufacturing_date:Optional[date]=None
+
+
+
+
 class InventoryBatchDbSchema(BaseModel):
     id:str
     shop_id:str
     inventory_id:str
     variant_id:Optional[str]=None
     name:str
+    expiry_date:date
+    manufacturing_date:date
     stocks:int
-    expiry_date:Optional[date]=None
-    manufacturing_date:Optional[date]=None
+
+
+
+class InventoryVariantDbSchema(BaseModel):
+    id:str
+    shop_id:str
+    inventory_id:str
+    name:str
+    sell_price:float
+    buy_price:float
+    stocks:int
+    datas:Optional[dict]=None
+
+
+class InventorySerialNumberDbSchema(BaseModel):
+    id:str
+    shop_id:str
+    inventory_id:str
+    batch_id:Optional[str]=None
+    variant_id:Optional[str]=None
+    serial_numbers:List

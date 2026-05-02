@@ -1,5 +1,5 @@
 from models.messaging_models.consumer_model import BaseConsumerModel
-from infras.primary_db.services.inventory_service import InventoryService,AddInventorySchema,UpdateInventorySchema
+from infras.primary_db.services.inventory_service import InventoryService,CreateInventoryDbSchema,UpdateInventorySchema
 from infras.primary_db.main import AsyncInventoryLocalSession
 from core.errors.messaging_errors import BussinessError,FatalError,RetryableError
 from hyperlocal_platform.core.enums.error_enums import ErrorTypeSEnum

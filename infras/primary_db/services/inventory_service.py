@@ -1,91 +1,179 @@
 from models.service_models.base_service_model import BaseServiceModel
+from ..models.inventory_model import Inventory,InventoryBatches,InventorySerialNumbers,InventoryVariants
 from ..repos.inventory_repo import InventoryRepo
 from typing import Optional,List
 from sqlalchemy.ext.asyncio import AsyncSession
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
-from schemas.v1.db_schemas.inventory_schema import InventoryProductCategoryEnum,AddInventoryDbSchema,UpdateInventoryDbSchema,UpdateVarientProductDbSchema
-from schemas.v1.request_schemas.inventory_schema import AddInventorySchema,UpdateInventorySchema
+from schemas.v1.db_schemas.inventory_schema import InventoryProductCategoryEnum,CreateInventoryDbSchema,UpdateInventoryDbSchema,UpdateVarientProductDbSchema,InventoryBatchDbSchema,InventoryVariantDbSchema,InventorySerialNumberDbSchema
+from schemas.v1.request_schemas.inventory_schema import CreateInventorySchema,UpdateInventorySchema,DeleteInventorySchema,GetAllInventorySchema,GetInventoryByIdSchema,GetInventoryByShopIdSchema,VerifySchema
 from core.errors.messaging_errors import BussinessError,FatalError,RetryableError
 from icecream import ic
-from ..models.inventory_model import Inventory,InventoryVariants,InventoryBathces,StockAdjustments
+from ..models.inventory_model import Inventory,InventoryVariants,InventoryBatches,StockAdjustments
 from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_transaction
 
 class InventoryService(BaseServiceModel):
     
-    async def create(self,data:AddInventorySchema,added_by:str,product_data:dict):
+    async def create(self,data:CreateInventorySchema,added_by:str):
         """
         Need to check shop existence and product data, then added by
         """
-        # just check the product existss or not then adding 
-        # cheecing the serial numbers and also if it has a varients and athe varient have a serieal number means checking
-        req_prod_name,req_prod_desc,req_prod_category=data.datas.name.lower(),data.datas.description.lower(),data.datas.category.lower()
-        prod_name,prod_desc,prod_category=product_data.get('name'),product_data.get('description'),product_data.get('category')
 
-        if not prod_name or not prod_desc or not prod_category:
+        is_exists=await self.verify(data=VerifySchema(barcode=data.barcode,shop_id=data.shop_id))
+        ic(is_exists)
+        if is_exists['exists']:
+            return False
+        ic((data.has_variant and (not data.variants or len(data.variants)<1)),((not data.has_variant and data.has_batch) and (not data.batch)))
+        if (data.has_variant and (not data.variants or len(data.variants)<1)) or ((not data.has_variant and data.has_batch) and (not data.batch)):
+            return False 
+        
+        ic(((not data.has_variant and data.has_serialno) and (not data.serial_numbers or len(data.serial_numbers)!=data.stocks)))
+        if ((not data.has_variant and data.has_serialno) and (not data.serial_numbers or len(data.serial_numbers)!=data.stocks)):
             return False
         
-        ic(data.model_dump())
         inventory_id:str=generate_uuid()
-
-        datas=data.datas.model_dump(mode='json')
-        ic(datas)
-        # vartiantss checking process
+        ic(inventory_id)
         variants_toadd=[]
-        if data.datas.has_varients:
-            for variant in datas['varients']:
-                if (data.datas.has_serialno_tracking and len(variant['serial_numbers'])!=variant['stocks']):
-                    return False
+        batches_toadd=[]
+        serialnos_toadd=[]
+        added_serialnos=[]
+        overall_stock=0
+        ERROR_OCCURED:bool=False
 
-                variant_id=generate_uuid()
-                variant_datas=variant.copy()
-                del variant_datas['batches']
+        if data.has_variant:
+            for variant in data.variants:
+                variant_id:str=generate_uuid()
                 variants_toadd.append(
                     InventoryVariants(
                         id=variant_id,
-                        shop_id=data.datas.shop_id,
+                        shop_id=data.shop_id,
                         inventory_id=inventory_id,
-                        stocks=variant['stocks'],
-                        buy_price=variant['buy_price'],
-                        sell_price=variant['sell_price'],
-                        barcode=variant['barcode'],
-                        datas=variant_datas
+                        sell_price=variant.sell_price,
+                        name=variant.name,
+                        buy_price=variant.buy_price,
+                        stocks=variant.stocks,
+                        datas=variant.datas
                     )
                 )
-        del datas['varients']
-        ic(datas)
-        ic(variants_toadd)
-        ic(not data.datas.has_varients,data.datas.has_serialno_tracking)
-        # if no variants but serial tracking means checks
-        if not data.datas.has_varients and data.datas.has_serialno_tracking:
-            if len(data.datas.serial_numbers)!=data.datas.stocks:
+
+                batch_id:str=generate_uuid()
+                if data.has_batch:
+                    if not variant.batch:
+                        ic("Batch not found")
+                        return False
+                    
+                    batches_toadd.append(
+                        InventoryBatches(
+                            id=batch_id,
+                            shop_id=data.shop_id,
+                            inventory_id=inventory_id,
+                            variant_id=variant_id,
+                            name=variant.batch.name,
+                            manufacturing_date=variant.batch.mfg_date,
+                            expiry_date=variant.batch.expiry_data,
+                            stocks=variant.stocks
+                        )
+                    )
+                
+                if data.has_serialno:
+                    if not variant.serial_numbers or len(variant.serial_numbers)!=variant.stocks:
+                        ic("Invalid serial numbers len")
+                        ERROR_OCCURED=True
+                        break
+                    
+                    serialno_id:str=generate_uuid()
+                    serialnos_toadd.append(
+                        InventorySerialNumbers(
+                            id=serialno_id,
+                            shop_id=data.shop_id,
+                            inventory_id=inventory_id,
+                            batch_id=batch_id,
+                            variant_id=variant_id,
+                            serial_numbers=variant.serial_numbers
+                        )
+                    )
+
+                    added_serialnos.extend(variant.serial_numbers)
+                
+                overall_stock+=variant.stocks
+
+
+            if ERROR_OCCURED:
+                return False
+        
+        if not data.has_variant:
+            batch_id:str=None
+            if data.has_batch:
+                batch_id=generate_uuid()
+                batches_toadd.append(
+                    InventoryBatches(
+                        id=batch_id,
+                        shop_id=data.shop_id,
+                        inventory_id=inventory_id,
+                        variant_id=None,
+                        name=data.batch.name,
+                        expiry_date=data.batch.expiry_data,
+                        manufacturing_date=data.batch.mfg_date,
+                        stocks=data.stocks
+                    )
+                )
+
+            if data.has_serialno:
+                serial_no_id:str=generate_uuid()
+                serialnos_toadd.append(
+                    InventorySerialNumbers(
+                        id=serial_no_id,
+                        shop_id=data.shop_id,
+                        inventory_id=inventory_id,
+                        batch_id=batch_id,
+                        variant_id=None,
+                        serial_numbers=data.serial_numbers
+                    )
+                )
+
+                added_serialnos.append(data.serial_numbers)
+                overall_stock=data.stocks
+
+        if data.has_serialno:
+            if overall_stock!=len(added_serialnos):
                 return False
             
-        ic("hello")
-        data=AddInventoryDbSchema(
-            datas=datas,
-            shop_id=data.datas.shop_id,
-            barcode=data.datas.barcode,
-            stocks=data.datas.stocks,
-            buy_price=data.datas.buy_price,
-            sell_price=data.datas.sell_price,
-            id=inventory_id,
-            added_by=added_by
-        )
+        inventorydata_toadd=data.model_dump()
+        inventorydata_toadd['stocks']=overall_stock
 
-        inventory_res=await InventoryRepo(session=self.session).create(data=data)
-        ic(inventory_res)
-        variant_res=None
-        if variants_toadd and inventory_res:
-            variant_res=self.session.add_all(variants_toadd)
+        ic(
+            inventorydata_toadd,
+            variants_toadd,
+            batches_toadd,
+            serialnos_toadd,
+            added_serialnos,
+            overall_stock
+        )  
+        next=True
+        inv_repo_obj=InventoryRepo(session=self.session)
+
+        inv_res=await inv_repo_obj.create(data=CreateInventoryDbSchema(**inventorydata_toadd,added_by=added_by,id=inventory_id))
+        next=inv_res
+        if next and variants_toadd:
+            variant_res=await inv_repo_obj.create_variant_bulk(datas=variants_toadd)
             ic(variant_res)
-        if inventory_res or variant_res:
-            return True
-        
-        return False
-    
+            next=variant_res
 
-    async def create_bulk(self,datas:List[AddInventorySchema],added_by:str):
+        if next and batches_toadd:
+            batch_res=await inv_repo_obj.create_batch_bulk(datas=batches_toadd)
+            ic(batch_res)
+            next=batch_res
+        
+        if next and serialnos_toadd:
+            serialno_res=await inv_repo_obj.create_serialno_bulk(datas=serialnos_toadd)
+            ic(serialno_res)
+            next=serialno_res
+        
+        return next
+
+ 
+
+    async def create_bulk(self,datas:List[CreateInventorySchema],added_by:str):
         datas_toadd=[]
         for data in datas:
             datas_toadd.append(
@@ -95,54 +183,17 @@ class InventoryService(BaseServiceModel):
         return await InventoryRepo(session=self.session).create_bulk(datas=datas_toadd)
     
 
-    async def update(self,data:UpdateInventorySchema,product_data:dict):
-        req_prod_infos=[data.datas.name,data.datas.description,data.datas.category]
-        prod_infos=[product_data.get('name'),product_data.get('description'),product_data.get('category')]
-        if len(req_prod_infos)!=len(prod_infos):
-            return False
 
-        datas=data.datas.model_dump(mode='json')
-        ic(datas)
-        variants_toadd=[]
-
-        if data.datas.has_varients:
-            for variant in datas['varients']:
-                variant_id=generate_uuid() if not variant.get('id') else variant['id']
-                variant_datas=variant.copy()
-                variants_toadd.append(
-                    UpdateVarientProductDbSchema(
-                        id=variant_id,
-                        shop_id=data.datas.shop_id,
-                        inventory_id=datas['id'],
-                        buy_price=variant['buy_price'],
-                        sell_price=variant['sell_price'],
-                        datas=variant_datas,
-                        stocks=variant['stocks'],
-                        barcode=variant['barcode']
-                    )
-                )
-
-        del datas['varients']
-        ic(datas)
-        ic(variants_toadd)
-
-        data=UpdateInventoryDbSchema(
-            id=data.datas.id,
-            shop_id=data.datas.shop_id,
-            barcode=data.datas.barcode,
-            buy_price=data.datas.buy_price,
-            sell_price=data.datas.sell_price,
-            datas=datas
-
+    async def update(self,data:UpdateInventorySchema):
+        res=await InventoryRepo(session=self.session).update(
+            data=UpdateInventoryDbSchema(
+                **data.model_dump(mode='json',exclude_none=True,exclude_unset=True)
+            )
         )
+
+        return res
         
-        ic(data)
-        inventory_res=await InventoryRepo(session=self.session).update(data=data)
-        variant_res=await self.update_bulk_variants(datas=variants_toadd)
-        if inventory_res and variant_res:
-            return True
-        return False
-    
+
     async def update_qty(self,barcode_inven_id:str,qty:int,shop_id:str):
         return await InventoryRepo(session=self.session).update_qty(barcode_inv_id=barcode_inven_id,shop_id=shop_id,qty=qty)
     
@@ -187,25 +238,18 @@ class InventoryService(BaseServiceModel):
         """
         return await InventoryRepo(session=self.session).bulk_qty_decr_update(data=data,shop_id=shop_id)
  
-    async def delete(self,inventory_id:str,shop_id:str):
-        return await InventoryRepo(session=self.session).delete(inventory_id=inventory_id,shop_id=shop_id)
+    async def delete(self,data:DeleteInventorySchema):
+        return await InventoryRepo(session=self.session).delete(data=data)
     
-    async def get(self,shop_id:str,timezone:TimeZoneEnum,offset:int,query:str="",limit:Optional[int]=10):
-        return await InventoryRepo(session=self.session).get(
-            timezone=timezone,
-            query=query,
-            limit=limit,
-            offset=offset,
-            shop_id=shop_id
-        )
+    async def get(self,data:GetAllInventorySchema):
+        return await InventoryRepo(session=self.session).get(data=data)
     
-    async def getby_id(self,inventory_barcode_id:str,shop_id:str,timezone:TimeZoneEnum):
-        return await InventoryRepo(session=self.session).get(
-            timezone=timezone,
-            shop_id=shop_id,
-            query=inventory_barcode_id,
-            full=False
-        )
+
+    async def getby_shop_id(self,data:GetInventoryByShopIdSchema):
+        return await InventoryRepo(session=self.session).getby_shop_id(data=data)
+    
+    async def getby_id(self,data:GetInventoryByIdSchema):
+        return await InventoryRepo(session=self.session).getby_id(data=data)
     
     async def bulk_check(self,barcodes:List[str],shop_id:str,additional_conditions: Optional[tuple]=()):
         return await InventoryRepo(session=self.session).bulk_check(barcodes=barcodes,shop_id=shop_id)
@@ -219,4 +263,15 @@ class InventoryService(BaseServiceModel):
         This is just a wrapper for baseservice-model
         Instead you can directly use a get method by adjusting the limit
         """
+        
         ...
+
+    async def verify(self,data:VerifySchema):
+        data_tocheck=data.model_dump(mode='json',exclude=['shop_id'],exclude_none=True,exclude_unset=True)
+
+        if not data_tocheck or len(data_tocheck)<1:
+            return False
+
+        res=await InventoryRepo(session=self.session).verify(data=data)
+
+        return res

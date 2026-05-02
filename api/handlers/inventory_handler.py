@@ -3,7 +3,7 @@ from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.exceptions import HTTPException
-from schemas.v1.request_schemas.inventory_schema import AddInventorySchema,UpdateInventorySchema
+from schemas.v1.request_schemas.inventory_schema import CreateInventorySchema,UpdateInventorySchema,DeleteInventorySchema,GetAllInventorySchema,GetInventoryByIdSchema,GetInventoryByShopIdSchema,VerifySchema
 from hyperlocal_platform.core.models.req_res_models import SuccessResponseTypDict,BaseResponseTypDict,ErrorResponseTypDict
 from messaging.saga_producer import SagaProducer,CreateSagaStateSchema,SagaStatusEnum
 from hyperlocal_platform.core.enums.saga_state_enum import SagaStepsValueEnum
@@ -16,198 +16,45 @@ from infras.read_db.services.inventory_service import ReadDbInventoryService
 from core.data_formats.enums.inventory_enums import InventoryFetchMode
 from core.utils.calculate_offer import calculate_offer
 from core.utils.validate_offer import validate_offer_input
+from icecream import ic
 
 
 class HandleInventoryRequest:
     def __init__(self,session:AsyncSession):
         self.session=session
     
-    async def create(self,data:AddInventorySchema,account_id:str):
+    async def create(self,data:CreateInventorySchema):
         """
         Instead of creation, we need to trigger the event that event will handle the adding
         """ 
         
-        if data.datas.has_varients and len(data.datas.varients)<1:
-            raise HTTPException(
-                status_code=422,
-                detail=ErrorResponseTypDict(
-                    status_code=422,
-                    msg="Error : Invalida datas",
-                    description="Varients could not be empty if the product have an varient means ",
-                    success=False
-                )
-            )
-        
-        
-        if (not data.datas.has_varients) and (data.datas.has_serialno_tracking and len(data.datas.serial_numbers)!=data.datas.stocks):
-            raise HTTPException(
-                status_code=422,
-                detail=ErrorResponseTypDict(
-                    status_code=422,
-                    msg="Error : Invalida datas",
-                    description="Serial number should be match to the stocks",
-                    success=False
-                )
-            )
-        
+        res=await InventoryService(session=self.session).create(data=data,added_by="")
+        ic(res)
+        return res
+    
+    async def update(self,data:UpdateInventorySchema):
+        res=await InventoryService(session=self.session).update(data=data)
+        ic(res)
+        return res
+    
+    async def delete(self,data:DeleteInventorySchema):
+        res=await InventoryService(session=self.session).delete(data=data)
+        return res
+    
+    async def get(self,data:GetAllInventorySchema):
+        res=await InventoryService(session=self.session).get(data=data)
 
-        if (await InventoryService(session=self.session).getby_id(inventory_barcode_id=data.datas.barcode,shop_id=data.datas.shop_id,timezone=TimeZoneEnum.Asia_Kolkata)):
-            raise HTTPException(
-                status_code=409,
-                detail=ErrorResponseTypDict(
-                    status_code=409,
-                    msg="Error : Creating inventory",
-                    description="A invantorty product is already exists",
-                    success=False
-                )
-            )
-            
-
-
-        
-        saga_id:str=generate_uuid()
-        inventory_datas=data.datas.model_dump(mode="json")
-        inventory_datas['account_id']=account_id
-
-        data={'inventory':inventory_datas}
-
-        return await SagaProducer.emit(
-            saga_payload=CreateSagaStateSchema(
-                id=saga_id,
-                status=SagaStatusEnum.PENDING,
-                type="INVENTORY_CREATE",
-                data=data,
-                steps={
-                    'shops.create':SagaStepsValueEnum.PENDING,
-                    'products.create':SagaStepsValueEnum.PENDING
-                },
-                execution=SagaStateExecutionTypDict(
-                    step="inventory:requested",
-                    service=SERVICE_NAME.upper()
-                )
+        return SuccessResponseTypDict(
+            detail=BaseResponseTypDict(
+                msg="Inventories fetched successfully",
+                status_code=200,
+                success=True
             ),
-            routing_key=generate_routingkey(
-                domain=SERVICE_NAME,
-                work_for=SERVICE_NAME,
-                action=RoutingkeyActions.CREATE,
-                state=RoutingkeyState.REQUESTED,
-                version=RoutingkeyVersions.V1
-            ),
-            exchange_name="inventory.inventory.shops.exchange",
-            headers={
-                'saga_id':saga_id
-            },
+            data=res
         )
-    
-    async def update(self,data:UpdateInventorySchema,account_id:str):
-        """
-        Instead of Updating, we need to trigger the event that event will handle the adding
-        """
-        inventory_exists= await InventoryService(session=self.session).getby_id(inventory_barcode_id=data.datas.id,shop_id=data.datas.shop_id,timezone=TimeZoneEnum.Asia_Kolkata)
-        if not inventory_exists:
-            raise HTTPException(
-                status_code=404,
-                detail=ErrorResponseTypDict(
-                    msg="Error : Updating inventory",
-                    description="Invalid shop or inventory id",
-                    success=False,
-                    status_code=404
-                )
-            )
-        if data.datas.has_varients and len(data.datas.varients)<1:
-            raise HTTPException(
-                status_code=422,
-                detail=ErrorResponseTypDict(
-                    status_code=422,
-                    msg="Error : Invalida datas",
-                    description="Varients could not be empty if the product have an varient means ",
-                    success=False
-                )
-            )
+    async def getby_shop_id(self,data:GetInventoryByShopIdSchema):
+        res=await InventoryService(session=self.session).getby_shop_id(data=data)
 
-        
-        if (not data.datas.has_varients) and (data.datas.has_serialno_tracking and len(data.datas.serial_numbers)!=inventory_exists['stocks']):
-            raise HTTPException(
-                status_code=422,
-                detail=ErrorResponseTypDict(
-                    status_code=422,
-                    msg="Error : Invalida datas",
-                    description="Serial number should be match to the stocks",
-                    success=False
-                )
-            )
-            
-        
-        
-        
-        saga_id:str=generate_uuid()
-        inventory_datas=data.datas.model_dump(mode="json")
-        inventory_datas['account_id']=account_id
-
-        data={'inventory':inventory_datas}
-
-        return await SagaProducer.emit(
-            saga_payload=CreateSagaStateSchema(
-                id=saga_id,
-                status=SagaStatusEnum.PENDING,
-                type="INVENTORY_UPDATE",
-                data=data,
-                steps={
-                    'shops.update':SagaStepsValueEnum.PENDING,
-                    'products.update':SagaStepsValueEnum.PENDING
-                },
-                execution=SagaStateExecutionTypDict(
-                    step="inventory:requested",
-                    service=SERVICE_NAME.upper()
-                )
-            ),
-            routing_key=generate_routingkey(
-                domain=SERVICE_NAME,
-                work_for=SERVICE_NAME,
-                action=RoutingkeyActions.UPDATE,
-                state=RoutingkeyState.REQUESTED,
-                version=RoutingkeyVersions.V1
-            ),
-            exchange_name="inventory.inventory.shops.exchange",
-            headers={
-                'saga_id':saga_id
-            },
-        )
-    
-    async def delete(self,inventory_id:str,shop_id:str):
-        res=await InventoryService(session=self.session).delete(inventory_id=inventory_id,shop_id=shop_id)
-        if res:
-            await ReadDbInventoryService(payload={},conditions={'inventory_id':inventory_id,'shop_id':shop_id}).delete()
-            return SuccessResponseTypDict(
-                detail=BaseResponseTypDict(
-                    msg="Inventory deleted successfully",
-                    status_code=200,
-                    success=True
-                )
-            )
-        
-        raise HTTPException(
-            status_code=404,
-            detail=ErrorResponseTypDict(
-                msg="Erro : Deleting Inventory",
-                description="Invalid inventory or shop id",
-                success=False,
-                status_code=404
-            )
-        )
-    
-    async def get(self,shop_id:str,timezone:TimeZoneEnum,offset:int,query:str="",limit:Optional[int]=10,read_db:Optional[bool]=True):
-        
-        res=await ReadDbInventoryService(payload={},conditions={}).get(query=query,limit=limit,offset=offset)
-        if not read_db:
-            res=await InventoryService(session=self.session).get(
-                timezone=timezone,
-                query=query,
-                limit=limit,
-                offset=offset,
-                shop_id=shop_id
-            )
-    
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Inventories fetched successfully",
@@ -217,18 +64,14 @@ class HandleInventoryRequest:
             data=res
         )
     
-    async def getby_id(self,inventory_id:str,shop_id:str,timezone:TimeZoneEnum,read_db:Optional[bool]=True):
-        res=await ReadDbInventoryService(payload={},conditions={}).get_one(queries={'inventory_id':inventory_id,'shop_id':shop_id})
-        if not read_db:
-            res = await InventoryService(session=self.session).getby_id(
-                inventory_barcode_id=inventory_id,shop_id=shop_id,timezone=timezone
-            )
+    async def getby_id(self,data:GetInventoryByIdSchema):
+            res = await InventoryService(session=self.session).getby_id(data=data)
 
-        return SuccessResponseTypDict(
-            detail=BaseResponseTypDict(
-                msg="Inventory fetched successfully",
-                status_code=200,
-                success=True
-            ),
-            data=res
-        )
+            return SuccessResponseTypDict(
+                detail=BaseResponseTypDict(
+                    msg="Inventory fetched successfully",
+                    status_code=200,
+                    success=True
+                ),
+                data=res
+            )
