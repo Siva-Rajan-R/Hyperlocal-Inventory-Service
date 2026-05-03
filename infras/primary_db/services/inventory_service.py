@@ -56,12 +56,12 @@ class InventoryService(BaseServiceModel):
                     )
                 )
 
-                batch_id:str=generate_uuid()
+                batch_id=None
                 if data.has_batch:
                     if not variant.batch:
                         ic("Batch not found")
                         return False
-                    
+                    batch_id=generate_uuid()
                     batches_toadd.append(
                         InventoryBatches(
                             id=batch_id,
@@ -69,8 +69,8 @@ class InventoryService(BaseServiceModel):
                             inventory_id=inventory_id,
                             variant_id=variant_id,
                             name=variant.batch.name,
-                            manufacturing_date=variant.batch.mfg_date,
-                            expiry_date=variant.batch.expiry_data,
+                            manufacturing_date=variant.batch.manufacturing_date,
+                            expiry_date=variant.batch.expiry_date,
                             stocks=variant.stocks
                         )
                     )
@@ -112,8 +112,8 @@ class InventoryService(BaseServiceModel):
                         inventory_id=inventory_id,
                         variant_id=None,
                         name=data.batch.name,
-                        expiry_date=data.batch.expiry_data,
-                        manufacturing_date=data.batch.mfg_date,
+                        expiry_date=data.batch.expiry_date,
+                        manufacturing_date=data.batch.manufacturing_date,
                         stocks=data.stocks
                     )
                 )

@@ -1,5 +1,5 @@
 from pydantic import BaseModel,Field
-from typing import List,Optional,Dict
+from typing import List,Optional,Dict,Union
 from datetime import date,datetime
 from core.data_formats.enums.inventory_enums import InventoryProductCategoryEnum
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
@@ -13,8 +13,19 @@ class OptionalInventorySchema(BaseModel):
 
 class InventoryBatchSchema(BaseModel):
     name:str
-    expiry_data:date
-    mfg_date:date
+    expiry_date:Union[date,datetime]
+    manufacturing_date:Union[date,datetime]
+
+
+class InventoryBatchResponseSchema(BaseModel):
+    id: str
+    name: str
+    stocks: int
+
+    expiry_date: Union[date, datetime]
+    manufacturing_date: Union[date, datetime]
+
+    serial_numbers: Optional[List] = None
 
 
 
@@ -25,6 +36,15 @@ class InventoryVariantSchema(BaseModel):
     stocks:int
     serial_numbers:Optional[List]=None
     batch:Optional[InventoryBatchSchema]=None
+    datas:Optional[dict]=None
+
+class InventoryResponseVariantSchema(BaseModel):
+    name:str
+    sell_price:float
+    buy_price:float
+    stocks:int
+    serial_numbers:Optional[List]=None
+    batches:Optional[List[InventoryBatchSchema]]=None
     datas:Optional[dict]=None
 
 

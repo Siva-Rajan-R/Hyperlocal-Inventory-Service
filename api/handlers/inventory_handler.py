@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.exceptions import HTTPException
 from schemas.v1.request_schemas.inventory_schema import CreateInventorySchema,UpdateInventorySchema,DeleteInventorySchema,GetAllInventorySchema,GetInventoryByIdSchema,GetInventoryByShopIdSchema,VerifySchema
+from schemas.v1.response_schemas.user_schemas.inventory_schema import InventoryGetResponseSchema
 from hyperlocal_platform.core.models.req_res_models import SuccessResponseTypDict,BaseResponseTypDict,ErrorResponseTypDict
 from messaging.saga_producer import SagaProducer,CreateSagaStateSchema,SagaStatusEnum
 from hyperlocal_platform.core.enums.saga_state_enum import SagaStepsValueEnum
@@ -17,7 +18,7 @@ from core.data_formats.enums.inventory_enums import InventoryFetchMode
 from core.utils.calculate_offer import calculate_offer
 from core.utils.validate_offer import validate_offer_input
 from icecream import ic
-
+# [InventoryGetResponseSchema(**r) for r in res] if res else []
 
 class HandleInventoryRequest:
     def __init__(self,session:AsyncSession):
@@ -30,16 +31,70 @@ class HandleInventoryRequest:
         
         res=await InventoryService(session=self.session).create(data=data,added_by="")
         ic(res)
-        return res
+        if res:
+             return SuccessResponseTypDict(
+                  detail=BaseResponseTypDict(
+                       status_code=201,
+                       success=True,
+                       msg="Inventory Created Successfully"
+                  )
+             )
+        
+        return HTTPException(
+             status_code=400,
+             detail=ErrorResponseTypDict(
+                  msg="Error => Creating Inventory",
+                  description="Invalid payload for creating invetory product or already exists",
+                  success=False,
+                  status_code=400
+             ),
+             
+        )
     
     async def update(self,data:UpdateInventorySchema):
         res=await InventoryService(session=self.session).update(data=data)
         ic(res)
-        return res
+        if res:
+             return SuccessResponseTypDict(
+                  detail=BaseResponseTypDict(
+                       status_code=200,
+                       success=True,
+                       msg="Inventory Updated Successfully"
+                  )
+             )
+        
+        return HTTPException(
+             status_code=400,
+             detail=ErrorResponseTypDict(
+                  msg="Error => Updating Inventory",
+                  description="Invalid payload for updating invetory product",
+                  success=False,
+                  status_code=400
+             ),
+             
+        )
     
     async def delete(self,data:DeleteInventorySchema):
         res=await InventoryService(session=self.session).delete(data=data)
-        return res
+        if res:
+             return SuccessResponseTypDict(
+                  detail=BaseResponseTypDict(
+                       status_code=200,
+                       success=False,
+                       msg="Inventory Deleted Successfully"
+                  )
+             )
+        
+        return HTTPException(
+             status_code=400,
+             detail=ErrorResponseTypDict(
+                  msg="Error => Deleting Inventory",
+                  description="Invalid payload for deleting invetory product",
+                  success=False,
+                  status_code=400
+             ),
+             
+        )
     
     async def get(self,data:GetAllInventorySchema):
         res=await InventoryService(session=self.session).get(data=data)

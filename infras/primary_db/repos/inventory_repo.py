@@ -1,7 +1,7 @@
 from models.repo_models.base_repo_model import BaseRepoModel
 from models.service_models.base_service_model import BaseServiceModel
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text
+from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text,literal
 from sqlalchemy.dialects.postgresql import JSONB,ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.inventory_model import Inventory,InventoryVariants,InventoryBatches,InventorySerialNumbers
@@ -12,6 +12,127 @@ from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional,List
 from icecream import ic
 from core.data_formats.enums.stock_adj_enums import StockAdjustmentTypesEnum
+
+
+EMPTY_JSONB_ARRAY = literal([], type_=JSONB)
+
+variants = case(
+    (Inventory.has_variant == True,
+     func.coalesce(
+         select(
+             func.jsonb_agg(
+                 func.jsonb_build_object(
+                     "id", InventoryVariants.id,
+                     "name", InventoryVariants.name,
+                     "sell_price", InventoryVariants.sell_price,
+                     "buy_price", InventoryVariants.buy_price,
+                     "stocks", InventoryVariants.stocks,
+                     "datas", InventoryVariants.datas,
+
+                     # =========================
+                     # 🔥 BATCHES
+                     # =========================
+                     "batches",
+                     select(
+                         func.coalesce(
+                             func.jsonb_agg(
+                                 func.jsonb_build_object(
+                                     "id", InventoryBatches.id,
+                                     "name", InventoryBatches.name,
+                                     "stocks", InventoryBatches.stocks,
+                                     "expiry_date", InventoryBatches.expiry_date,
+                                     "manufacturing_date", InventoryBatches.manufacturing_date,
+
+                                     # 🔥 SERIALS INSIDE BATCH
+                                     "serial_numbers",
+                                     select(
+                                         func.coalesce(
+                                             func.jsonb_agg(InventorySerialNumbers.serial_numbers),
+                                             EMPTY_JSONB_ARRAY
+                                         )
+                                     )
+                                     .select_from(InventorySerialNumbers)
+                                     .where(
+                                         InventorySerialNumbers.batch_id == InventoryBatches.id
+                                     )
+                                     .scalar_subquery()
+                                 )
+                             ),
+                             EMPTY_JSONB_ARRAY
+                         )
+                     )
+                     .select_from(InventoryBatches)
+                     .where(InventoryBatches.variant_id == InventoryVariants.id)
+                     .scalar_subquery(),
+
+                     # =========================
+                     # 🔥 VARIANT LEVEL SERIALS (THIS WAS MISSING)
+                     # =========================
+                     "serial_numbers",
+                     select(
+                         func.coalesce(
+                             func.jsonb_agg(InventorySerialNumbers.serial_numbers),
+                             EMPTY_JSONB_ARRAY
+                         )
+                     )
+                     .select_from(InventorySerialNumbers)
+                     .where(
+                         and_(
+                             InventorySerialNumbers.variant_id == InventoryVariants.id,
+                             InventorySerialNumbers.batch_id.is_(None)
+                         )
+                     )
+                     .scalar_subquery()
+                 )
+             )
+         )
+         .select_from(InventoryVariants)
+         .where(InventoryVariants.inventory_id == Inventory.id)
+         .scalar_subquery(),
+         EMPTY_JSONB_ARRAY
+     )
+    ),
+    else_=EMPTY_JSONB_ARRAY
+).label("variants")
+
+
+batches = case(
+    (Inventory.has_variant == False,
+     func.coalesce(
+         select(
+             func.jsonb_agg(
+                 func.jsonb_build_object(
+                     "id", InventoryBatches.id,
+                     "name", InventoryBatches.name,
+                     "stocks", InventoryBatches.stocks,
+                     "expiry_date", InventoryBatches.expiry_date,
+                     "manufacturing_date", InventoryBatches.manufacturing_date
+                 )
+             )
+         )
+         .where(InventoryBatches.inventory_id == Inventory.id)
+         .select_from(InventoryBatches)
+         .scalar_subquery(),
+         EMPTY_JSONB_ARRAY
+     )
+    ),
+    else_=EMPTY_JSONB_ARRAY
+).label("batches")
+
+serials = case(
+    (Inventory.has_variant == False,
+     func.coalesce(
+         select(
+             func.jsonb_agg(InventorySerialNumbers.serial_numbers)
+         )
+         .where(InventorySerialNumbers.inventory_id == Inventory.id)
+         .select_from(InventorySerialNumbers)
+         .scalar_subquery(),
+         EMPTY_JSONB_ARRAY
+     )
+    ),
+    else_=EMPTY_JSONB_ARRAY
+).label("serial_number")
 
 class InventoryRepo(BaseRepoModel):
     def __init__(self, session:AsyncSession):
@@ -671,11 +792,14 @@ class InventoryRepo(BaseRepoModel):
         created_at=func.date(func.timezone(data.timezone.value,Inventory.created_at))
         cursor=(data.offset-1)*data.limit
         select_stmt=(
-            select(*self.inv_cols)
+            select(*self.inv_cols,variants,batches,serials)
             .where(
                 Inventory.shop_id==data.shop_id,
                 or_(
                     Inventory.id.ilike(data.query),
+                    Inventory.name.ilike(data.query),
+                    Inventory.description.ilike(data.query),
+                    Inventory.category.ilike(data.query),
                     Inventory.barcode.ilike(data.query),
                     Inventory.shop_id.ilike(data.query),
                     Inventory.added_by.ilike(data.query),
@@ -695,115 +819,24 @@ class InventoryRepo(BaseRepoModel):
     async def get(self,data:GetAllInventorySchema)-> List[dict] | list:
         created_at=func.date(func.timezone(data.timezone.value,Inventory.created_at))
         cursor=(data.offset-1)*data.limit
-        variants_json = case(
-    (
-        Inventory.has_variant == True,
-        func.coalesce(
-            func.jsonb_agg(
-                func.distinct(
-                    func.jsonb_build_object(
-                        "id", InventoryVariants.id,
-                        "name", InventoryVariants.name,
-                        "sell_price", InventoryVariants.sell_price,
-                        "buy_price", InventoryVariants.buy_price,
-                        "stocks", InventoryVariants.stocks,
-                        "datas", InventoryVariants.datas,
-                        "batches",
-                        select(
-                            func.coalesce(
-                                func.jsonb_agg(
-                                    func.jsonb_build_object(
-                                        "id", InventoryBatches.id,
-                                        "name", InventoryBatches.name,
-                                        "expiry_date", InventoryBatches.expiry_date,
-                                        "manufacturing_date", InventoryBatches.manufacturing_date,
-                                        "stocks", InventoryBatches.stocks,
-                                        "serial_numbers",
-                                        select(
-                                            func.coalesce(
-                                                func.jsonb_agg(InventorySerialNumbers.serial_numbers),
-                                                func.cast("[]", JSONB)
-                                            )
-                                        )
-                                        .where(InventorySerialNumbers.batch_id == InventoryBatches.id)
-                                        .correlate(InventoryBatches)
-                                        .scalar_subquery()
-                                    )
-                                ),
-                                func.cast("[]", JSONB)
-                            )
-                        )
-                        .where(InventoryBatches.variant_id == InventoryVariants.id)
-                        .correlate(InventoryVariants)
-                        .scalar_subquery()
-                    )
-                )
-            ).filter(InventoryVariants.id.isnot(None)),
-            func.cast("[]", JSONB)
-        )
-    ),
-    else_=
-        # 🔥 NO VARIANT CASE
-        func.coalesce(
-            func.jsonb_agg(
-                func.distinct(
-                    func.jsonb_build_object(
-                        "id", Inventory.id,
-                        "name", Inventory.name,
-
-                        "batches",
-                        select(
-                            func.coalesce(
-                                func.jsonb_agg(
-                                    func.jsonb_build_object(
-                                        "id", InventoryBatches.id,
-                                        "name", InventoryBatches.name,
-                                        "expiry_date", InventoryBatches.expiry_date,
-                                        "manufacturing_date", InventoryBatches.manufacturing_date,
-                                        "stocks", InventoryBatches.stocks,
-                                        "serial_numbers",
-                                        select(
-                                            func.coalesce(
-                                                func.jsonb_agg(InventorySerialNumbers.serial_numbers),
-                                                func.cast("[]", JSONB)
-                                            )
-                                        )
-                                        .where(InventorySerialNumbers.batch_id == InventoryBatches.id)
-                                        .correlate(InventoryBatches)
-                                        .scalar_subquery()
-                                    )
-                                ),
-                                func.cast("[]", JSONB)
-                            )
-                        )
-                        .where(InventoryBatches.inventory_id == Inventory.id)
-                        .correlate(Inventory)
-                        .scalar_subquery()
-                    )
-                )
-            ),
-            func.cast("[]", JSONB)
-        )
-).label("variants")
         select_stmt=(
             select(
                 *self.inv_cols,
-                variants_json
+                variants,batches,serials
             )
-            .outerjoin(
-        InventoryVariants,
-        InventoryVariants.inventory_id == Inventory.id
-    )
-    .group_by(Inventory.id)
             .where(
                 or_(
                     Inventory.id.ilike(data.query),
+                    Inventory.name.ilike(data.query),
+                    Inventory.description.ilike(data.query),
+                    Inventory.category.ilike(data.query),
                     Inventory.barcode.ilike(data.query),
                     Inventory.shop_id.ilike(data.query),
                     Inventory.added_by.ilike(data.query),
                     func.cast(created_at,String).ilike(data.query)
                 )
             )
+            .group_by(*self.inv_cols)
             .offset(offset=cursor).limit(limit=data.limit)
         )
         results=(
@@ -817,7 +850,8 @@ class InventoryRepo(BaseRepoModel):
     async def getby_id(self,data:GetInventoryByIdSchema)-> dict | None:
         stmt=(
             select(
-                *self.inv_cols
+                *self.inv_cols,
+                variants,batches,serials
             )
             .where(
                 or_(Inventory.id==data.id,
