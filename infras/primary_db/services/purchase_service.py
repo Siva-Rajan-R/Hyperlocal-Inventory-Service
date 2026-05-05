@@ -10,7 +10,7 @@ from ..repos.inventory_repo import InventoryRepo
 from schemas.v1.db_schemas.purchase_schema import CreatePurchaseDbSchema,UpdatePurchaseDbSchema
 from schemas.v1.request_schemas.inventory_schema import BulkCheckInventorySchema,InventoryBatchSchema,GetAllInventorySchema
 from schemas.v1.db_schemas.inventory_schema import InventoryBatchDbSchema,InventorySerialNumberDbSchema
-from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,BulkCheckPurchaseSchema,GetPurchaseByShopIdSchema,GetPurchaseByIdSchema,GetPurchaseByInventoryIdSchema
+from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,BulkCheckPurchaseSchema,GetPurchaseByShopIdSchema,GetPurchaseByIdSchema,GetPurchaseByInventoryIdSchema,GetPurchaseBySupplierIdSchema
 from core.errors.messaging_errors import BussinessError,FatalError,RetryableError
 from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_transaction
 from core.data_formats.enums.purchase_enums import PurchaseTypeEnums,PurchaseViewsEnums
@@ -248,6 +248,11 @@ class PurchaseService(BaseServiceModel):
     async def get_by_inventory_id(self,data:GetPurchaseByInventoryIdSchema):
         res=await self.purchase_repo_obj.getby_inventory_id(data=data)
         return res
+    
+    async def getby_supplier_id(self,data:GetPurchaseBySupplierIdSchema):
+        res=await self.purchase_repo_obj.getby_supplier_id(data=data)
+        return res
+
 
 
     async def getby_id(self,data:GetPurchaseByIdSchema):

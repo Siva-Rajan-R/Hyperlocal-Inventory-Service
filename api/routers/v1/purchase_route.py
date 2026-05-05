@@ -3,7 +3,7 @@ from ...handlers.purchase_handler import HandlePurchaseRequest
 from fastapi import APIRouter,Query,Depends
 from infras.primary_db.main import AsyncSession,get_pg_async_session
 from typing import Optional,Annotated,List
-from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,GetPurchaseByShopIdSchema,GetPurchaseByIdSchema,GetPurchaseByInventoryIdSchema
+from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,GetPurchaseByShopIdSchema,GetPurchaseByIdSchema,GetPurchaseByInventoryIdSchema,GetPurchaseBySupplierIdSchema
 from core.data_formats.enums.purchase_enums import PurchaseTypeEnums,PurchaseViewsEnums
 
 
@@ -43,3 +43,7 @@ async def getby_id(session:ASYNC_PG_SESSION,data:GetPurchaseByIdSchema=Depends()
 @router.get("/by/product/{shop_id}/{inventory_id}")
 async def getby_inventory_id(session:ASYNC_PG_SESSION,data:GetPurchaseByInventoryIdSchema=Depends()):
     return await HandlePurchaseRequest(session=session).get_by_inventory_id(data=data)
+
+@router.get("/by/supplier/{shop_id}/{supplier_id}")
+async def getby_inventory_id(session:ASYNC_PG_SESSION,data:GetPurchaseBySupplierIdSchema=Depends()):
+    return await HandlePurchaseRequest(session=session).getby_supplier_id(data=data)

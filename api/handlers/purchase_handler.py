@@ -1,5 +1,5 @@
 from infras.primary_db.services.purchase_service import PurchaseService
-from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,GetPurchaseByShopIdSchema,GetPurchaseByIdSchema,GetPurchaseByInventoryIdSchema
+from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,GetPurchaseByShopIdSchema,GetPurchaseByIdSchema,GetPurchaseByInventoryIdSchema,GetPurchaseBySupplierIdSchema
 from typing import Optional,List
 from sqlalchemy.ext.asyncio import AsyncSession
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
@@ -130,6 +130,17 @@ class HandlePurchaseRequest:
 
     async def get_by_inventory_id(self,data:GetPurchaseByInventoryIdSchema):
         res= await self.purchase_service_obj.get_by_inventory_id(data=data)
+        return SuccessResponseTypDict(
+            detail=BaseResponseTypDict(
+                status_code=200,
+                success=True,
+                msg="Purchase fetched successfully"
+            ),
+            data=res
+        )
+    
+    async def getby_supplier_id(self,data:GetPurchaseBySupplierIdSchema):
+        res= await self.purchase_service_obj.getby_supplier_id(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 status_code=200,

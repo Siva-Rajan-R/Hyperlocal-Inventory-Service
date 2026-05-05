@@ -52,4 +52,6 @@ class GetPurchaseByInventoryIdSchema(BaseModel):
     shop_id:str
 
 
-
+class GetPurchaseBySupplierIdSchema(BaseModel):
+    supplier_id:str
+    shop_id:str

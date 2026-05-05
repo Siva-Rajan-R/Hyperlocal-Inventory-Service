@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.purchase_model import Purchase,PurchaseInventoryProducts
 from ..models.inventory_model import Inventory,InventoryBatches,InventorySerialNumbers,InventoryVariants
 from schemas.v1.db_schemas.purchase_schema import CreatePurchaseDbSchema,UpdatePurchaseDbSchema
-from schemas.v1.request_schemas.purchase_schema import BulkCheckPurchaseSchema,GetPurchaseByShopIdSchema,GetPurchaseByIdSchema,GetPurchaseByInventoryIdSchema
+from schemas.v1.request_schemas.purchase_schema import BulkCheckPurchaseSchema,GetPurchaseByShopIdSchema,GetPurchaseByIdSchema,GetPurchaseByInventoryIdSchema,GetPurchaseBySupplierIdSchema
 from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_transaction
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional,List
@@ -348,6 +348,26 @@ class PurchaseRepo(BaseRepoModel):
             .join(i, i.id == product_subq.c.inventory_id)
             .where(
                 PurchaseInventoryProducts.inventory_id==data.inventory_id,
+                Purchase.shop_id==data.shop_id
+            )
+            .group_by(p.id)
+        )
+
+        result=(await self.session.execute(query_stmt)).mappings().all()
+
+        return result
+    
+
+    async def getby_supplier_id(self,data:GetPurchaseBySupplierIdSchema):
+        query_stmt = (
+            select(
+                *self.purchase_cols,
+                products_agg.label("products")
+            )
+            .join(product_subq, product_subq.c.purchase_id == p.id)   # ✅ use subquery
+            .join(i, i.id == product_subq.c.inventory_id)
+            .where(
+                Purchase.supplier_id==data.supplier_id,
                 Purchase.shop_id==data.shop_id
             )
             .group_by(p.id)
