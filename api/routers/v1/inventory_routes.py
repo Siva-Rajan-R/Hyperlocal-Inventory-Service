@@ -28,7 +28,7 @@ async def delete(session:PG_ASYNC_SESSION,data:DeleteInventorySchema=Depends()):
 async def get_all(session:PG_ASYNC_SESSION,data:GetAllInventorySchema=Depends()):
     return await HandleInventoryRequest(session=session).get(data=data)
 
-@router.get('/by/{shop_id}')
+@router.get('/by/shop/{shop_id}')
 async def getby_shop_id(session:PG_ASYNC_SESSION,data:GetInventoryByShopIdSchema=Depends()):
     return await HandleInventoryRequest(session=session).getby_shop_id(data=data)
 

@@ -1,5 +1,5 @@
 from ..main import BASE
-from sqlalchemy import Column,String,ForeignKey,Integer,TIMESTAMP,func,Float,BigInteger,Identity,Boolean,ARRAY
+from sqlalchemy import Column,String,ForeignKey,Integer,TIMESTAMP,func,Float,BigInteger,Identity,Boolean,ARRAY,Date
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -71,12 +71,23 @@ class StockAdjustments(BASE):
     ui_id=Column(BigInteger,Identity(always=True),autoincrement=True)
     sequence_id=Column(BigInteger,Identity(always=True),autoincrement=True)
     shop_id=Column(String,nullable=False)
+    description=Column(String,nullable=False)
+    adjusted_date=Column(Date,nullable=False)
+    datas=Column(JSONB)
+
+    created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
+    updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
+
+
+class StockAdjustmentInventoryProducts(BASE):
+    __tablename__="stockadjustment_inventory_products"
+    id=Column(BigInteger,primary_key=True,autoincrement=True)
+    stockadjustment_id=Column(String,nullable=False)
     inventory_id=Column(String,nullable=False)
     variant_id=Column(String,nullable=True)
     batch_id=Column(String,nullable=True)
+    stocks=Column(BigInteger,nullable=False)
     type=Column(String,nullable=False)
-    quantity=Column(Integer,nullable=False)
-    datas=Column(JSONB)
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
     updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())

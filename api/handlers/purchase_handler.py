@@ -1,5 +1,5 @@
 from infras.primary_db.services.purchase_service import PurchaseService
-from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,UpdatePurchaseSchema
+from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,GetPurchaseByShopIdSchema,GetPurchaseByIdSchema,GetPurchaseByInventoryIdSchema
 from typing import Optional,List
 from sqlalchemy.ext.asyncio import AsyncSession
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
@@ -21,22 +21,9 @@ class HandlePurchaseRequest:
         self.purchase_service_obj=PurchaseService(session=session)
         self.purchase_types=PurchaseTypeEnums._value2member_map_.values()
 
-    async def create(self,data:CreatePurchaseSchema,added_by:str,shop_id:str):
-        ic(self.purchase_types)
-        
-        if data.datas.type.value==PurchaseTypeEnums.PO_UPDATE.value:
-            raise HTTPException(
-                status_code=400,
-                detail=ErrorResponseTypDict(
-                    status_code=400,
-                    msg="Error : Updating Purchase",
-                    description="Purchase type should be PO CREATE, DIRECT OR PRODUCTION",
-                    success=False
-                )
-            )
-        # await validate_fields(service_name="PURCHASE",shop_id=data.shop_id,incoming_fields=data.datas)
+    async def create(self,data:CreatePurchaseSchema):
 
-        res=await PurchaseService(session=self.session).create(data=data,added_by=added_by,shop_id=shop_id)
+        res=await PurchaseService(session=self.session).create(data=data)
         
         if not res:
             raise HTTPException(
@@ -52,13 +39,13 @@ class HandlePurchaseRequest:
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Purchase Created successfully",
-                status_code=200,
+                status_code=201,
                 success=True
             )
         )
     
 
-    async def update(self,data:UpdatePurchaseSchema,user_id:str):
+    async def update(self,data:dict,user_id:str):
         ic(self.purchase_types)
         if data.datas.type!=PurchaseTypeEnums.PO_UPDATE.value:
             raise HTTPException(
@@ -117,8 +104,8 @@ class HandlePurchaseRequest:
         )
     
 
-    async def get(self,shop_id:str,timezone:TimeZoneEnum,view:PurchaseViewsEnums,limit:Optional[int]=None,offset:Optional[int]=None,query:Optional[str]=""):
-        res=await self.purchase_service_obj.get(timezone=timezone,shop_id=shop_id,view=view,limit=limit,offset=offset,query=query)
+    async def get(self,data:GetPurchaseByShopIdSchema):
+        res=await self.purchase_service_obj.get(data=data)
 
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
@@ -129,8 +116,28 @@ class HandlePurchaseRequest:
             data=res
         )
     
-    async def getby_id(self,purchase_id:str,shop_id:str):
-        return await self.purchase_service_obj.getby_id(purchase_id=purchase_id,shop_id=shop_id)
+    async def getby_id(self,data:GetPurchaseByIdSchema):
+        res=await self.purchase_service_obj.getby_id(data=data)
+        return SuccessResponseTypDict(
+            detail=BaseResponseTypDict(
+                status_code=200,
+                success=True,
+                msg="Purchase fetched successfully"
+            ),
+            data=res
+        )
+    
+
+    async def get_by_inventory_id(self,data:GetPurchaseByInventoryIdSchema):
+        res= await self.purchase_service_obj.get_by_inventory_id(data=data)
+        return SuccessResponseTypDict(
+            detail=BaseResponseTypDict(
+                status_code=200,
+                success=True,
+                msg="Purchase fetched successfully"
+            ),
+            data=res
+        )
     
 
     async def pre_purchase(self,data:CreatePurchaseSchema,user_id:str):

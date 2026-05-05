@@ -10,7 +10,7 @@ from hyperlocal_platform.core.utils.exception_serializer import serialize_except
 from infras.read_db.models.inventory_model import ReadDbInventoryCreateModel,ReadDbInventoryUpdateModel
 from hyperlocal_platform.core.basemodels.readdb_model import ReadDbBaseModel
 from infras.primary_db.services.purchase_service import PurchaseService
-from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,UpdatePurchaseSchema
+from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema
 from icecream import ic
 
 class SupplierPurchaseConsumer(BaseConsumerModel):

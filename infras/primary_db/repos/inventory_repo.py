@@ -1,12 +1,12 @@
 from models.repo_models.base_repo_model import BaseRepoModel
 from models.service_models.base_service_model import BaseServiceModel
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text,literal
+from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text,literal,literal_column,text
 from sqlalchemy.dialects.postgresql import JSONB,ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.inventory_model import Inventory,InventoryVariants,InventoryBatches,InventorySerialNumbers
 from schemas.v1.db_schemas.inventory_schema import InventoryProductCategoryEnum,CreateInventoryDbSchema,UpdateInventoryDbSchema,UpdateVarientProductDbSchema,InventoryBatchDbSchema
-from schemas.v1.request_schemas.inventory_schema import DeleteInventorySchema,GetAllInventorySchema,GetInventoryByIdSchema,GetInventoryByShopIdSchema,VerifySchema
+from schemas.v1.request_schemas.inventory_schema import DeleteInventorySchema,GetAllInventorySchema,GetInventoryByIdSchema,GetInventoryByShopIdSchema,VerifySchema,BulkCheckInventorySchema
 from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_transaction
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional,List
@@ -46,15 +46,16 @@ variants = case(
                                      # 🔥 SERIALS INSIDE BATCH
                                      "serial_numbers",
                                      select(
-                                         func.coalesce(
-                                             func.jsonb_agg(InventorySerialNumbers.serial_numbers),
-                                             EMPTY_JSONB_ARRAY
-                                         )
+                                         func.jsonb_build_object(
+        "id", InventorySerialNumbers.id,
+        "serial_numbers", InventorySerialNumbers.serial_numbers
+    )
                                      )
                                      .select_from(InventorySerialNumbers)
                                      .where(
                                          InventorySerialNumbers.batch_id == InventoryBatches.id
                                      )
+                                     .limit(1)
                                      .scalar_subquery()
                                  )
                              ),
@@ -70,10 +71,10 @@ variants = case(
                      # =========================
                      "serial_numbers",
                      select(
-                         func.coalesce(
-                             func.jsonb_agg(InventorySerialNumbers.serial_numbers),
-                             EMPTY_JSONB_ARRAY
-                         )
+                         func.jsonb_build_object(
+        "id", InventorySerialNumbers.id,
+        "serial_numbers", InventorySerialNumbers.serial_numbers
+    )
                      )
                      .select_from(InventorySerialNumbers)
                      .where(
@@ -82,6 +83,7 @@ variants = case(
                              InventorySerialNumbers.batch_id.is_(None)
                          )
                      )
+                     .limit(1)
                      .scalar_subquery()
                  )
              )
@@ -123,15 +125,20 @@ serials = case(
     (Inventory.has_variant == False,
      func.coalesce(
          select(
-             func.jsonb_agg(InventorySerialNumbers.serial_numbers)
-         )
+             func.jsonb_build_object(
+        "id", InventorySerialNumbers.id,
+        "serial_numbers", InventorySerialNumbers.serial_numbers
+    )
+        )
          .where(InventorySerialNumbers.inventory_id == Inventory.id)
+         .limit(1)
          .select_from(InventorySerialNumbers)
          .scalar_subquery(),
-         EMPTY_JSONB_ARRAY
+
+         literal({}, type_=JSONB)
      )
     ),
-    else_=EMPTY_JSONB_ARRAY
+    else_=literal({}, type_=JSONB)
 ).label("serial_number")
 
 class InventoryRepo(BaseRepoModel):
@@ -198,6 +205,77 @@ class InventoryRepo(BaseRepoModel):
         return True
     
 
+    @start_db_transaction
+    async def bulk_add_serialno(self, data: dict[str, list[str]], shop_id: str):
+
+        results = []
+
+        for inv_id, serials in data.items():
+
+            stmt = (
+                update(InventorySerialNumbers)
+                .where(
+                    InventorySerialNumbers.id == inv_id,
+                    InventorySerialNumbers.shop_id == shop_id
+                )
+                .values(
+                    serial_numbers=func.array_cat(
+                        func.coalesce(
+                            InventorySerialNumbers.serial_numbers,
+                            cast([], ARRAY(String))
+                        ),
+                        cast(serials, ARRAY(String))
+                    )
+                )
+                .returning(
+                    InventorySerialNumbers.id,
+                    InventorySerialNumbers.serial_numbers
+                )
+            )
+
+            res = (await self.session.execute(stmt)).mappings().one_or_none()
+            if res:
+                results.append(res)
+
+        return results
+    
+
+    @start_db_transaction
+    async def bulk_update_serialno(self, data: dict[str, list[str]], shop_id: str):
+
+        results = []
+
+        stmt = text("""
+        UPDATE inventory_serial_numbers
+        SET serial_numbers = (
+            SELECT COALESCE(array_agg(elem), '{}')
+            FROM unnest(serial_numbers) AS elem
+            WHERE elem != ALL(:serials)
+        )
+        WHERE id = :id AND shop_id = :shop_id
+        RETURNING id, serial_numbers
+        """)
+
+        for inv_id, serials in data.items():
+            if not serials:
+                continue
+
+            res = await self.session.execute(
+                stmt,
+                {
+                    "id": inv_id,
+                    "shop_id": shop_id,
+                    "serials": serials
+                }
+            )
+
+            row = res.mappings().one_or_none()
+            if row:
+                results.append(row)
+
+        return results
+    
+
     
     @start_db_transaction
     async def update(self,data:UpdateInventoryDbSchema)-> dict | NotImplementedError:
@@ -256,19 +334,19 @@ class InventoryRepo(BaseRepoModel):
     async def bulk_qty_update(self,data:dict,shop_id:str):
         """
         Docstring for bulk_qty_update
-        THe data contains product barcode as a key & the qty to increment as a value
+        THe data contains product id as a key & the qty to increment as a value
         """
         if not data:
             return True
         inv_qty_toupdate=update(
             Inventory
         ).where(
-            Inventory.barcode.in_(data.keys()),
+            Inventory.id.in_(data.keys()),
             Inventory.shop_id==shop_id
         ).values(
             stocks=Inventory.stocks + case(
                 data,
-                value=Inventory.barcode
+                value=Inventory.id    
             )
         ).returning(Inventory.id)
 
@@ -727,19 +805,19 @@ class InventoryRepo(BaseRepoModel):
     async def bulk_qty_decr_update(self,data:dict,shop_id:str):
         """
         Docstring for bulk_qty_update
-        THe data contains product barcode as a key & the qty to increment as a value
+        THe data contains product ID as a key & the qty to increment as a value
         """
         if not data:
             return True
         inv_qty_toupdate=update(
             Inventory
         ).where(
-            Inventory.barcode.in_(data.keys()),
+            Inventory.id.in_(data.keys()),
             Inventory.shop_id==shop_id
         ).values(
             stocks=Inventory.stocks - case(
                 data,
-                value=Inventory.barcode
+                value=Inventory.id
             )
         ).returning(Inventory.id)
 
@@ -747,17 +825,14 @@ class InventoryRepo(BaseRepoModel):
         ic("Quantity Updated:",is_updated)
         return is_updated
     
-    async def bulk_check(self,shop_id:str,barcodes:list,additional_conditions: Optional[tuple]=()):
+    async def bulk_check(self,data:BulkCheckInventorySchema):
         check_stmt=(
             select(
-                Inventory.id,
-                Inventory.barcode,
-                Inventory.datas
+                *self.inv_cols
             )
             .where(
-                Inventory.barcode.in_(barcodes),
-                Inventory.shop_id==shop_id,
-                *additional_conditions
+                Inventory.id.in_(data.id),
+                Inventory.shop_id==data.shop_id
             )
         )
 

@@ -1,72 +1,55 @@
-from pydantic import BaseModel
-from typing import Optional,List,Literal
-from datetime import date
+from pydantic import BaseModel,Field
+from typing import Optional,List
+from core.data_formats.enums.purchase_enums import PurchaseCalcultionDividedValue,PurchaseTypeEnums,PurchaseViewsEnums
+from .inventory_schema import InventoryBatchSchema
+from core.data_formats.typed_dicts.purchase_typdict import PurchaseCalculationsTypDict,PurchaseAdditionalCharges
+from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 
-from core.data_formats.enums.purchase_enums import PurchaseTypeEnums
 
-
-class BatchesSchema(BaseModel):
-    expiry_date:date
-    manufacturing_date:date
-
-class PurchaseProductsCreateSchema(BaseModel):
+class PurchaseInventoryProductSchema(BaseModel):
     inventory_id:str
-    varient_id:Optional[str]=None
-    batch_name:Optional[str]=None
-    batches:BatchesSchema
-    barcode:str
-    name:str
-    quantity:int
-    buy_price:float
+    variant_id:Optional[str]=None
+    batch_id:Optional[str]=None
+    serialno_id:Optional[str]=None
+    serial_numbers:Optional[List]=None
+    batch:Optional[InventoryBatchSchema]=None
     sell_price:float
-    serial_numbers:Optional[List[str]]=[]
-
-    model_config={
-        "extra":"allow"
-    }
-
-class PurchaseProductsUpdateSchema(BaseModel):
-    inventory_id:str
-    varient_id:Optional[str]=None
-    batch_name:Optional[str]=None
-    batches:BatchesSchema
-    barcode:str
-    name:str
-    quantity:int
-    received_qty:int
     buy_price:float
-    sell_price:float
-    serial_numbers:Optional[List[str]]=[]
+    margin:float
+    stocks:int
+    received_stocks:Optional[int]=None
 
-    model_config={
-        "extra":"allow"
-    }
-
-
-class PurchaseCreateMandatoryFields(BaseModel):
-    shop_id:str
-    type:PurchaseTypeEnums
-    products:List[PurchaseProductsCreateSchema]
-    supplier_id:str
-    supplier_name:str
-
-    model_config ={
-        "extra":"allow"
-    }
 
 class CreatePurchaseSchema(BaseModel):
-    datas:PurchaseCreateMandatoryFields
+    purchase_id:Optional[str]=None
+    shop_id:str
+    type:PurchaseTypeEnums
+    supplier_id:str
+    calculations:PurchaseCalculationsTypDict
+    additional_charges:PurchaseAdditionalCharges
+    datas:Optional[dict]=None
+    products:List[PurchaseInventoryProductSchema]
+
+class BulkCheckPurchaseSchema(BaseModel):
+    purchase_id:str
+    inventory_id:List[str]
 
 
-class PurchaseUpdateMandatoryFields(BaseModel):
+class GetPurchaseByShopIdSchema(BaseModel):
+    timezone:Optional[TimeZoneEnum]=TimeZoneEnum.Asia_Kolkata
+    shop_id:str
+    view:PurchaseViewsEnums
+    query:Optional[str]=Field(default="")
+    limit:Optional[int]=Field(default=10,le=100)
+    offset:Optional[int]=Field(default=1)
+
+class GetPurchaseByIdSchema(BaseModel):
     id:str
     shop_id:str
-    type:Literal['PO_UPDATE']
-    products:List[PurchaseProductsUpdateSchema]
 
-    model_config ={
-        "extra":"allow"
-    }
+class GetPurchaseByInventoryIdSchema(BaseModel):
+    inventory_id:str
+    shop_id:str
 
-class UpdatePurchaseSchema(BaseModel):
-    datas:PurchaseUpdateMandatoryFields
+
+

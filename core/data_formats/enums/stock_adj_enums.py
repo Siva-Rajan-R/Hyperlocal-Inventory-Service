@@ -1,5 +1,5 @@
 from enum import Enum
 
-class StockAdjustmentTypesEnum(Enum):
+class StockAdjustmentTypesEnum(str,Enum):
     DECREMENT="DECREMENT"
     INCREMENT="INCREMENT"

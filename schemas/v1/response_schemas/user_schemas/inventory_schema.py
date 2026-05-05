@@ -96,4 +96,4 @@ class InventoryGetResponseSchema(BaseModel):
 
     variants:Optional[List[InventoryResponseVariantSchema]]=None
     batches:Optional[List[InventoryBatchResponseSchema]]=None
-    serial_number:Optional[List]=None
+    serial_number:Optional[dict]=None

@@ -3,7 +3,7 @@ from ...handlers.purchase_handler import HandlePurchaseRequest
 from fastapi import APIRouter,Query,Depends
 from infras.primary_db.main import AsyncSession,get_pg_async_session
 from typing import Optional,Annotated,List
-from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,UpdatePurchaseSchema
+from schemas.v1.request_schemas.purchase_schema import CreatePurchaseSchema,GetPurchaseByShopIdSchema,GetPurchaseByIdSchema,GetPurchaseByInventoryIdSchema
 from core.data_formats.enums.purchase_enums import PurchaseTypeEnums,PurchaseViewsEnums
 
 
@@ -19,11 +19,11 @@ ASYNC_PG_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 
 @router.post("")
 async def create(data:CreatePurchaseSchema,session:ASYNC_PG_SESSION):
-    return await HandlePurchaseRequest(session=session).create(data=data,added_by=ADDED_BY,shop_id=SHOP_ID)
+    return await HandlePurchaseRequest(session=session).create(data=data)
 
 
 @router.put("")
-async def update(data:UpdatePurchaseSchema,session:ASYNC_PG_SESSION):
+async def update(data:dict,session:ASYNC_PG_SESSION):
     return await HandlePurchaseRequest(session=session).update(data=data,user_id=ADDED_BY)
 
 
@@ -33,9 +33,13 @@ async def delete(purchase_id:str,session:ASYNC_PG_SESSION):
 
 
 @router.get("")
-async def get(session:ASYNC_PG_SESSION,timezone:Optional[TimeZoneEnum]=Query(TimeZoneEnum.Asia_Kolkata),view:PurchaseViewsEnums=Query(...),q:Optional[str]="",limit:Optional[int]=10,offset:int=1):
-    return await HandlePurchaseRequest(session=session).get(shop_id=SHOP_ID,timezone=timezone,query=q,limit=limit,offset=offset,view=view)
+async def get(session:ASYNC_PG_SESSION,data:GetPurchaseByShopIdSchema=Depends()):
+    return await HandlePurchaseRequest(session=session).get(data=data)
 
-@router.get("/{purchase_id}")
-async def getby_id(purchase_id:str,session:ASYNC_PG_SESSION):
-    return await HandlePurchaseRequest(session=session).getby_id(purchase_id=purchase_id,shop_id=SHOP_ID)
+@router.get("/by/{shop_id}/{id}")
+async def getby_id(session:ASYNC_PG_SESSION,data:GetPurchaseByIdSchema=Depends()):
+    return await HandlePurchaseRequest(session=session).getby_id(data=data)
+
+@router.get("/by/product/{shop_id}/{inventory_id}")
+async def getby_inventory_id(session:ASYNC_PG_SESSION,data:GetPurchaseByInventoryIdSchema=Depends()):
+    return await HandlePurchaseRequest(session=session).get_by_inventory_id(data=data)

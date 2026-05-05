@@ -6,7 +6,15 @@ from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 
 
 class OptionalInventorySchema(BaseModel):
-    ...
+    gst:Optional[str]=None
+    mrp:Optional[float]=None
+    unit:Optional[str]=None
+    brand:Optional[str]=None
+    storage_location:Optional[str]=None
+    is_active:Optional[bool]=None
+    reorder_point:Optional[int]=None
+    opening_stock:Optional[int]=None
+    variant_types:Optional[List[dict]]=None
 
 
 
@@ -66,7 +74,7 @@ class CreateInventorySchema(BaseModel):
     serial_numbers:Optional[List]=None
     batch:Optional[InventoryBatchSchema]=None
 
-    datas:Optional[dict]=None
+    datas:Optional[OptionalInventorySchema]=None
 
 class UpdateInventorySchema(BaseModel):
     id:str
@@ -114,4 +122,8 @@ class VerifySchema(BaseModel):
     barcode:Optional[str]=None
     shop_id:str
 
+
+class BulkCheckInventorySchema(BaseModel):
+    shop_id:str
+    id:List[str]
     

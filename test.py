@@ -1,8 +1,22 @@
-a=["siva","hiii","oppp","hey"]
+from fastapi import FastAPI,HTTPException
+from pydantic import BaseModel
 
-b=["jeeva","siva","hello"]
 
-c=set(a)
+DATABASE={
+    "1":{
+        'name':'siva','dob':'theriyathu','parent_name':'--','mobile_no':''
+    }
+}
 
-if b in a:
-    print("yes")
+app=FastAPI()
+
+class FilteredResponse(BaseModel):
+    name:str
+    dob:str
+
+
+@app.get('/search/{id}',response_model=FilteredResponse)
+def search_by_id(id:str):
+    return DATABASE.get(id,"Kelambu")
+
+
