@@ -39,11 +39,9 @@ class InventoryBatchResponseSchema(BaseModel):
 
 class InventoryVariantSchema(BaseModel):
     name:str
-    sell_price:float
-    buy_price:float
-    stocks:int
-    serial_numbers:Optional[List]=None
-    batch:Optional[InventoryBatchSchema]=None
+    sell_price:Optional[float]=0.0
+    buy_price:Optional[float]=0.0
+    stocks:Optional[int]=0
     datas:Optional[dict]=None
 
 class InventoryResponseVariantSchema(BaseModel):
@@ -60,19 +58,17 @@ class CreateInventorySchema(BaseModel):
     shop_id:str
     name:str
     category:str
-    description:str
-    buy_price:float
-    sell_price:float
-    stocks:Optional[int]=None
-    barcode:str
-
+    description:Optional[str]=None
+    buy_price:Optional[float]=0.0
+    sell_price:Optional[float]=0.0
+    stocks:Optional[int]=0
+    barcode:Optional[str]=None
+    reorder_point:int
     has_variant:Optional[bool]=None
     has_serialno:Optional[bool]=None
     has_batch:Optional[bool]=None
 
     variants:Optional[List[InventoryVariantSchema]]=None
-    serial_numbers:Optional[List]=None
-    batch:Optional[InventoryBatchSchema]=None
 
     datas:Optional[OptionalInventorySchema]=None
 

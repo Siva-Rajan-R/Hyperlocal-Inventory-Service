@@ -1,6 +1,6 @@
 from models.repo_models.base_repo_model import BaseRepoModel
 from models.service_models.base_service_model import BaseServiceModel
-from sqlalchemy import select,update,delete,func,or_,and_,String,case,literal,literal_column
+from sqlalchemy import select,update,delete,func,or_,and_,String,case,literal,literal_column,bindparam
 from sqlalchemy.ext.asyncio import AsyncSession
 from schemas.v1.request_schemas.stock_adj_schema import GetStockAdjByShopIdSchema,GetAllStockAdjSchema,GetStockAdjByIdSchema,GetStockAdjByInventoryIdSchema
 from ..models.inventory_model import StockAdjustments,StockAdjustmentInventoryProducts,Inventory,InventoryBatches,InventorySerialNumbers,InventoryVariants
@@ -87,6 +87,7 @@ products_agg = func.jsonb_agg(
 
         "stocks", sap.stocks,
         "type", sap.type,
+        "stocks_before",sap.stocks_before,
 
         "has_variant", i.has_variant,
         "has_batch", i.has_batch,
@@ -127,6 +128,7 @@ class StockAdjRepo(BaseRepoModel):
     async def create_bulk(self,datas:List[StockAdjustments]):
         res=self.session.add_all(datas)
         return True
+    
     
     @start_db_transaction
     async def update(self,data:CreateStockAdjDbSchema):

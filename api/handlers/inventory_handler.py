@@ -29,7 +29,7 @@ class HandleInventoryRequest:
         Instead of creation, we need to trigger the event that event will handle the adding
         """ 
         
-        res=await InventoryService(session=self.session).create(data=data,added_by="")
+        res=await InventoryService(session=self.session).create(data=data)
         ic(res)
         if res:
              return SuccessResponseTypDict(
@@ -76,6 +76,7 @@ class HandleInventoryRequest:
     
     async def delete(self,data:DeleteInventorySchema):
         res=await InventoryService(session=self.session).delete(data=data)
+        ic(res)
         if res:
              return SuccessResponseTypDict(
                   detail=BaseResponseTypDict(

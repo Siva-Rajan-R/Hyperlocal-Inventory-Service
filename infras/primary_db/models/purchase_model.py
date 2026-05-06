@@ -28,10 +28,11 @@ class PurchaseInventoryProducts(BASE):
     variant_id=Column(String,nullable=True)
     batch_id=Column(String,nullable=True)
     stocks=Column(BigInteger,nullable=False)
+    stocks_before=Column(BigInteger,nullable=False)
     received_stocks=Column(BigInteger,nullable=False)
     sell_price=Column(Float,nullable=False)
     buy_price=Column(Float,nullable=False)
-    margin=Column(Float,nullable=False)
+
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
     updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())

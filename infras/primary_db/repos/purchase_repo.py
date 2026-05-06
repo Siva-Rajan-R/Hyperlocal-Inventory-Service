@@ -1,6 +1,6 @@
 from models.repo_models.base_repo_model import BaseRepoModel
 from models.service_models.base_service_model import BaseServiceModel
-from sqlalchemy import select,update,delete,func,or_,and_,String,case,literal,literal_column
+from sqlalchemy import select,update,delete,func,or_,and_,String,case,literal,literal_column,bindparam
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.purchase_model import Purchase,PurchaseInventoryProducts
 from ..models.inventory_model import Inventory,InventoryBatches,InventorySerialNumbers,InventoryVariants
@@ -26,6 +26,7 @@ pip_agg = (
         pip.inventory_id,
         pip.variant_id,
         pip.batch_id,
+        pip.stocks_before.label('stocks_before'),
         func.sum(pip.stocks).label("stocks"),
         func.max(pip.buy_price).label("buy_price"),
         func.max(pip.sell_price).label("sell_price"),
@@ -34,7 +35,8 @@ pip_agg = (
         pip.purchase_id,
         pip.inventory_id,
         pip.variant_id,
-        pip.batch_id
+        pip.batch_id,
+        pip.stocks_before
     )
 ).subquery()
 
@@ -135,6 +137,7 @@ product_subq = (
     select(
         pip_agg.c.purchase_id,
         pip_agg.c.inventory_id,
+        pip_agg.c.stocks_before,
 
         # 🔹 inventory fields
         i.id.label("id"),
@@ -142,7 +145,6 @@ product_subq = (
         i.sequence_id.label("sequence_id"),
         i.barcode.label("barcode"),
         i.shop_id.label("shop_id"),
-        i.added_by.label("added_by"),
         i.name.label("name"),
         i.description.label("description"),
         i.category.label("category"),
@@ -171,6 +173,7 @@ product_subq = (
     .group_by(
         pip_agg.c.purchase_id,
         pip_agg.c.inventory_id,
+        pip_agg.c.stocks_before,
 
         # 🔴 ALL non-aggregated columns MUST be grouped
         i.id,
@@ -178,7 +181,6 @@ product_subq = (
         i.sequence_id,
         i.barcode,
         i.shop_id,
-        i.added_by,
         i.name,
         i.description,
         i.category,
@@ -200,7 +202,6 @@ products_agg = func.jsonb_agg(
         "sequence_id", product_subq.c.sequence_id,
         "barcode", product_subq.c.barcode,
         "shop_id", product_subq.c.shop_id,
-        "added_by", product_subq.c.added_by,
         "name", product_subq.c.name,
         "description", product_subq.c.description,
         "category", product_subq.c.category,
@@ -209,6 +210,7 @@ products_agg = func.jsonb_agg(
         "has_batch", product_subq.c.has_batch,
         "has_serialno", product_subq.c.has_serialno,
         "has_variant", product_subq.c.has_variant,
+        "stocks_before",product_subq.c.stocks_before,
 
         # 🔹 purchase values
         "stocks", product_subq.c.stocks,
@@ -254,6 +256,7 @@ class PurchaseRepo(BaseRepoModel):
         data_toadd=Purchase(**data.model_dump(mode='json'))
         self.session.add(data_toadd)
         return True
+
     
     @start_db_transaction
     async def create_purchase_inv_bulk(self,data:List[PurchaseInventoryProducts])-> bool:
@@ -347,8 +350,8 @@ class PurchaseRepo(BaseRepoModel):
             .join(product_subq, product_subq.c.purchase_id == p.id)   # ✅ use subquery
             .join(i, i.id == product_subq.c.inventory_id)
             .where(
-                PurchaseInventoryProducts.inventory_id==data.inventory_id,
-                Purchase.shop_id==data.shop_id
+                product_subq.c.inventory_id == data.inventory_id,
+                p.shop_id == data.shop_id
             )
             .group_by(p.id)
         )

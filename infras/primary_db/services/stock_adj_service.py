@@ -125,7 +125,8 @@ class StockAdjService(BaseServiceModel):
                     variant_id=variant_id,
                     batch_id=batch_id,
                     stocks=stocks,
-                    type=adjustment_type
+                    type=adjustment_type,
+                    stocks_before=inv_res['stocks']
 
                 )
             )

@@ -15,7 +15,6 @@ class PurchaseInventoryProductSchema(BaseModel):
     batch:Optional[InventoryBatchSchema]=None
     sell_price:float
     buy_price:float
-    margin:float
     stocks:int
     received_stocks:Optional[int]=None
 

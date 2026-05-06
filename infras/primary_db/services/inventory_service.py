@@ -14,7 +14,7 @@ from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_
 
 class InventoryService(BaseServiceModel):
     
-    async def create(self,data:CreateInventorySchema,added_by:str):
+    async def create(self,data:CreateInventorySchema):
         """
         Need to check shop existence and product data, then added by
         """
@@ -22,26 +22,15 @@ class InventoryService(BaseServiceModel):
         is_exists=await self.verify(data=VerifySchema(barcode=data.barcode,shop_id=data.shop_id))
         ic(is_exists)
         if is_exists['exists']:
-            return False
-        ic((data.has_variant and (not data.variants or len(data.variants)<1)) or ((not data.has_variant and data.has_batch) and (not data.batch)))
-        if (data.has_variant and (not data.variants or len(data.variants)<1)) or ((not data.has_variant and data.has_batch) and (not data.batch)):
-            return False 
-        
-        ic(((not data.has_variant and data.has_serialno) and (not data.serial_numbers or len(data.serial_numbers)!=data.stocks)))
-        if ((not data.has_variant and data.has_serialno) and (not data.serial_numbers or len(data.serial_numbers)!=data.stocks)):
+            ic("Product already exist with the barcode")
             return False
         
         inventory_id:str=generate_uuid()
         ic(inventory_id)
         variants_toadd=[]
-        batches_toadd=[]
-        serialnos_toadd=[]
-        added_serialnos=[]
-        overall_stock=data.stocks
         ERROR_OCCURED:bool=False
 
         if data.has_variant:
-            overall_stock=0
             for variant in data.variants:
                 variant_id:str=generate_uuid()
                 variants_toadd.append(
@@ -56,122 +45,21 @@ class InventoryService(BaseServiceModel):
                         datas=variant.datas
                     )
                 )
-                ic('variant Passed')
-                batch_id=None
-                if data.has_batch:
-                    if not variant.batch:
-                        ic("Batch not found")
-                        return False
-                    batch_id=generate_uuid()
-                    batches_toadd.append(
-                        InventoryBatches(
-                            id=batch_id,
-                            shop_id=data.shop_id,
-                            inventory_id=inventory_id,
-                            variant_id=variant_id,
-                            name=variant.batch.name,
-                            manufacturing_date=variant.batch.manufacturing_date,
-                            expiry_date=variant.batch.expiry_date,
-                            stocks=variant.stocks
-                        )
-                    )
-                ic("batch Passed")
-                if data.has_serialno:
-                    if not variant.serial_numbers or len(variant.serial_numbers)!=variant.stocks:
-                        ic("Invalid serial numbers len")
-                        ERROR_OCCURED=True
-                        return False
-                    
-                    serialno_id:str=generate_uuid()
-                    serialnos_toadd.append(
-                        InventorySerialNumbers(
-                            id=serialno_id,
-                            shop_id=data.shop_id,
-                            inventory_id=inventory_id,
-                            batch_id=batch_id,
-                            variant_id=variant_id,
-                            serial_numbers=variant.serial_numbers
-                        )
-                    )
-                    ic()
-                    added_serialnos.extend(variant.serial_numbers)
-                    ic("Serial number Passed")
-                overall_stock+=variant.stocks
-
-
-            if ERROR_OCCURED:
-                ic("Error Occured")
-                return False
-        
-        if not data.has_variant:
-            batch_id:str=None
-            if data.has_batch:
-                batch_id=generate_uuid()
-                batches_toadd.append(
-                    InventoryBatches(
-                        id=batch_id,
-                        shop_id=data.shop_id,
-                        inventory_id=inventory_id,
-                        variant_id=None,
-                        name=data.batch.name,
-                        expiry_date=data.batch.expiry_date,
-                        manufacturing_date=data.batch.manufacturing_date,
-                        stocks=data.stocks
-                    )
-                )
-
-            if data.has_serialno:
-                serial_no_id:str=generate_uuid()
-                serialnos_toadd.append(
-                    InventorySerialNumbers(
-                        id=serial_no_id,
-                        shop_id=data.shop_id,
-                        inventory_id=inventory_id,
-                        batch_id=batch_id,
-                        variant_id=None,
-                        serial_numbers=data.serial_numbers
-                    )
-                )
-
-                added_serialnos.extend(data.serial_numbers)
-                overall_stock=data.stocks
-
-        if data.has_serialno:
-            if overall_stock!=len(added_serialnos):
-                ic(overall_stock,added_serialnos)
-                ic("Overall stock doesnot matched")
-                return False
             
         inventorydata_toadd=data.model_dump()
-        inventorydata_toadd['stocks']=overall_stock
+        inventorydata_toadd['stocks']=0
+        # Create a better is for the sku and it to be unique
+        inventorydata_toadd['sku']=generate_uuid()
 
-        ic(
-            inventorydata_toadd,
-            variants_toadd,
-            batches_toadd,
-            serialnos_toadd,
-            added_serialnos,
-            overall_stock
-        )  
         next=True
         inv_repo_obj=InventoryRepo(session=self.session)
 
-        inv_res=await inv_repo_obj.create(data=CreateInventoryDbSchema(**inventorydata_toadd,added_by=added_by,id=inventory_id))
+        inv_res=await inv_repo_obj.create(data=CreateInventoryDbSchema(**inventorydata_toadd,id=inventory_id,is_active=False))
         next=inv_res
         if next and variants_toadd:
             variant_res=await inv_repo_obj.create_variant_bulk(datas=variants_toadd)
             ic(variant_res)
             next=variant_res
-
-        if next and batches_toadd:
-            batch_res=await inv_repo_obj.create_batch_bulk(datas=batches_toadd)
-            ic(batch_res)
-            next=batch_res
-        
-        if next and serialnos_toadd:
-            serialno_res=await inv_repo_obj.create_serialno_bulk(datas=serialnos_toadd)
-            ic(serialno_res)
-            next=serialno_res
         
         return next
 

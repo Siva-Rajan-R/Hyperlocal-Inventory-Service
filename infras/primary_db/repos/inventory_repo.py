@@ -1,7 +1,7 @@
 from models.repo_models.base_repo_model import BaseRepoModel
 from models.service_models.base_service_model import BaseServiceModel
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text,literal,literal_column,text
+from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text,literal,literal_column,text,bindparam
 from sqlalchemy.dialects.postgresql import JSONB,ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.inventory_model import Inventory,InventoryVariants,InventoryBatches,InventorySerialNumbers
@@ -149,7 +149,7 @@ class InventoryRepo(BaseRepoModel):
             Inventory.sequence_id,
             Inventory.barcode,
             Inventory.shop_id,
-            Inventory.added_by,
+            Inventory.reorder_point,
             Inventory.buy_price,
             Inventory.sell_price,
             Inventory.stocks,
@@ -183,6 +183,61 @@ class InventoryRepo(BaseRepoModel):
         res=(await self.session.execute(stmt)).mappings().one_or_none()
         ic(res)
         return data
+    
+    @start_db_transaction
+    async def update_bulk(self,datas:List[dict]):
+        if not datas:
+            return []
+        stmt=(
+            update(Inventory.__table__)
+            .where(Inventory.id==bindparam("b_id"))
+            .values(
+                stocks=case(
+                    (
+                        bindparam("is_absolute"),
+                        bindparam("stocks")
+                    ),
+                    else_=Inventory.stocks+bindparam("stocks")
+                    
+                ),
+                sell_price=bindparam("sell_price"),
+                buy_price=bindparam("buy_price")
+            )
+            .execution_options(synchronize_session=False)
+            .returning(Inventory.id)
+        )
+
+        res=(await self.session.execute(stmt,datas)).scalars().all()
+
+        return res
+    
+
+    @start_db_transaction
+    async def update_variant_bulk(self,datas:List[dict]):
+        if not datas:
+            return []
+        stmt=(
+            update(InventoryVariants.__table__)
+            .where(InventoryVariants.id==bindparam("b_id"))
+            .values(
+                stocks=case(
+                    (
+                        bindparam("is_absolute"),
+                        bindparam("stocks")
+                    ),
+                    else_=InventoryVariants.stocks+bindparam("stocks")
+                    
+                ),
+                sell_price=bindparam("sell_price"),
+                buy_price=bindparam("buy_price")
+            )
+            .execution_options(synchronize_session=False)
+            .returning(InventoryVariants.id)
+        )
+
+        res=(await self.session.execute(stmt,datas)).scalars().all()
+
+        return res
     
     @start_db_transaction
     async def create_bulk(self,datas:List[Inventory])-> bool:
@@ -424,6 +479,7 @@ class InventoryRepo(BaseRepoModel):
                 data,
                 value=InventoryBatches.id
             )
+            
         ).returning(InventoryBatches.id)
 
         is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
@@ -866,19 +922,19 @@ class InventoryRepo(BaseRepoModel):
     async def getby_shop_id(self,data:GetInventoryByShopIdSchema)-> List[dict] | list:
         created_at=func.date(func.timezone(data.timezone.value,Inventory.created_at))
         cursor=(data.offset-1)*data.limit
+        search_term=f"%{data.query.strip()}%"
         select_stmt=(
             select(*self.inv_cols,variants,batches,serials)
             .where(
                 Inventory.shop_id==data.shop_id,
                 or_(
-                    Inventory.id.ilike(data.query),
-                    Inventory.name.ilike(data.query),
-                    Inventory.description.ilike(data.query),
-                    Inventory.category.ilike(data.query),
-                    Inventory.barcode.ilike(data.query),
-                    Inventory.shop_id.ilike(data.query),
-                    Inventory.added_by.ilike(data.query),
-                    func.cast(created_at,String).ilike(data.query)
+                    Inventory.id.ilike(search_term),
+                    Inventory.name.ilike(search_term),
+                    Inventory.description.ilike(search_term),
+                    Inventory.category.ilike(search_term),
+                    Inventory.barcode.ilike(search_term),
+                    Inventory.shop_id.ilike(search_term),
+                    func.cast(created_at,String).ilike(search_term)
                 )
             )
             .offset(offset=cursor).limit(limit=data.limit)
@@ -894,6 +950,7 @@ class InventoryRepo(BaseRepoModel):
     async def get(self,data:GetAllInventorySchema)-> List[dict] | list:
         created_at=func.date(func.timezone(data.timezone.value,Inventory.created_at))
         cursor=(data.offset-1)*data.limit
+        search_term=f"%{data.query.strip()}%"
         select_stmt=(
             select(
                 *self.inv_cols,
@@ -901,14 +958,13 @@ class InventoryRepo(BaseRepoModel):
             )
             .where(
                 or_(
-                    Inventory.id.ilike(data.query),
-                    Inventory.name.ilike(data.query),
-                    Inventory.description.ilike(data.query),
-                    Inventory.category.ilike(data.query),
-                    Inventory.barcode.ilike(data.query),
-                    Inventory.shop_id.ilike(data.query),
-                    Inventory.added_by.ilike(data.query),
-                    func.cast(created_at,String).ilike(data.query)
+                    Inventory.id.ilike(search_term),
+                    Inventory.name.ilike(search_term),
+                    Inventory.description.ilike(search_term),
+                    Inventory.category.ilike(search_term),
+                    Inventory.barcode.ilike(search_term),
+                    Inventory.shop_id.ilike(search_term),
+                    func.cast(created_at,String).ilike(search_term)
                 )
             )
             .group_by(*self.inv_cols)

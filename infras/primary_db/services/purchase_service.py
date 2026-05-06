@@ -43,8 +43,12 @@ class PurchaseService(BaseServiceModel):
 
         for inventory in data.products:
             inventories_tocheck.append(inventory.inventory_id)
-            if formatted_req_inventories.get(inventory.inventory_id,None):
-                return False
+            exists_data=formatted_req_inventories.get(inventory.inventory_id,None)
+            if exists_data:
+                if exists_data['variant_id'] and inventory.variant_id:
+                    if exists_data['variant_id'] == inventory.variant_id:
+                        ic("Same Product+variant does not add twice")
+                        return False
             
             formatted_req_inventories[inventory.inventory_id]=inventory.model_dump(mode="json")
 
@@ -73,11 +77,14 @@ class PurchaseService(BaseServiceModel):
         
         batch_toupdate={}
         batch_toadd=[]
-        variant_toudate={}
-        product_toupdate={}
+        variant_toudate=[]
+        product_toupdate=[]
         serialno_toupdate={}
+
+
         purchase_inv_product_toadd=[]
         serialno_toadd=[]
+
         
         ERROR_OCCURED=False
         for inv_res in checked_results:
@@ -116,6 +123,7 @@ class PurchaseService(BaseServiceModel):
                     ERROR_OCCURED=True
                     return None
                 
+                new_batch_id=None
                 if inv_res['has_batch'] and not batch_id and batch:
                     new_batch_id=generate_uuid()
                     batch_data_toadd=InventoryBatchDbSchema(
@@ -132,6 +140,30 @@ class PurchaseService(BaseServiceModel):
                         InventoryBatches(**batch_data_toadd.model_dump())
                     )
 
+                
+
+                if inv_res['has_variant'] and variant_id:
+                    variant_toudate.append(
+                        {
+                            'b_id':variant_id,
+                            'stocks':stocks,
+                            'is_absolute':False,
+                            'buy_price':requested_data['buy_price'],
+                            'sell_price':requested_data['sell_price']
+                        }
+                    )
+                
+                if inv_res['has_batch'] and batch_id:
+                    batch_toupdate[batch_id]=stocks
+
+                if inv_res['has_serialno'] and len(requested_data.get('serial_numbers',[]) or [])!=stocks:
+                    ic("Invalid serial numbers")
+                    ERROR_OCCURED=True
+                    return False
+
+                if (inv_res['has_serialno'] and serial_id) and len(requested_data.get('serial_numbers',[]) or [])==stocks:
+                    serialno_toupdate[serial_id]=requested_data['serial_numbers']
+                if (inv_res['has_serialno'] and not serial_id) and len(requested_data.get('serial_numbers',[]) or [])==stocks:
                     serialno_data_toadd=InventorySerialNumberDbSchema(
                         id=generate_uuid(),
                         shop_id=data.shop_id,
@@ -142,17 +174,18 @@ class PurchaseService(BaseServiceModel):
                     )
 
                     serialno_toadd.append(InventorySerialNumbers(**serialno_data_toadd.model_dump()))
+                
+                product_toupdate.append(
+                    {
+                        'b_id':inv_id,
+                        'stocks':stocks,
+                        'is_absolute':False,
+                        'buy_price':requested_data['buy_price'],
+                        'sell_price':requested_data['sell_price']
+                    }
+                )
 
-            if inv_res['has_variant'] and variant_id:
-                variant_toudate[variant_id]=stocks
-            
-            if inv_res['has_batch'] and batch_id:
-                batch_toupdate[batch_id]=stocks
 
-            if (inv_res['has_serialno'] and serial_id) and len(requested_data.get('serial_numbers',[]) or [])==stocks:
-                serialno_toupdate[serial_id]=requested_data['serial_numbers']
-            
-            product_toupdate[inv_id]=stocks
 
             purchase_inv_product_toadd.append(
                 PurchaseInventoryProducts(
@@ -163,8 +196,8 @@ class PurchaseService(BaseServiceModel):
                     stocks=stocks,
                     sell_price=requested_data['sell_price'],
                     buy_price=requested_data['buy_price'],
-                    margin=requested_data['margin'],
-                    received_stocks=received_stocks
+                    received_stocks=received_stocks,
+                    stocks_before=inv_res['stocks']
                 )
             )
         
@@ -174,6 +207,7 @@ class PurchaseService(BaseServiceModel):
         
         ic(data)
         ic(batch_toupdate,variant_toudate,product_toupdate,purchase_inv_product_toadd,serialno_toupdate,serialno_toadd)
+
         data_toadd=CreatePurchaseDbSchema(
             **data.model_dump(mode='json'),
             id=purchase_id,
@@ -198,9 +232,9 @@ class PurchaseService(BaseServiceModel):
             await InventoryRepo(session=self.session).create_batch_bulk(datas=batch_toadd)
             await inv_repo_obj.create_serialno_bulk(datas=serialno_toadd)
 
-            await inv_repo_obj.bulk_qty_update(data=product_toupdate,shop_id=data.shop_id)
+            await inv_repo_obj.update_bulk(datas=product_toupdate)
+            await inv_repo_obj.update_variant_bulk(datas=variant_toudate)
             await inv_repo_obj.bulk_batch_qty_update(data=batch_toupdate,shop_id=data.shop_id)
-            await inv_repo_obj.bulk_variant_qty_update(data=variant_toudate,shop_id=data.shop_id)
             await inv_repo_obj.bulk_add_serialno(data=serialno_toupdate,shop_id=data.shop_id)
 
 

@@ -10,17 +10,18 @@ class CreateInventoryDbSchema(BaseModel):
     name:str
     category:str
     description:str
-    buy_price:float
-    sell_price:float
-    stocks:Optional[int]=None
-    barcode:str
-
+    buy_price:Optional[float]=0.0
+    sell_price:Optional[float]=0.0
+    stocks:Optional[int]=0
+    barcode:Optional[str]=None
+    is_active:Optional[bool]=False
+    sku:str
+    reorder_point:int
     has_variant:Optional[bool]=None
     has_serialno:Optional[bool]=None
     has_batch:Optional[bool]=None
 
     datas:Optional[dict]=None
-    added_by:str
 
 
 
