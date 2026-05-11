@@ -12,6 +12,6 @@ router=APIRouter(
 
 ASYNC_PG_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 
-@router.post('/')
+@router.post('')
 async def create_billing(data:CreateBillingSchema,session:ASYNC_PG_SESSION):
     return await HandleBillingRequest(session=session).create(data=data)
