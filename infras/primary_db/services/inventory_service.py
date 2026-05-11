@@ -146,6 +146,12 @@ class InventoryService(BaseServiceModel):
     async def bulk_check(self,data:BulkCheckInventorySchema)-> List[dict] | list:
         return await InventoryRepo(session=self.session).bulk_check(data=data)
     
+    async def bulk_batch_check(self,shop_id:str,batches_id: List[str])-> List[dict] | list:
+        return await InventoryRepo(session=self.session).bulk_batch_check(shop_id=shop_id,batches_id=batches_id)
+    
+    async def bulk_serialno_check(self,shop_id:str,serianos_id:str)-> List[dict] | list:
+        return await InventoryRepo(session=self.session).bulk_serialno_check(shop_id=shop_id,serialnos_id=serianos_id)
+    
     async def bulk_varient_check(self,shop_id:str,variants_id:list,additional_conditions: Optional[tuple]=()):
         return await InventoryRepo(session=self.session).bulk_varient_check(shop_id=shop_id,variants_id=variants_id,additional_conditions=additional_conditions)
     

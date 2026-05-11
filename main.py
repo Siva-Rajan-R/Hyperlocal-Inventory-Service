@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from api.routers.v1 import inventory_routes,purchase_route,stock_adj_routes
+from api.routers.v1 import inventory_routes,purchase_route,stock_adj_routes,billing_routes
 from contextlib import asynccontextmanager
 from icecream import ic
 from dotenv import load_dotenv
@@ -60,5 +60,6 @@ app=FastAPI(
 app.include_router(inventory_routes.router)
 app.include_router(purchase_route.router)
 app.include_router(stock_adj_routes.router)
+app.include_router(billing_routes.router)
 
 

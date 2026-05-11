@@ -1,5 +1,5 @@
 from .main import RabbitMQMessagingConfig,ExchangeType
-from .controllers.controller import ConsumersHandler
+from .controllers.producer_controller import producer_main_controller
 import asyncio
 
 async def worker():
@@ -8,10 +8,7 @@ async def worker():
 
     # Exchanges
     exchanges=[
-        {'name':'products.inventory.inventory.exchange','exc_type':ExchangeType.TOPIC},
-        {'name':'shops.inventory.inventory.exchange','exc_type':ExchangeType.TOPIC},
-        {'name':'products.purchase.purchase.exchange','exc_type':ExchangeType.TOPIC},
-        {'name':'suppliers.purchase.purchase.exchange','exc_type':ExchangeType.TOPIC}
+        {'name':'billing.producer.exchange','exc_type':ExchangeType.DIRECT}
 
     ]
 
@@ -20,10 +17,7 @@ async def worker():
 
     # Queues
     queues=[
-        {'exc_name':'products.inventory.inventory.exchange','q_name':'products.inventory.inventory.queue','r_key':'products.inventory.*.*.v1'},
-        {'exc_name':'shops.inventory.inventory.exchange','q_name':'shops.inventory.inventory.queue','r_key':'shops.inventory.*.*.v1'},
-        {'exc_name':'products.purchase.purchase.exchange','q_name':'products.purchase.purchase.queue','r_key':'products.purchase.*.*.v1'},
-        {'exc_name':'suppliers.purchase.purchase.exchange','q_name':'suppliers.purchase.purchase.queue','r_key':'suppliers.purchase.*.*.v1'}
+        {'exc_name':'billing.producer.exchange','q_name':'billing.producer.queue','r_key':'billing.producer.routing.key'}
     ]
 
     for queue in queues:
@@ -35,10 +29,7 @@ async def worker():
 
     # Consumers
     consumers=[
-        {'q_name':'products.inventory.inventory.queue','handler':ConsumersHandler.main_handler},
-        {'q_name':'shops.inventory.inventory.queue','handler':ConsumersHandler.main_handler},
-        {'q_name':'products.purchase.purchase.queue','handler':ConsumersHandler.main_handler},
-        {'q_name':'suppliers.purchase.purchase.queue','handler':ConsumersHandler.main_handler}
+        {'q_name':'billing.producer.queue','handler':producer_main_controller}
     ]
 
     for consumer in consumers:

@@ -904,11 +904,55 @@ class InventoryRepo(BaseRepoModel):
             select(
                 InventoryVariants.id,
                 InventoryVariants.inventory_id,
+                InventoryVariants.stocks,
+                InventoryVariants.buy_price,
+                InventoryVariants.sell_price,
                 InventoryVariants.datas
             )
             .where(
                 InventoryVariants.id.in_(variants_id),
                 InventoryVariants.shop_id==shop_id,
+                *additional_conditions
+            )
+        )
+
+        results=(await self.session.execute(check_stmt)).mappings().all()
+
+        ic(results)
+
+        return results
+    
+
+    async def bulk_serialno_check(self,shop_id:str,serialnos_id:list,additional_conditions: Optional[tuple]=()):
+        check_stmt=(
+            select(
+                InventorySerialNumbers.id,
+                InventorySerialNumbers.inventory_id
+            )
+            .where(
+                InventorySerialNumbers.id.in_(serialnos_id),
+                InventorySerialNumbers.shop_id==shop_id,
+                *additional_conditions
+            )
+        )
+
+        results=(await self.session.execute(check_stmt)).mappings().all()
+
+        ic(results)
+
+        return results
+    
+    async def bulk_batch_check(self,shop_id:str,batches_id:list,additional_conditions: Optional[tuple]=()):
+        check_stmt=(
+            select(
+                InventoryBatches.id,
+                InventoryBatches.inventory_id,
+                InventoryBatches.stocks,
+                InventoryBatches.datas
+            )
+            .where(
+                InventoryBatches.id.in_(batches_id),
+                InventoryBatches.shop_id==shop_id,
                 *additional_conditions
             )
         )
