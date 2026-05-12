@@ -59,14 +59,20 @@ class HandleBillingRequest:
             ic(structured_data[inv_res['id']])
             if inv_res['has_variant'] and not structured_data[inv_res['id']]['variant_id']:
                 ERROR_OCCURED=True
+                ic("Variant exists but variant id not forund")
                 break 
 
             if inv_res['has_batch'] and not structured_data[inv_res['id']]['batch_id']:
                 ERROR_OCCURED=True
+                ic("batch exists but batch id not found")
                 break
-
-            if inv_res['has_serialno'] and not structured_data[inv_res['id']]['serialno_id'] or len(structured_data[inv_res['id']]['serial_numbers'] or [])!=structured_data[inv_res['id']]['quantity']:
+            
+            ic(inv_res['has_serialno'])
+            ic(inv_res['has_serialno'] and (not structured_data[inv_res['id']]['serialno_id'] or len(structured_data[inv_res['id']]['serial_numbers'] or [])!=structured_data[inv_res['id']]['quantity']))
+            ic(inv_res['has_serialno'],not structured_data[inv_res['id']]['serialno_id'],len(structured_data[inv_res['id']]['serial_numbers'] or [])!=structured_data[inv_res['id']]['quantity'])
+            if inv_res['has_serialno'] and (not structured_data[inv_res['id']]['serialno_id'] or len(structured_data[inv_res['id']]['serial_numbers'] or [])!=structured_data[inv_res['id']]['quantity']):
                 ERROR_OCCURED=True
+                ic("Serial no exisits but serialno id not forund or serial numbers doesnot match the quantity")
                 break
 
             if inv_res['has_variant']:
@@ -93,7 +99,7 @@ class HandleBillingRequest:
                 detail=ErrorResponseTypDict(
                     msg="Error Creating Billing",
                     success=False,
-                    description="invalid Variants or Invalid serial numbers",
+                    description="invalid Variants,batch,serial or Invalid serial numbers",
                     status_code=400
                 )
             )
