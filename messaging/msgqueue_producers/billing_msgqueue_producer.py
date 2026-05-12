@@ -23,7 +23,7 @@ class MessagingQueueBillingproducer:
             billing_datas=data['billing']
             rb_msg=RabbitMQMessagingConfig(rabbitMQ_connection=await RabbitMQMessagingConfig.get_rabbitmq_connection())
             ic(saga_datas['execution']['step'])
-            if saga_datas['execution']['step']=="ORDER_CREATION":
+            if saga_datas['execution']['step']=="ORDER_CREATION" or saga_datas['execution']['step']=="ORDER_EXCHANGE":
                 orders_data:dict|str=data.get('orders','not_found')
 
                 if orders_data=="not_found":
@@ -152,6 +152,11 @@ class MessagingQueueBillingproducer:
         
                 return {'response':True,'execution':{'next_step':'ORDERS_DELETE','service':'ORDERS'}}
             return {'response':False,'execution':None}
+        
+
     async def return_billing(self):
         ic("Inside Return Billing")
         return {'response':False,'execution':None} 
+    
+    async def exchange_billing_bulk(self):
+        return await self.create_billing()

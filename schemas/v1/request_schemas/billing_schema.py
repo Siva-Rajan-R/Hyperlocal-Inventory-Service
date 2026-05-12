@@ -17,7 +17,12 @@ class CreateBillingSchema(BaseModel):
     shop_id:str
     payment_method:str
     customer_id:str
+    status:Optional[str]="COMPLETED"
 
+
+class CreateBillingReturnBulkSchema(BaseModel):
+    order_id:str
+    items_id:List[str]
 
 class CreateBillingReturnSchema(BaseModel):
     order_id:str
@@ -31,4 +36,12 @@ class CreateBillingExchangeSchema(BaseModel):
     item_id:str
     payment_method:str
     product:BillingProductSchema
+    
+class CreateBillingBulkExchangeSchema(BaseModel):
+    shop_id:str
+    customer_id:str
+    order_id:str
+    items_id:List[str]
+    payment_method:str
+    products:List[BillingProductSchema]
     
