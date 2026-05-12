@@ -18,4 +18,17 @@ class CreateBillingSchema(BaseModel):
     payment_method:str
     customer_id:str
 
+
+class CreateBillingReturnSchema(BaseModel):
+    order_id:str
+    item_id:str
+
+
+class CreateBillingExchangeSchema(BaseModel):
+    shop_id:str
+    customer_id:str
+    order_id:str
+    item_id:str
+    payment_method:str
+    product:BillingProductSchema
     
