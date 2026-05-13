@@ -228,7 +228,9 @@ class PurchaseService(BaseServiceModel):
         pur_repo_obj=PurchaseRepo(session=self.session)
         NEXT=False
 
+       
         if data.type==PurchaseTypeEnums.PO_UPDATE:
+            ic(po_checked_results)
             for pur_inv_id in po_checked_results:
                 purchace_inv_product_toupdate.append(
                     {
@@ -237,9 +239,11 @@ class PurchaseService(BaseServiceModel):
                     }
             )
                 
+            ic(purchace_inv_product_toupdate)
+                
             pur_item_res=await pur_repo_obj.update_purchase_inv_bulk(datas=purchace_inv_product_toupdate)
             ic(pur_item_res)
-            
+
         if data.type!=PurchaseTypeEnums.PO_UPDATE:
             pur_res=await pur_repo_obj.create(data=data_toadd)
             NEXT=pur_res

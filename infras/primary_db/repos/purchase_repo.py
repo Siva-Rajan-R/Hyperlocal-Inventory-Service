@@ -426,7 +426,7 @@ class PurchaseRepo(BaseRepoModel):
             )
         )
 
-        results=(await self.session.execute(check_stmt)).mappings().all()
+        results=(await self.session.execute(check_stmt)).scalars().all()
 
         ic(results)
 
