@@ -112,6 +112,7 @@ class PurchaseService(BaseServiceModel):
             if data.type.value==PurchaseTypeEnums.PO_UPDATE.value:
                 received_stocks=requested_data['received_stocks']
 
+
             if data.type!=PurchaseTypeEnums.PO_CREATE:
                 if inv_res['has_variant'] and not variant_id:
                     ic("There is no variant id")
@@ -146,7 +147,7 @@ class PurchaseService(BaseServiceModel):
                     variant_toudate.append(
                         {
                             'b_id':variant_id,
-                            'stocks':stocks,
+                            'stocks':received_stocks,
                             'is_absolute':False,
                             'buy_price':requested_data['buy_price'],
                             'sell_price':requested_data['sell_price']
@@ -154,16 +155,17 @@ class PurchaseService(BaseServiceModel):
                     )
                 
                 if inv_res['has_batch'] and batch_id:
-                    batch_toupdate[batch_id]=stocks
+                    batch_toupdate[batch_id]=received_stocks
 
-                if inv_res['has_serialno'] and len(requested_data.get('serial_numbers',[]) or [])!=stocks:
+                if inv_res['has_serialno'] and len(requested_data.get('serial_numbers',[]) or [])!=received_stocks:
                     ic("Invalid serial numbers")
                     ERROR_OCCURED=True
                     return False
 
-                if (inv_res['has_serialno'] and serial_id) and len(requested_data.get('serial_numbers',[]) or [])==stocks:
+                if (inv_res['has_serialno'] and serial_id) and len(requested_data.get('serial_numbers',[]) or [])==received_stocks:
                     serialno_toupdate[serial_id]=requested_data['serial_numbers']
-                if (inv_res['has_serialno'] and not serial_id) and len(requested_data.get('serial_numbers',[]) or [])==stocks:
+
+                if (inv_res['has_serialno'] and not serial_id) and len(requested_data.get('serial_numbers',[]) or [])==received_stocks:
                     serialno_data_toadd=InventorySerialNumberDbSchema(
                         id=generate_uuid(),
                         shop_id=data.shop_id,
@@ -178,7 +180,7 @@ class PurchaseService(BaseServiceModel):
                 product_toupdate.append(
                     {
                         'b_id':inv_id,
-                        'stocks':stocks,
+                        'stocks':received_stocks,
                         'is_absolute':False,
                         'buy_price':requested_data['buy_price'],
                         'sell_price':requested_data['sell_price']
