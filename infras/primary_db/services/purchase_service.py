@@ -40,6 +40,7 @@ class PurchaseService(BaseServiceModel):
         ic(purchase_id)
         inventories_tocheck=[]
         formatted_req_inventories={}
+        po_checked_results=[]
 
         for inventory in data.products:
             inventories_tocheck.append(inventory.inventory_id)
@@ -62,6 +63,8 @@ class PurchaseService(BaseServiceModel):
             if not po_checked_results or len(po_checked_results)!=len(data.products):
                 ic("Po Check Failed")
                 return False
+        
+
             
 
         checked_results=await InventoryRepo(session=self.session).bulk_check(data=BulkCheckInventorySchema(shop_id=data.shop_id,id=inventories_tocheck))
@@ -83,6 +86,7 @@ class PurchaseService(BaseServiceModel):
 
 
         purchase_inv_product_toadd=[]
+        purchace_inv_product_toupdate=[]
         serialno_toadd=[]
 
         
@@ -104,6 +108,7 @@ class PurchaseService(BaseServiceModel):
 
             stocks:int=requested_data['stocks']
             received_stocks=stocks
+
             if data.type.value==PurchaseTypeEnums.PO_UPDATE.value and not requested_data['received_stocks']:
                 ic("Received stock not found")
                 ERROR_OCCURED=True
@@ -113,7 +118,7 @@ class PurchaseService(BaseServiceModel):
                 received_stocks=requested_data['received_stocks']
             
             ic(received_stocks)
-
+            
 
             if data.type!=PurchaseTypeEnums.PO_CREATE:
                 if inv_res['has_variant'] and not variant_id:
@@ -204,6 +209,9 @@ class PurchaseService(BaseServiceModel):
                     stocks_before=inv_res['stocks']
                 )
             )
+
+
+            
         
         if ERROR_OCCURED:
             ic("Error Occured")
@@ -219,6 +227,19 @@ class PurchaseService(BaseServiceModel):
         )
         pur_repo_obj=PurchaseRepo(session=self.session)
         NEXT=False
+
+        if data.type==PurchaseTypeEnums.PO_UPDATE:
+            for pur_inv_id in po_checked_results:
+                purchace_inv_product_toupdate.append(
+                    {
+                        'b_purchase_inv_id':pur_inv_id,
+                        'b_received_stocks':received_stocks
+                    }
+            )
+                
+            pur_item_res=await pur_repo_obj.update_purchase_inv_bulk(datas=purchace_inv_product_toupdate)
+            ic(pur_item_res)
+            
         if data.type!=PurchaseTypeEnums.PO_UPDATE:
             pur_res=await pur_repo_obj.create(data=data_toadd)
             NEXT=pur_res

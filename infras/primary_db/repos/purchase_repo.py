@@ -268,6 +268,31 @@ class PurchaseRepo(BaseRepoModel):
         self.session.add_all(data)
         return True
     
+
+    @start_db_transaction
+    async def update_purchase_inv_bulk(self,datas: List[dict]):
+        if not datas:
+            return []
+        stmt=(
+            update(
+                PurchaseInventoryProducts.__table__
+            )
+            .where(
+                PurchaseInventoryProducts.id==bindparam('b_purchase_inv_id')
+            )
+            .values(
+                received_stocks=bindparam('b_received_stocks')
+            )
+            .execution_options(synchronize_session=False)
+        )
+
+
+        res=(await self.session.execute(stmt,datas))
+
+        ic(res)
+
+        return res
+    
     @start_db_transaction
     async def update(self,data:UpdatePurchaseDbSchema):
         data_toupdate=update(
