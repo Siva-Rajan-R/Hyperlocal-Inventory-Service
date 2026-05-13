@@ -27,6 +27,7 @@ pip_agg = (
         pip.variant_id,
         pip.batch_id,
         pip.stocks_before.label('stocks_before'),
+        pip.received_stocks.label('received_stocks'),
         func.sum(pip.stocks).label("stocks"),
         func.max(pip.buy_price).label("buy_price"),
         func.max(pip.sell_price).label("sell_price"),
@@ -36,7 +37,8 @@ pip_agg = (
         pip.inventory_id,
         pip.variant_id,
         pip.batch_id,
-        pip.stocks_before
+        pip.stocks_before,
+        pip.received_stocks
     )
 ).subquery()
 
@@ -138,6 +140,7 @@ product_subq = (
         pip_agg.c.purchase_id,
         pip_agg.c.inventory_id,
         pip_agg.c.stocks_before,
+        pip_agg.c.received_stocks,
 
         # 🔹 inventory fields
         i.id.label("id"),
@@ -174,6 +177,7 @@ product_subq = (
         pip_agg.c.purchase_id,
         pip_agg.c.inventory_id,
         pip_agg.c.stocks_before,
+        pip_agg.c.received_stocks,
 
         # 🔴 ALL non-aggregated columns MUST be grouped
         i.id,
@@ -211,6 +215,7 @@ products_agg = func.jsonb_agg(
         "has_serialno", product_subq.c.has_serialno,
         "has_variant", product_subq.c.has_variant,
         "stocks_before",product_subq.c.stocks_before,
+        "received_stocks",product_subq.c.received_stocks,
 
         # 🔹 purchase values
         "stocks", product_subq.c.stocks,

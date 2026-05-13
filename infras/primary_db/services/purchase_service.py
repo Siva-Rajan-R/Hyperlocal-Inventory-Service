@@ -108,9 +108,11 @@ class PurchaseService(BaseServiceModel):
                 ic("Received stock not found")
                 ERROR_OCCURED=True
                 return False
-            
+            ic(data.type.value==PurchaseTypeEnums.PO_UPDATE.value)
             if data.type.value==PurchaseTypeEnums.PO_UPDATE.value:
                 received_stocks=requested_data['received_stocks']
+            
+            ic(received_stocks)
 
 
             if data.type!=PurchaseTypeEnums.PO_CREATE:
