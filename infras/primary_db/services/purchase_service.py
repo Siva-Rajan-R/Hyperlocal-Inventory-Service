@@ -110,7 +110,7 @@ class PurchaseService(BaseServiceModel):
                 return False
             
             if data.type.value==PurchaseTypeEnums.PO_UPDATE.value:
-                stocks=requested_data['received_stocks']
+                received_stocks=requested_data['received_stocks']
 
             if data.type!=PurchaseTypeEnums.PO_CREATE:
                 if inv_res['has_variant'] and not variant_id:
