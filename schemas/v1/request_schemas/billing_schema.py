@@ -8,6 +8,8 @@ class BillingProductSchema(BaseModel):
     batch_id:Optional[str]=None
     serialno_id:Optional[str]=None
     serial_numbers:Optional[List[str]]=[]
+    reason:Optional[str]=None
+    datas:Optional[dict]=None
     quantity:int
 
 
@@ -17,6 +19,7 @@ class CreateBillingSchema(BaseModel):
     shop_id:str
     payment_method:str
     customer_id:str
+    datas:Optional[dict]=None
     status:Optional[str]="COMPLETED"
 
 

@@ -614,7 +614,9 @@ class HandleBillingRequest:
                     'buy_price':val['buy_price'],
                     'sell_price':val['sell_price'],
                     'gst':val['gst'],
-                    'quantity':val['quantity']
+                    'quantity':val['quantity'],
+                    'reason':val['reason'],
+                    'datas':val['datas']
                 }
             )
         

@@ -57,8 +57,30 @@ class MessagingQueueBillingproducer:
                     await inv_obj.bulk_variant_decr_qty_update(shop_id=billing_datas['shop_id'],data=variant_stock_update)
                     await inv_obj.bulk_batch_decr_qty_update(shop_id=billing_datas['shop_id'],data=batch_stock_update)
                     await inv_obj.bulk_qty_decr_update(shop_id=billing_datas['shop_id'],data=inv_stock_update)
+                
+                await rb_msg.publish_event(
+                    routing_key="customers.service.routing.key",
+                    exchange_name="customers.service.exchange",
+                    payload=self.payload,
+                    headers={
+                        **self.headers,
+                        'entity_name':'deduct_credit_customer',
+                        'service_name':'CUSTOMERS',
+                        'body':{
+                            'id':billing_datas['customer_id'],
+                            'shop_id':billing_datas['shop_id'],
+                            'amount':orders_data['total_sellprice']
+                        }
+                    }
+                )
 
-                return {'response':True,'execution':{'next_step':'','service':''}}
+                return {'response':True,'execution':{'next_step':'CUSTOMER_DEDUCTION','service':'CUSTOMERS'}}
+            
+            if saga_datas['execution']['step']=="CUSTOMER_DEDUCTION":
+                ic("CUSTOMER DEDUCTED SUCCESSFULLY")
+                return {"response":True,'execution':None}
+
+
             
             return {"response":False,'execution':None}
         
