@@ -57,9 +57,6 @@ class PurchaseService(BaseServiceModel):
                 formatted_req_inventories[inventory.inventory_id]=inventory.model_dump(mode="json")
 
         ic(inventories_tocheck,formatted_req_inventories)
-        if len(inventories_tocheck)!=len(data.products):
-            ic("Invalid datas length")
-            return False
         
         if data.type.value==PurchaseTypeEnums.PO_UPDATE.value:
             po_checked_results=await PurchaseRepo(session=self.session).bulk_check_purchase_inv_products(BulkCheckPurchaseSchema(purchase_id=purchase_id,inventory_id=inventories_tocheck))
