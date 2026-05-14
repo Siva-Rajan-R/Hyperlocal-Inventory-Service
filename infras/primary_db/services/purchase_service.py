@@ -190,7 +190,8 @@ class PurchaseService(BaseServiceModel):
                         'stocks':received_stocks,
                         'is_absolute':False,
                         'buy_price':requested_data['buy_price'],
-                        'sell_price':requested_data['sell_price']
+                        'sell_price':requested_data['sell_price'],
+                        'is_active':True
                     }
                 )
 
@@ -244,6 +245,8 @@ class PurchaseService(BaseServiceModel):
             pur_item_res=await pur_repo_obj.update_purchase_inv_bulk(datas=purchace_inv_product_toupdate)
             ic(pur_item_res)
 
+            
+
         if data.type!=PurchaseTypeEnums.PO_UPDATE:
             pur_res=await pur_repo_obj.create(data=data_toadd)
             NEXT=pur_res
@@ -265,6 +268,8 @@ class PurchaseService(BaseServiceModel):
             await inv_repo_obj.update_variant_bulk(datas=variant_toudate)
             await inv_repo_obj.bulk_batch_qty_update(data=batch_toupdate,shop_id=data.shop_id)
             await inv_repo_obj.bulk_add_serialno(data=serialno_toupdate,shop_id=data.shop_id)
+
+            NEXT=True
 
 
         return NEXT

@@ -94,6 +94,7 @@ class DeleteInventorySchema(BaseModel):
 
 
 class GetAllInventorySchema(BaseModel):
+    is_active:bool=Field(default=False)
     query:str=Field(default="",alias="q")
     limit:int=Field(default=10,le=100)
     offset:int=Field(default=1)
@@ -104,6 +105,7 @@ class GetInventoryByShopIdSchema(BaseModel):
     query:str=Field(default="",alias="q")
     limit:int=Field(default=10,le=100)
     offset:int=Field(default=1)
+    is_active:bool=Field(default=False)
     timezone:Optional[TimeZoneEnum]=TimeZoneEnum.Asia_Kolkata
 
 

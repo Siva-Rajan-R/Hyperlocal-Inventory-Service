@@ -153,6 +153,7 @@ class InventoryRepo(BaseRepoModel):
             Inventory.buy_price,
             Inventory.sell_price,
             Inventory.stocks,
+            Inventory.is_active,
             Inventory.datas,
             Inventory.name,
             Inventory.description,
@@ -201,7 +202,8 @@ class InventoryRepo(BaseRepoModel):
                     
                 ),
                 sell_price=bindparam("sell_price"),
-                buy_price=bindparam("buy_price")
+                buy_price=bindparam("buy_price"),
+                is_active=bindparam('is_active')
             )
             .execution_options(synchronize_session=False)
             .returning(Inventory.id)
@@ -971,6 +973,7 @@ class InventoryRepo(BaseRepoModel):
             select(*self.inv_cols,variants,batches,serials)
             .where(
                 Inventory.shop_id==data.shop_id,
+                Inventory.is_active==data.is_active,
                 or_(
                     Inventory.id.ilike(search_term),
                     Inventory.name.ilike(search_term),
@@ -1001,6 +1004,7 @@ class InventoryRepo(BaseRepoModel):
                 variants,batches,serials
             )
             .where(
+                Inventory.is_active==data.is_active,
                 or_(
                     Inventory.id.ilike(search_term),
                     Inventory.name.ilike(search_term),
