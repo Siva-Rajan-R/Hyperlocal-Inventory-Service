@@ -74,6 +74,9 @@ class PurchaseService(BaseServiceModel):
         
 
         ic(checked_results)
+        ic(data.products)
+
+        ic(len(checked_results),len(data.products))
 
 
         if len(checked_results)!=len(data.products):
