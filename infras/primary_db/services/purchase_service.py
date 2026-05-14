@@ -52,8 +52,9 @@ class PurchaseService(BaseServiceModel):
                         ic("Same Product+variant does not add twice")
                         return False
                     
-            inventories_tocheck.append(inventory.inventory_id)
-            formatted_req_inventories[inventory.inventory_id]=inventory.model_dump(mode="json")
+            if inventory.inventory_id not in inventories_tocheck:  
+                inventories_tocheck.append(inventory.inventory_id)
+                formatted_req_inventories[inventory.inventory_id]=inventory.model_dump(mode="json")
 
         ic(inventories_tocheck,formatted_req_inventories)
         if len(inventories_tocheck)!=len(data.products):
@@ -75,11 +76,12 @@ class PurchaseService(BaseServiceModel):
 
         ic(checked_results)
         ic(data.products)
+        ic(inventories_tocheck)
 
-        ic(len(checked_results),len(data.products))
+        ic(len(checked_results),len(data.products),len(inventories_tocheck))
 
 
-        if len(checked_results)!=len(data.products):
+        if len(checked_results)!=len(inventories_tocheck):
             ic("Invalid checked results")
             return False
         
