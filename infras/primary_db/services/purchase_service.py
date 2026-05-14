@@ -43,14 +43,16 @@ class PurchaseService(BaseServiceModel):
         po_checked_results=[]
 
         for inventory in data.products:
-            inventories_tocheck.append(inventory.inventory_id)
+            ic(inventories_tocheck)
+            ic(formatted_req_inventories)
             exists_data=formatted_req_inventories.get(inventory.inventory_id,None)
             if exists_data:
                 if exists_data['variant_id'] and inventory.variant_id:
                     if exists_data['variant_id'] == inventory.variant_id:
                         ic("Same Product+variant does not add twice")
                         return False
-            
+                    
+            inventories_tocheck.append(inventory.inventory_id)
             formatted_req_inventories[inventory.inventory_id]=inventory.model_dump(mode="json")
 
         ic(inventories_tocheck,formatted_req_inventories)
