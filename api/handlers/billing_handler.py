@@ -173,13 +173,13 @@ class HandleBillingRequest:
         
         data_toadd=data.model_dump(mode='json')
         saga_id:str=generate_uuid()
-
+        ic(data.payments)
         body={
             'shop_id':data.shop_id,
             'customer_id':data.customer_id,
             'status':data.status,
             'origin':'OFFLINE',
-            'payment_method':data.payment_method,
+            'payments':data.payments,
             'items':items
         }
 

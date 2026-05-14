@@ -17,7 +17,7 @@ class BillingProductSchema(BaseModel):
 class CreateBillingSchema(BaseModel):
     products:List[BillingProductSchema]
     shop_id:str
-    payment_method:str
+    payments:dict
     customer_id:str
     datas:Optional[dict]=None
     status:Optional[str]="COMPLETED"
@@ -37,7 +37,7 @@ class CreateBillingExchangeSchema(BaseModel):
     customer_id:str
     order_id:str
     item_id:str
-    payment_method:str
+    payments:str
     product:BillingProductSchema
     
 class CreateBillingBulkExchangeSchema(BaseModel):
@@ -45,6 +45,6 @@ class CreateBillingBulkExchangeSchema(BaseModel):
     customer_id:str
     order_id:str
     items_id:List[str]
-    payment_method:str
+    payments:str
     products:List[BillingProductSchema]
     
