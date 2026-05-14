@@ -969,20 +969,28 @@ class InventoryRepo(BaseRepoModel):
         created_at=func.date(func.timezone(data.timezone.value,Inventory.created_at))
         cursor=(data.offset-1)*data.limit
         search_term=f"%{data.query.strip()}%"
+        conditions = [
+            Inventory.shop_id == data.shop_id,
+            or_(
+                Inventory.id.ilike(search_term),
+                Inventory.name.ilike(search_term),
+                Inventory.description.ilike(search_term),
+                Inventory.category.ilike(search_term),
+                Inventory.barcode.ilike(search_term),
+                Inventory.shop_id.ilike(search_term),
+                func.cast(created_at, String).ilike(search_term)
+            )
+        ]
+
+        if data.is_active is not None:
+            conditions.append(
+                Inventory.is_active == data.is_active
+            )
+
         select_stmt=(
             select(*self.inv_cols,variants,batches,serials)
             .where(
-                Inventory.shop_id==data.shop_id,
-                Inventory.is_active==data.is_active,
-                or_(
-                    Inventory.id.ilike(search_term),
-                    Inventory.name.ilike(search_term),
-                    Inventory.description.ilike(search_term),
-                    Inventory.category.ilike(search_term),
-                    Inventory.barcode.ilike(search_term),
-                    Inventory.shop_id.ilike(search_term),
-                    func.cast(created_at,String).ilike(search_term)
-                )
+                *conditions
             )
             .offset(offset=cursor).limit(limit=data.limit)
         )
@@ -998,22 +1006,30 @@ class InventoryRepo(BaseRepoModel):
         created_at=func.date(func.timezone(data.timezone.value,Inventory.created_at))
         cursor=(data.offset-1)*data.limit
         search_term=f"%{data.query.strip()}%"
+        conditions=[
+            or_(
+                Inventory.id.ilike(search_term),
+                Inventory.name.ilike(search_term),
+                Inventory.description.ilike(search_term),
+                Inventory.category.ilike(search_term),
+                Inventory.barcode.ilike(search_term),
+                Inventory.shop_id.ilike(search_term),
+                func.cast(created_at,String).ilike(search_term)
+            )
+        ]
+
+        if data.is_active is not None:
+            conditions.append(
+                Inventory.is_active == data.is_active
+            )
+
         select_stmt=(
             select(
                 *self.inv_cols,
                 variants,batches,serials
             )
             .where(
-                Inventory.is_active==data.is_active,
-                or_(
-                    Inventory.id.ilike(search_term),
-                    Inventory.name.ilike(search_term),
-                    Inventory.description.ilike(search_term),
-                    Inventory.category.ilike(search_term),
-                    Inventory.barcode.ilike(search_term),
-                    Inventory.shop_id.ilike(search_term),
-                    func.cast(created_at,String).ilike(search_term)
-                )
+                *conditions
             )
             .group_by(*self.inv_cols)
             .offset(offset=cursor).limit(limit=data.limit)
