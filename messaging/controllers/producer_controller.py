@@ -42,6 +42,7 @@ async def producer_main_controller(msg:AbstractIncomingMessage):
 
         saga_repo=SagaStatesRepo(session=session)
         saga_datas=await saga_repo.getby_id(saga_id=saga_id)
+        ic(saga_datas)
         ic(payload,headers,saga_id,reply_entity_name,reply_key,reply_exchange,reply_service_name)
 
         try:

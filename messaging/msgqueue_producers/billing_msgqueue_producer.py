@@ -13,6 +13,64 @@ class MessagingQueueBillingproducer:
         self.payload=payload
         self.saga_datas=saga_datas
 
+    async def process_stock_restore(self,orders_data:dict,billing_datas:dict,shop_id:str):
+        ic(orders_data,billing_datas,shop_id)
+        order_inventory_data={}
+        ic("Inside the stock recover function")
+        for item in orders_data['items']:
+            ic(item)
+            order_inventory_data[item['inventory_id']]=item
+
+        inventory_tocheck=[]
+        inv_prod_toupdate:dict={}
+        variant_toupdate:dict={}
+        batch_toupdate:dict={}
+        serialno_toupdate:dict={}
+        
+        ic(order_inventory_data)
+        for billing_data in billing_datas['items']:
+            ic(billing_data)
+            cur_inventory_data=order_inventory_data.get(billing_data['inventory_id'],None)
+            ic(cur_inventory_data)
+            if not cur_inventory_data:
+                ic("Inventory id not found in orders")
+                return False
+            
+            inventory_id:str=billing_data['inventory_id']
+            variant_id:str=cur_inventory_data['variant_id']
+            batch_id:str=cur_inventory_data['batch_id']
+            serialno_id:str=cur_inventory_data['serialno_id']
+            serial_numbers=billing_data['serial_numbers']
+            
+            quantity_todecrease=billing_data['quantity']
+            
+            ic(inventory_id,variant_id,batch_id,serialno_id,serial_numbers,quantity_todecrease)
+
+            inventory_tocheck.append(inventory_id)
+            inv_prod_toupdate[inventory_id]=quantity_todecrease
+
+            if variant_id:
+                variant_toupdate[variant_id]=quantity_todecrease
+
+            if batch_id:
+                batch_toupdate[batch_id]=quantity_todecrease
+
+            if serialno_id:
+                serialno_toupdate[serialno_id]=serial_numbers
+
+        ic(inventory_tocheck,inv_prod_toupdate,variant_toupdate,batch_toupdate,serialno_toupdate) 
+
+        async with AsyncInventoryLocalSession() as session:
+            inv_repo_obj=InventoryRepo(session=session)
+            await inv_repo_obj.bulk_qty_update(data=inv_prod_toupdate,shop_id=shop_id)
+            await inv_repo_obj.bulk_batch_qty_update(data=batch_toupdate,shop_id=shop_id)
+            await inv_repo_obj.bulk_variant_qty_update(data=variant_toupdate,shop_id=shop_id)
+            await inv_repo_obj.bulk_add_serialno(data=serialno_toupdate,shop_id=shop_id)
+            
+            ic("Stock Restored successfully")
+
+        return True
+
     async def create_billing(self):
         orders_data={}
         try:
@@ -58,6 +116,8 @@ class MessagingQueueBillingproducer:
                     await inv_obj.bulk_batch_decr_qty_update(shop_id=billing_datas['shop_id'],data=batch_stock_update)
                     await inv_obj.bulk_qty_decr_update(shop_id=billing_datas['shop_id'],data=inv_stock_update)
                 
+                await self.process_stock_restore(orders_data=orders_data,billing_datas=billing_datas,shop_id=billing_datas['shop_id'])
+                
                 # await rb_msg.publish_event(
                 #     routing_key="customers.service.routing.key",
                 #     exchange_name="customers.service.exchange",
@@ -90,7 +150,7 @@ class MessagingQueueBillingproducer:
                         'body':{
                             'id':billing_datas['customer_id'],
                             'shop_id':billing_datas['shop_id'],
-                            'amount':orders_data['payments']['CREDIT']
+                            'amount':billing_datas['payments'].get("CREDIT",0)
                         }
                     }
                 )
@@ -169,6 +229,8 @@ class MessagingQueueBillingproducer:
                     await inv_obj.bulk_variant_decr_qty_update(shop_id=billing_datas['shop_id'],data=variant_stock_update)
                     await inv_obj.bulk_batch_decr_qty_update(shop_id=billing_datas['shop_id'],data=batch_stock_update)
                     await inv_obj.bulk_qty_decr_update(shop_id=billing_datas['shop_id'],data=inv_stock_update)
+                
+                await self.process_stock_restore(orders_data=orders_data,billing_datas=billing_datas)
 
                 return {'response':True,'execution':{'next_step':'','service':''}}
             
@@ -197,8 +259,36 @@ class MessagingQueueBillingproducer:
         
 
     async def return_billing(self):
-        ic("Inside Return Billing")
-        return {'response':False,'execution':None} 
+        orders_data={}
+        try:
+            
+            ic(self.headers,self.payload,self.saga_datas)
+            saga_datas:dict=self.saga_datas
+            data:dict=saga_datas['data']
+
+            billing_datas=data['billing']
+            orders_data=data['orders']
+
+            shop_id:str=billing_datas['shop_id']
+            ic(orders_data,billing_datas,shop_id)
+            rb_msg=RabbitMQMessagingConfig(rabbitMQ_connection=await RabbitMQMessagingConfig.get_rabbitmq_connection())
+            current_step=saga_datas['execution']['step']
+            ic(current_step)
+
+            if current_step=="ORDER_RETURN":
+                res=await self.process_stock_restore(orders_data=orders_data,billing_datas=billing_datas,shop_id=shop_id)
+                ic(res)
+                if not res:
+                    return {'response':False,'execution':'ORDER_RETURN'}
+                
+            return {'response':False,'execution':None}
+
+                
+
+
+        except Exception as e:
+            ic("Error occured =>>",e)
+         
     
     async def exchange_billing_bulk(self):
         return await self.create_billing()

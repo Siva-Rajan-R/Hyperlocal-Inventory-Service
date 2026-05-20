@@ -13,6 +13,13 @@ class BillingProductSchema(BaseModel):
     quantity:int
 
 
+class BillingRefundItemsInfoSchema(BaseModel):
+    item_id:str
+    inventory_id:str
+    quantity:int
+    serial_numbers:Optional[List[str]]=None
+
+
 
 class CreateBillingSchema(BaseModel):
     products:List[BillingProductSchema]
@@ -25,11 +32,13 @@ class CreateBillingSchema(BaseModel):
 
 class CreateBillingReturnBulkSchema(BaseModel):
     order_id:str
-    items_id:List[str]
+    shop_id:str
+    items:List[BillingRefundItemsInfoSchema]
 
 class CreateBillingReturnSchema(BaseModel):
     order_id:str
     item_id:str
+    
 
 
 class CreateBillingExchangeSchema(BaseModel):
@@ -44,7 +53,7 @@ class CreateBillingBulkExchangeSchema(BaseModel):
     shop_id:str
     customer_id:str
     order_id:str
-    items_id:List[str]
-    payments:str
+    items:List[BillingRefundItemsInfoSchema]
+    payments:dict
     products:List[BillingProductSchema]
     

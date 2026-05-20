@@ -287,8 +287,11 @@ class HandleBillingRequest:
 
         body={
             'id':data.order_id,
-            'items_id':data.items_id
+            'shop_id':data.shop_id,
+            'items_id':[item.item_id for item in data.items]
         }
+
+        ic(body)
 
         headers={
             "reply_key":reply_key,
@@ -633,10 +636,10 @@ class HandleBillingRequest:
         body={
             'shop_id':data.shop_id,
             'customer_id':data.customer_id,
-            'payment_method':data.payment_method,
+            'payments':data.payments,
             'items':items,
             'order_id':data.order_id,
-            'items_id':data.items_id,
+            'items_id':[item.item_id for item in data.items],
         }
 
         headers={
