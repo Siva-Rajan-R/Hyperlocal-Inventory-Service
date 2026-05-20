@@ -43,6 +43,7 @@ class InventoryVariantSchema(BaseModel):
     buy_price:Optional[float]=0.0
     stocks:Optional[int]=0
     datas:Optional[dict]=None
+    reorder_point:int=None
 
 class InventoryResponseVariantSchema(BaseModel):
     name:str

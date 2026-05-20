@@ -30,6 +30,10 @@ class InventoryService(BaseServiceModel):
         variants_toadd=[]
         ERROR_OCCURED:bool=False
 
+        if data.has_variant and not data.variants:
+            ic("Invalid variants, Variant enamble but no variants was created")
+            return False
+        
         if data.has_variant:
             for variant in data.variants:
                 variant_id:str=generate_uuid()
@@ -42,7 +46,9 @@ class InventoryService(BaseServiceModel):
                         name=variant.name,
                         buy_price=variant.buy_price,
                         stocks=variant.stocks,
-                        datas=variant.datas
+                        datas=variant.datas,
+                        reorder_point=variant.reorder_point,
+                        sku=generate_uuid()
                     )
                 )
             
@@ -55,10 +61,11 @@ class InventoryService(BaseServiceModel):
         inv_repo_obj=InventoryRepo(session=self.session)
 
         inv_res=await inv_repo_obj.create(data=CreateInventoryDbSchema(**inventorydata_toadd,id=inventory_id,is_active=False))
+        ic("Inventeroy created response  => ",inv_res)
         next=inv_res
         if next and variants_toadd:
             variant_res=await inv_repo_obj.create_variant_bulk(datas=variants_toadd)
-            ic(variant_res)
+            ic("Vriant created response => ",variant_res)
             next=variant_res
         
         return next

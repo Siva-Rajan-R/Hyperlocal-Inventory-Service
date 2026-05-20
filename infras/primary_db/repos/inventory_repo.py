@@ -28,6 +28,7 @@ variants = case(
                      "buy_price", InventoryVariants.buy_price,
                      "stocks", InventoryVariants.stocks,
                      "datas", InventoryVariants.datas,
+                     "reorder_point",InventoryVariants.reorder_point,
 
                      # =========================
                      # 🔥 BATCHES
@@ -206,10 +207,9 @@ class InventoryRepo(BaseRepoModel):
                 is_active=bindparam('is_active')
             )
             .execution_options(synchronize_session=False)
-            .returning(Inventory.id)
         )
 
-        res=(await self.session.execute(stmt,datas)).scalars().all()
+        res=(await self.session.execute(stmt,datas))
 
         return res
     
@@ -234,36 +234,45 @@ class InventoryRepo(BaseRepoModel):
                 buy_price=bindparam("buy_price")
             )
             .execution_options(synchronize_session=False)
-            .returning(InventoryVariants.id)
         )
 
-        res=(await self.session.execute(stmt,datas)).scalars().all()
+        res=(await self.session.execute(stmt,datas))
 
         return res
     
     @start_db_transaction
     async def create_bulk(self,datas:List[Inventory])-> bool:
+        if not datas:
+            return True
         self.session.add_all(datas)
         return True
     
     @start_db_transaction
     async def create_variant_bulk(self,datas:List[InventoryVariants])-> bool:
+        if not datas:
+            return True
         self.session.add_all(datas)
         return True
     
     @start_db_transaction
     async def create_batch_bulk(self,datas:List[InventoryBatches])-> bool:
+        if not datas:
+            return True
         self.session.add_all(datas)
         return True
     
     @start_db_transaction
     async def create_serialno_bulk(self,datas:List[InventorySerialNumbers])-> bool:
+        if not datas:
+            return True
         self.session.add_all(datas)
         return True
     
 
     @start_db_transaction
     async def bulk_add_serialno(self, data: dict[str, list[str]], shop_id: str):
+        if not data:
+            return True
 
         results = []
 
@@ -299,7 +308,8 @@ class InventoryRepo(BaseRepoModel):
 
     @start_db_transaction
     async def bulk_update_serialno(self, data: dict[str, list[str]], shop_id: str):
-
+        if not data:
+            return True
         results = []
 
         stmt = text("""
@@ -884,6 +894,9 @@ class InventoryRepo(BaseRepoModel):
         return is_updated
     
     async def bulk_check(self,data:BulkCheckInventorySchema):
+        if not data.id:
+            return []
+        
         check_stmt=(
             select(
                 *self.inv_cols
@@ -902,6 +915,9 @@ class InventoryRepo(BaseRepoModel):
     
 
     async def bulk_varient_check(self,shop_id:str,variants_id:list,additional_conditions: Optional[tuple]=()):
+        if not variants_id:
+            return []
+        
         check_stmt=(
             select(
                 InventoryVariants.id,
@@ -926,6 +942,9 @@ class InventoryRepo(BaseRepoModel):
     
 
     async def bulk_serialno_check(self,shop_id:str,serialnos_id:list,additional_conditions: Optional[tuple]=()):
+        if not serialnos_id:
+            return []
+        
         check_stmt=(
             select(
                 InventorySerialNumbers.id,
@@ -945,6 +964,9 @@ class InventoryRepo(BaseRepoModel):
         return results
     
     async def bulk_batch_check(self,shop_id:str,batches_id:list,additional_conditions: Optional[tuple]=()):
+        if not batches_id:
+            return []
+        
         check_stmt=(
             select(
                 InventoryBatches.id,

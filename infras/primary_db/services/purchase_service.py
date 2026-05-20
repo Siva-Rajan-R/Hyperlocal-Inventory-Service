@@ -25,18 +25,22 @@ class PurchaseService(BaseServiceModel):
         self.purchase_repo_obj=PurchaseRepo(session=session)
 
     async def create(self,data:CreatePurchaseSchema):
+        # variant should need to check
         purchase_id=generate_uuid()
         purchase_view=True
 
         if data.type.value == PurchaseTypeEnums.PO_CREATE.value:
             purchase_view=False
-        
+        if data.type.value==PurchaseTypeEnums.PO_UPDATE.value and not data.purchase_id:
+            ic("Purchase id not found for the po update")
+            return False
         if data.type.value==PurchaseTypeEnums.PO_UPDATE.value:
             purchase_id=data.purchase_id
 
         if not purchase_id:
             ic("Purchase id Not Found")
             return False
+        
         ic(purchase_id)
         inventories_tocheck=[]
         formatted_req_inventories={}
@@ -46,15 +50,27 @@ class PurchaseService(BaseServiceModel):
             ic(inventories_tocheck)
             ic(formatted_req_inventories)
             exists_data=formatted_req_inventories.get(inventory.inventory_id,None)
+            ic(exists_data)
             if exists_data:
                 if exists_data['variant_id'] and inventory.variant_id:
                     if exists_data['variant_id'] == inventory.variant_id:
                         ic("Same Product+variant does not add twice")
                         return False
                     
-            if inventory.inventory_id not in inventories_tocheck:  
-                inventories_tocheck.append(inventory.inventory_id)
-                formatted_req_inventories[inventory.inventory_id]=inventory.model_dump(mode="json")
+                if exists_data['batch_id'] and inventory.batch_id:
+                    if exists_data['batch_id'] == inventory.batch_id:
+                        ic("Same Product+batch does not add twice")
+                        return False
+                
+                if (not exists_data['variant_id'] and not exists_data['batch_id']) and exists_data['inventory_id']==inventory.inventory_id:
+                    ic("Same Product does not add twice")
+                    return False
+
+
+                    
+                    
+            inventories_tocheck.append(inventory.inventory_id)
+            formatted_req_inventories[inventory.inventory_id]=inventory.model_dump(mode="json")
 
         ic(inventories_tocheck,formatted_req_inventories)
         
@@ -332,5 +348,209 @@ class PurchaseService(BaseServiceModel):
 
     async def search(self, query, limit = 5):
         return await self.purchase_repo_obj.search(query=query,limit=limit)
+    
+
+    async def create_direct_purchase(self,data:CreatePurchaseSchema):
+
+        inv_repo_obj=InventoryRepo(session=self.session)
+
+        inventory_tocheck:list=[]
+        variant_tocheck:list=[]
+        batch_tocheck:list=[]
+        serialno_tocheck:list=[]
+
+        verified_inv_product=[]
+        verified_variant=[]
+        verified_batch=[]
+        verified_serialno=[]
+
+        checking_foramtted_data={}
+
+
+        products=data.products
+
+        for product in products:
+            if (not product.batch_id and not product.variant_id) and product.inventory_id in verified_inv_product:
+                ic("Same product should not be added twice")
+                return False
+            
+            if product.variant_id and product.variant_id in verified_variant:
+                ic("Same product + variant should not be added twice")
+                return False
+            
+            if product.batch_id and product.batch in verified_batch:
+                ic("Same product + batch should not be added twice")
+                return False
+            
+            if product.batch_id:
+                batch_tocheck.append(product.batch_id)
+                verified_batch.append(product.batch_id)
+
+            if product.variant_id:
+                variant_tocheck.append(product.variant_id)
+                verified_variant.append(product.variant_id)
+
+            if product.serialno_id:
+                serialno_tocheck.append(product.serialno_id)
+                verified_serialno.append(product.serialno_id)
+            
+            if product.inventory_id not in verified_inv_product:
+                inventory_tocheck.append(product.inventory_id)
+                verified_inv_product.append(product.inventory_id)
+
+            if product.inventory_id not in checking_foramtted_data:
+                checking_foramtted_data[product.inventory_id] = []
+
+            checking_foramtted_data[product.inventory_id].append(
+                product.model_dump()
+            )
+
+        ic(inventory_tocheck,batch_tocheck,serialno_tocheck,variant_tocheck,checking_foramtted_data,verified_inv_product,verified_batch,verified_serialno,verified_variant)
+
+        inv_checked_results=await inv_repo_obj.bulk_check(data=BulkCheckInventorySchema(shop_id=data.shop_id,id=inventory_tocheck))
+        variant_checked_results=await inv_repo_obj.bulk_varient_check(shop_id=data.shop_id,variants_id=variant_tocheck)
+        batch_checked_results=await inv_repo_obj.bulk_batch_check(shop_id=data.shop_id,batches_id=batch_tocheck)
+        serialno_checked_results=await inv_repo_obj.bulk_serialno_check(shop_id=data.shop_id,serialnos_id=serialno_tocheck)
+
+
+        ic(inv_checked_results,variant_checked_results,batch_checked_results,serialno_tocheck)
+        ic(len(inventory_tocheck)!=len(inv_checked_results) , len(batch_tocheck)!=len(batch_checked_results) , len(variant_tocheck)!=len(variant_checked_results), len(serialno_tocheck)!=len(serialno_checked_results))
+
+        if len(inventory_tocheck)!=len(inv_checked_results) or len(batch_tocheck)!=len(batch_checked_results) or len(variant_tocheck)!=len(variant_checked_results) or len(serialno_tocheck)!=len(serialno_checked_results):
+            ic("some of the id's are mistmatching")
+            return False
+        
+        inv_prod_toupdate:List[dict]=[]
+        variant_toupdate:List[dict]=[]
+        batch_toupdate:dict={}
+        serialno_toupdate:dict[str,List[str]]={}
+
+        batch_toadd:List[InventoryBatches]=[]
+        serialno_toadd:List[InventorySerialNumbers]=[]
+
+        for result in inv_checked_results:
+            inv_prod_id=result['id']
+            has_variant=result['has_variant']
+            has_batch=result['has_batch']
+            has_serialno=result['has_serialno']
+            inv_stocks=0
+
+            ic(inv_prod_id,has_batch,has_variant,has_serialno)
+
+            for formated_data in checking_foramtted_data[inv_prod_id]:
+                ic(formated_data)
+                stocks:int=formated_data['stocks']
+                variant_id:str=formated_data.get('variant_id',None)
+                batch_id:str=formated_data.get('batch_id')
+                serialno_id:str=formated_data.get('serialno_id')
+                buy_price:float=formated_data['buy_price']
+                sell_price:float=formated_data['sell_price']
+                batch:InventoryBatchSchema=InventoryBatchSchema(**formated_data['batch']) if formated_data.get('batch',None) else None
+                serial_numbers:list[str]=formated_data.get('serial_numbers',None)
+                inv_stocks+=stocks
+
+                ic(formated_data,stocks,variant_id,batch_id,serialno_id,buy_price,sell_price,batch,serial_numbers)
+
+                if has_variant and not variant_id:
+                    ic("Variant id not found")
+                    return False
+                
+                if has_batch and (not batch_id and not batch):
+                    ic("Batch id not found")
+                    return False
+                
+                if has_serialno and (not serialno_id and not serial_numbers):
+                    ic('Serial no id not found')
+                    return False
+                
+                if serial_numbers and len(serial_numbers)!=stocks:
+                    ic("Serial number does not matches the stocks")
+                    return False
+
+
+                if variant_id:
+                    variant_toupdate.append(
+                        {
+                            'b_id':variant_id,
+                            'is_absolute':False,
+                            'stocks':stocks,
+                            'buy_price':buy_price,
+                            'sell_price':sell_price
+                        }
+                    )
+
+                if batch_id:
+                    batch_toupdate[batch_id]=stocks
+
+                if not batch_id and batch:
+                    batch_id=generate_uuid()
+                    batch_toadd.append(
+                        InventoryBatches(
+                            id=batch_id,
+                            shop_id=data.shop_id,
+                            inventory_id=inv_prod_id,
+                            variant_id=variant_id,
+                            stocks=stocks,
+                            expiry_date=batch.expiry_date,
+                            manufacturing_date=batch.manufacturing_date,
+                            name=batch.name,
+                            datas={}
+                        )
+                    )
+
+                if serialno_id:
+                    serialno_toupdate[serialno_id]=serial_numbers
+
+                if not serialno_id and serial_numbers:
+                    serialno_id=generate_uuid()
+                    serialno_toadd.append(
+                        InventorySerialNumbers(
+                            id=serialno_id,
+                            shop_id=data.shop_id,
+                            inventory_id=inv_prod_id,
+                            variant_id=variant_id,
+                            batch_id=batch_id,
+                            serial_numbers=serial_numbers
+                        )
+                    )
+                
+            inv_prod_toupdate.append(
+                {
+                    'b_id':inv_prod_id,
+                    'is_absolute':False,
+                    'stocks':inv_stocks,
+                    'buy_price':buy_price,
+                    'sell_price':sell_price,
+                    'is_active':True
+                }
+            )
+
+            ic(inv_stocks)
+
+
+        ic(inv_prod_toupdate,variant_toupdate,batch_toupdate,serialno_toupdate,batch_toadd,serialno_toadd)
+        
+        await inv_repo_obj.update_bulk(datas=inv_prod_toupdate)
+        await inv_repo_obj.update_variant_bulk(datas=variant_toupdate)
+        await inv_repo_obj.bulk_batch_qty_update(data=batch_toupdate,shop_id=data.shop_id)
+        await inv_repo_obj.bulk_add_serialno(data=serialno_toupdate,shop_id=data.shop_id)
+
+        await inv_repo_obj.create_batch_bulk(datas=batch_toadd)
+        await inv_repo_obj.create_serialno_bulk(datas=serialno_toadd)
+
+
+        ic("all of them updated successfully")
+
+        return True
+
+            
+
+            
+
+
+
+
+        
+
     
     

@@ -22,8 +22,20 @@ class HandlePurchaseRequest:
         self.purchase_types=PurchaseTypeEnums._value2member_map_.values()
 
     async def create(self,data:CreatePurchaseSchema):
+        if data.type.value!=PurchaseTypeEnums.DIRECT.value:
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponseTypDict(
+                    msg="Error : Creating Purchase",
+                    status_code=400,
+                    description=f"Invalid types, type should be direct",
+                    success=False
+                )
+            )
+        
+        res=await PurchaseService(session=self.session).create_direct_purchase(data=data)
 
-        res=await PurchaseService(session=self.session).create(data=data)
+        ic(res)
         
         if not res:
             raise HTTPException(
