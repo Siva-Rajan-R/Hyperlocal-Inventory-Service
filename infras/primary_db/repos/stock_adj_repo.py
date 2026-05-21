@@ -39,7 +39,8 @@ batch_subq = (
                     "stocks", sap.stocks,
                     "expiry_date", b.expiry_date,
                     "manufacturing_date", b.manufacturing_date,
-                    "serial_numbers", serial_subq
+                    "serial_numbers", serial_subq,
+
                 )
             ),
             literal_column("'[]'::jsonb")
@@ -107,6 +108,7 @@ class StockAdjRepo(BaseRepoModel):
             sa.adjusted_date,
             sa.created_at,
             sa.updated_at,
+            sa.movement_type
         )
 
         super().__init__(session)

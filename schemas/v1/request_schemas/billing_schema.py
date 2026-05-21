@@ -8,7 +8,6 @@ class BillingProductSchema(BaseModel):
     batch_id:Optional[str]=None
     serialno_id:Optional[str]=None
     serial_numbers:Optional[List[str]]=[]
-    reason:Optional[str]=None
     datas:Optional[dict]=None
     quantity:int
 
@@ -17,6 +16,7 @@ class BillingRefundItemsInfoSchema(BaseModel):
     item_id:str
     inventory_id:str
     quantity:int
+    reason:str
     serial_numbers:Optional[List[str]]=None
 
 

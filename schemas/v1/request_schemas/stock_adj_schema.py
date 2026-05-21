@@ -1,7 +1,8 @@
 from icecream import Optional,List,ic
 from pydantic import BaseModel,Field
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
-from core.data_formats.enums.stock_adj_enums import StockAdjustmentTypesEnum
+
+from core.data_formats.enums.stock_adj_enums import StockAdjustmentTypesEnum,StockAdjustmentMovementType
 from datetime import date,datetime
 
 
@@ -19,6 +20,7 @@ class StockAdjInventoryProductSchema(BaseModel):
 class CreateStockAdjSchema(BaseModel):
     shop_id:str
     adjusted_date:date
+    movement_type:Optional[StockAdjustmentMovementType]=None
     description:str
     products:List[StockAdjInventoryProductSchema]
     datas:Optional[dict]=None

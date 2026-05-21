@@ -252,6 +252,7 @@ class PurchaseRepo(BaseRepoModel):
             Purchase.supplier_id,
             Purchase.calculations,
             Purchase.additional_charges,
+            Purchase.paid_amount,
             Purchase.created_at,
             Purchase.updated_at
         )
@@ -328,17 +329,17 @@ class PurchaseRepo(BaseRepoModel):
             PurchaseViewsEnums.STOCKADJUSTMENT_VIEW.value:(Purchase.purchase_view==True),
             PurchaseViewsEnums.PO_VIEW.value:(and_(Purchase.purchase_view==False,Purchase.type==PurchaseTypeEnums.PO_CREATE.value))
         }
-
+        ic(data.shop_id)
         query_stmt = (
             select(
                 *self.purchase_cols,
                 products_agg.label("products")
             )
-            .join(product_subq, product_subq.c.purchase_id == p.id)   # ✅ use subquery
-            .join(i, i.id == product_subq.c.inventory_id)
+            .outerjoin(product_subq, product_subq.c.purchase_id == p.id)   # ✅ use subquery
+            .outerjoin(i, i.id == product_subq.c.inventory_id)
             .where(
                 p.shop_id == data.shop_id,
-                view_mapper[data.view.value]
+               
             )
             .group_by(p.id)
         )
@@ -348,7 +349,7 @@ class PurchaseRepo(BaseRepoModel):
                 query_stmt
             )
         ).mappings().all()
-
+        ic(results)
         return results
     
 
@@ -358,8 +359,8 @@ class PurchaseRepo(BaseRepoModel):
                 *self.purchase_cols,
                 products_agg.label("products")
             )
-            .join(product_subq, product_subq.c.purchase_id == p.id)   # ✅ use subquery
-            .join(i, i.id == product_subq.c.inventory_id)
+            .outerjoin(product_subq, product_subq.c.purchase_id == p.id)   # ✅ use subquery
+            .outerjoin(i, i.id == product_subq.c.inventory_id)
             .where(
                 Purchase.id==data.id,
                 Purchase.shop_id==data.shop_id
@@ -377,8 +378,8 @@ class PurchaseRepo(BaseRepoModel):
                 *self.purchase_cols,
                 products_agg.label("products")
             )
-            .join(product_subq, product_subq.c.purchase_id == p.id)   # ✅ use subquery
-            .join(i, i.id == product_subq.c.inventory_id)
+            .outerjoin(product_subq, product_subq.c.purchase_id == p.id)   # ✅ use subquery
+            .outerjoin(i, i.id == product_subq.c.inventory_id)
             .where(
                 product_subq.c.inventory_id == data.inventory_id,
                 p.shop_id == data.shop_id

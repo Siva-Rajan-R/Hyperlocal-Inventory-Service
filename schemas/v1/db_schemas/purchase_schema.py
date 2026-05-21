@@ -10,6 +10,7 @@ class CreatePurchaseDbSchema(BaseModel):
     type:PurchaseTypeEnums
     purchase_view:bool
     supplier_id:str
+    paid_amount:float
     calculations:PurchaseCalculationsTypDict
     additional_charges:PurchaseAdditionalCharges
     datas:Optional[dict]=None
@@ -19,6 +20,7 @@ class UpdatePurchaseDbSchema(BaseModel):
     shop_id:str
     type:Optional[PurchaseTypeEnums]=None
     purchase_view:Optional[bool]=None
+    paid_amount:float
     calculations:Optional[PurchaseCalculationsTypDict]=None
     additional_charges:Optional[PurchaseAdditionalCharges]=None
     datas:Optional[dict]=None

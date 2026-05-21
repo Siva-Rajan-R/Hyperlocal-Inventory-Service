@@ -14,6 +14,7 @@ class Purchase(BASE):
     purchase_view=Column(Boolean,nullable=False)
     calculations=Column(JSONB,nullable=False)
     additional_charges=Column(JSONB,nullable=False)
+    paid_amount=Column(Float,nullable=False)
     datas=Column(JSONB,nullable=True)
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())

@@ -76,6 +76,7 @@ class StockAdjustments(BASE):
     sequence_id=Column(BigInteger,Identity(always=True),autoincrement=True)
     shop_id=Column(String,nullable=False)
     description=Column(String,nullable=False)
+    movement_type=Column(String,nullable=False)
     adjusted_date=Column(Date,nullable=False)
     datas=Column(JSONB)
 

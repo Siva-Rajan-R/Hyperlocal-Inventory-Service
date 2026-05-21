@@ -288,7 +288,7 @@ class HandleBillingRequest:
         body={
             'id':data.order_id,
             'shop_id':data.shop_id,
-            'items_id':[item.item_id for item in data.items]
+            'items':[{'id':item.item_id,'quantity':item.quantity,'reason':item.reason} for item in data.items]
         }
 
         ic(body)
@@ -618,7 +618,6 @@ class HandleBillingRequest:
                     'sell_price':val['sell_price'],
                     'gst':val['gst'],
                     'quantity':val['quantity'],
-                    'reason':val['reason'],
                     'datas':val['datas']
                 }
             )
@@ -639,7 +638,7 @@ class HandleBillingRequest:
             'payments':data.payments,
             'items':items,
             'order_id':data.order_id,
-            'items_id':[item.item_id for item in data.items],
+            'exchange_items':[{'id':item.item_id,'quantity':item.quantity,'reason':item.reason} for item in data.items],
         }
 
         headers={

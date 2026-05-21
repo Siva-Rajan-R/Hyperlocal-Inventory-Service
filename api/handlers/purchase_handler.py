@@ -118,7 +118,7 @@ class HandlePurchaseRequest:
 
     async def get(self,data:GetPurchaseByShopIdSchema):
         res=await self.purchase_service_obj.get(data=data)
-
+        ic(res)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 status_code=200,

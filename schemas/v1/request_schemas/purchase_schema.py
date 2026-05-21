@@ -26,6 +26,7 @@ class CreatePurchaseSchema(BaseModel):
     supplier_id:str
     calculations:PurchaseCalculationsTypDict
     additional_charges:PurchaseAdditionalCharges
+    paid_amount:float
     datas:Optional[dict]=None
     products:List[PurchaseInventoryProductSchema]
 

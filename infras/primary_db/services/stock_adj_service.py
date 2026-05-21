@@ -22,7 +22,7 @@ class StockAdjService(BaseServiceModel):
         super().__init__(session)
 
 
-    async def create(self, data:CreateStockAdjSchema):
+    async def create(self, data:CreateStockAdjSchema,can_update_stock:Optional[bool]=True):
         ic(data)
         stockadj_id=generate_uuid()
         inventories_tocheck=[]
@@ -144,6 +144,7 @@ class StockAdjService(BaseServiceModel):
             id=stockadj_id,
             shop_id=data.shop_id,
             adjusted_date=data.adjusted_date,
+            movement_type=data.movement_type,
             description=data.description,
             datas=data.datas
         )
@@ -155,7 +156,7 @@ class StockAdjService(BaseServiceModel):
             stockadj_inv_prod_res=await stockadj_repo_obj.create_bulk_stockadj_inv_prod(datas=stock_adj_inv_prod_toadd)
             NEXT=stockadj_inv_prod_res
 
-        if NEXT:
+        if NEXT and can_update_stock:
             inv_repo_obj=InventoryRepo(session=self.session)
             if inventory_toincr:
                 await inv_repo_obj.bulk_qty_update(data=inventory_toincr,shop_id=data.shop_id)

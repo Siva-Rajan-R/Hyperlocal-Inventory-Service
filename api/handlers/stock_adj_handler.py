@@ -3,6 +3,7 @@ from models.service_models.base_service_model import BaseServiceModel
 from sqlalchemy import select,update,delete,func,or_,and_,String,case
 from infras.primary_db.services.stock_adj_service import StockAdjService
 from sqlalchemy.ext.asyncio import AsyncSession
+from core.data_formats.enums.stock_adj_enums import StockAdjustmentMovementType,StockAdjustmentTypesEnum
 from hyperlocal_platform.core.models.req_res_models import SuccessResponseTypDict,ErrorResponseTypDict,BaseResponseTypDict
 from schemas.v1.request_schemas.stock_adj_schema import CreateStockAdjSchema,GetStockAdjByShopIdSchema,GetStockAdjByIdSchema,GetAllStockAdjSchema,GetStockAdjByInventoryIdSchema
 from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_transaction
@@ -20,7 +21,10 @@ class HandleStockAdjRequest:
 
 
     async def create(self, data:CreateStockAdjSchema):
-        res=await self.stock_adj_service_obj.create(data=data)
+        modified_data=CreateStockAdjSchema(
+            **data.model_dump(exclude=['movement_type']),movement_type=StockAdjustmentMovementType.STOCK_ADJUSTMENT
+        )
+        res=await self.stock_adj_service_obj.create(data=modified_data)
         ic(res)
         if not res:
             raise HTTPException(

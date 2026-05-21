@@ -1,7 +1,11 @@
 from models.service_models.base_service_model import BaseServiceModel
 from ..repos.purchase_repo import PurchaseRepo
+from ..services.stock_adj_service import StockAdjService
+from core.data_formats.enums.stock_adj_enums import StockAdjustmentMovementType,StockAdjustmentTypesEnum
 from typing import Optional,List
 from ..models.purchase_model import Purchase,PurchaseInventoryProducts
+from schemas.v1.request_schemas.stock_adj_schema import CreateStockAdjSchema,StockAdjInventoryProductSchema
+from schemas.v1.db_schemas.stock_adj_schema import CreateStockAdjDbSchema
 from ..models.inventory_model import InventoryBatches,InventorySerialNumbers
 from sqlalchemy.ext.asyncio import AsyncSession
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
@@ -17,6 +21,7 @@ from core.data_formats.enums.purchase_enums import PurchaseTypeEnums,PurchaseVie
 from .inventory_service import InventoryService
 from icecream import ic
 from typing import Union
+from datetime import date
 
 
 class PurchaseService(BaseServiceModel):
@@ -353,7 +358,7 @@ class PurchaseService(BaseServiceModel):
     async def create_direct_purchase(self,data:CreatePurchaseSchema):
 
         inv_repo_obj=InventoryRepo(session=self.session)
-
+        purchase_id=generate_uuid()
         inventory_tocheck:list=[]
         variant_tocheck:list=[]
         batch_tocheck:list=[]
@@ -427,6 +432,9 @@ class PurchaseService(BaseServiceModel):
 
         batch_toadd:List[InventoryBatches]=[]
         serialno_toadd:List[InventorySerialNumbers]=[]
+
+        stock_adj_products:List[StockAdjInventoryProductSchema]=[]
+        purchase_inv_product_toadd=[]
 
         for result in inv_checked_results:
             inv_prod_id=result['id']
@@ -514,6 +522,32 @@ class PurchaseService(BaseServiceModel):
                         )
                     )
                 
+                purchase_inv_product_toadd.append(
+                    PurchaseInventoryProducts(
+                        inventory_id=inv_prod_id,
+                        purchase_id=purchase_id,
+                        variant_id=variant_id,
+                        batch_id=batch_id,
+                        stocks=stocks,
+                        sell_price=sell_price,
+                        buy_price=buy_price,
+                        received_stocks=stocks,
+                        stocks_before=result['stocks']
+                    )
+                )
+
+                stock_adj_products.append(
+                    StockAdjInventoryProductSchema(
+                        inventory_id=inv_prod_id,
+                        variant_id=variant_id,
+                        batch_id=batch_id,
+                        serialno_id=serialno_id,
+                        serial_numbers=serial_numbers,
+                        stocks=stocks,
+                        type=StockAdjustmentTypesEnum.INCREMENT
+                    )
+                )
+                
             inv_prod_toupdate.append(
                 {
                     'b_id':inv_prod_id,
@@ -529,19 +563,46 @@ class PurchaseService(BaseServiceModel):
 
 
         ic(inv_prod_toupdate,variant_toupdate,batch_toupdate,serialno_toupdate,batch_toadd,serialno_toadd)
+
+        data_toadd=CreatePurchaseDbSchema(
+            **data.model_dump(mode='json'),
+            id=purchase_id,
+            purchase_view=True
+        )
+        pur_repo_obj=PurchaseRepo(session=self.session)
+
+        res=await pur_repo_obj.create(data=data_toadd)
+        ic("hello p")
+        ic(res)
+        if res:
+            pur_inv_res=await pur_repo_obj.create_purchase_inv_bulk(data=purchase_inv_product_toadd)
+            ic(pur_inv_res)
+            await inv_repo_obj.update_bulk(datas=inv_prod_toupdate)
+            await inv_repo_obj.update_variant_bulk(datas=variant_toupdate)
+            await inv_repo_obj.bulk_batch_qty_update(data=batch_toupdate,shop_id=data.shop_id)
+            await inv_repo_obj.bulk_add_serialno(data=serialno_toupdate,shop_id=data.shop_id)
+
+            await inv_repo_obj.create_batch_bulk(datas=batch_toadd)
+            await inv_repo_obj.create_serialno_bulk(datas=serialno_toadd)
+
+
+            await StockAdjService(session=self.session).create(
+                can_update_stock=False,
+                data=CreateStockAdjSchema(
+                    shop_id=data.shop_id,
+                    adjusted_date=date.today(),
+                    movement_type=StockAdjustmentMovementType.DIRECT,
+                    description="Stock Increased via purchase",
+                    products=stock_adj_products
+                )
+            )
+
+
+            ic("all of them updated successfully")
+
+            return True
+        return False
         
-        await inv_repo_obj.update_bulk(datas=inv_prod_toupdate)
-        await inv_repo_obj.update_variant_bulk(datas=variant_toupdate)
-        await inv_repo_obj.bulk_batch_qty_update(data=batch_toupdate,shop_id=data.shop_id)
-        await inv_repo_obj.bulk_add_serialno(data=serialno_toupdate,shop_id=data.shop_id)
-
-        await inv_repo_obj.create_batch_bulk(datas=batch_toadd)
-        await inv_repo_obj.create_serialno_bulk(datas=serialno_toadd)
-
-
-        ic("all of them updated successfully")
-
-        return True
 
             
 
