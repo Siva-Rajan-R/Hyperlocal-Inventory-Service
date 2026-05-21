@@ -182,7 +182,8 @@ class PurchaseService(BaseServiceModel):
                             'stocks':received_stocks,
                             'is_absolute':False,
                             'buy_price':requested_data['buy_price'],
-                            'sell_price':requested_data['sell_price']
+                            'sell_price':requested_data['sell_price'],
+                            'reorder_point':requested_data['reorder_point']
                         }
                     )
                 
@@ -216,6 +217,7 @@ class PurchaseService(BaseServiceModel):
                         'is_absolute':False,
                         'buy_price':requested_data['buy_price'],
                         'sell_price':requested_data['sell_price'],
+                        'reorder_point':requested_data['reorder_point'],
                         'is_active':True
                     }
                 )

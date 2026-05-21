@@ -9,13 +9,13 @@ class BillingProductSchema(BaseModel):
     serialno_id:Optional[str]=None
     serial_numbers:Optional[List[str]]=[]
     datas:Optional[dict]=None
-    quantity:int
+    quantity:float
 
 
 class BillingRefundItemsInfoSchema(BaseModel):
     item_id:str
     inventory_id:str
-    quantity:int
+    quantity:float
     reason:str
     serial_numbers:Optional[List[str]]=None
 

@@ -12,7 +12,7 @@ class CreateInventoryDbSchema(BaseModel):
     description:str
     buy_price:Optional[float]=0.0
     sell_price:Optional[float]=0.0
-    stocks:Optional[int]=0
+    stocks:Optional[float]=0
     barcode:Optional[str]=None
     is_active:Optional[bool]=False
     sku:str
@@ -48,7 +48,7 @@ class UpdateVarientProductDbSchema(BaseModel):
     buy_price:float
     datas:dict
     barcode:str
-    stocks:Optional[int]=None
+    stocks:Optional[float]=None
 
     
 
@@ -85,7 +85,7 @@ class InventoryVariantDbSchema(BaseModel):
     name:str
     sell_price:float
     buy_price:float
-    stocks:int
+    stocks:float
     datas:Optional[dict]=None
 
 

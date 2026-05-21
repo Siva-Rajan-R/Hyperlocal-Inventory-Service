@@ -28,7 +28,7 @@ class InventoryBatchSchema(BaseModel):
 class InventoryBatchResponseSchema(BaseModel):
     id: str
     name: str
-    stocks: int
+    stocks: float
 
     expiry_date: Union[date, datetime]
     manufacturing_date: Union[date, datetime]
@@ -41,7 +41,7 @@ class InventoryVariantSchema(BaseModel):
     name:str
     sell_price:Optional[float]=0.0
     buy_price:Optional[float]=0.0
-    stocks:Optional[int]=0
+    stocks:Optional[float]=0
     datas:Optional[dict]=None
     reorder_point:Optional[int]=0
 
@@ -49,7 +49,7 @@ class InventoryResponseVariantSchema(BaseModel):
     name:str
     sell_price:float
     buy_price:float
-    stocks:int
+    stocks:float
     serial_numbers:Optional[List]=None
     batches:Optional[List[InventoryBatchSchema]]=None
     datas:Optional[dict]=None
@@ -62,7 +62,7 @@ class CreateInventorySchema(BaseModel):
     description:Optional[str]=None
     buy_price:Optional[float]=0.0
     sell_price:Optional[float]=0.0
-    stocks:Optional[int]=0
+    stocks:Optional[float]=0
     barcode:Optional[str]=None
     reorder_point:Optional[int]=0
     has_variant:Optional[bool]=None

@@ -84,7 +84,7 @@ class InventoryGetResponseSchema(BaseModel):
     sell_price:float
     buy_price:float
     is_active:bool
-    stocks:int
+    stocks:float
     barcode:str
     shop_id:str
     added_by:str

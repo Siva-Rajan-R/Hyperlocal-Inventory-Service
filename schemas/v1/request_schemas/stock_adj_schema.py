@@ -12,7 +12,7 @@ class StockAdjInventoryProductSchema(BaseModel):
     batch_id:Optional[str]=None
     serialno_id:Optional[str]=None
     serial_numbers:Optional[List]=None
-    stocks:int
+    stocks:float
     type:StockAdjustmentTypesEnum
 
     datas:Optional[dict]=None

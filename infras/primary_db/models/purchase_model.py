@@ -28,9 +28,9 @@ class PurchaseInventoryProducts(BASE):
     inventory_id=Column(String,nullable=False)
     variant_id=Column(String,nullable=True)
     batch_id=Column(String,nullable=True)
-    stocks=Column(BigInteger,nullable=False)
-    stocks_before=Column(BigInteger,nullable=False)
-    received_stocks=Column(BigInteger,nullable=False)
+    stocks=Column(Float,nullable=False)
+    stocks_before=Column(Float,nullable=False)
+    received_stocks=Column(Float,nullable=False)
     sell_price=Column(Float,nullable=False)
     buy_price=Column(Float,nullable=False)
 

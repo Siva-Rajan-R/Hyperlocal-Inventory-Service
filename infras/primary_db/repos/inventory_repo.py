@@ -204,7 +204,8 @@ class InventoryRepo(BaseRepoModel):
                 ),
                 sell_price=bindparam("sell_price"),
                 buy_price=bindparam("buy_price"),
-                is_active=bindparam('is_active')
+                is_active=bindparam('is_active'),
+                reorder_point=bindparam('reorder_point')
             )
             .execution_options(synchronize_session=False)
         )
@@ -231,7 +232,8 @@ class InventoryRepo(BaseRepoModel):
                     
                 ),
                 sell_price=bindparam("sell_price"),
-                buy_price=bindparam("buy_price")
+                buy_price=bindparam("buy_price"),
+                reorder_point=bindparam("reorder_point")
             )
             .execution_options(synchronize_session=False)
         )
