@@ -43,7 +43,7 @@ class InventoryVariantSchema(BaseModel):
     buy_price:Optional[float]=0.0
     stocks:Optional[int]=0
     datas:Optional[dict]=None
-    reorder_point:int=None
+    reorder_point:Optional[int]=0
 
 class InventoryResponseVariantSchema(BaseModel):
     name:str
@@ -64,7 +64,7 @@ class CreateInventorySchema(BaseModel):
     sell_price:Optional[float]=0.0
     stocks:Optional[int]=0
     barcode:Optional[str]=None
-    reorder_point:int
+    reorder_point:Optional[int]=0
     has_variant:Optional[bool]=None
     has_serialno:Optional[bool]=None
     has_batch:Optional[bool]=None
