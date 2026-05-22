@@ -152,12 +152,6 @@ class MessagingQueueBillingproducer:
                     ic(inv_stock_update)
                     ic(batch_stock_update)
 
-                    
-                    await inv_obj.bulk_update_serialno(data=serialno_update,shop_id=billing_datas['shop_id'])
-                    await inv_obj.bulk_variant_decr_qty_update(shop_id=billing_datas['shop_id'],data=variant_stock_update)
-                    await inv_obj.bulk_batch_decr_qty_update(shop_id=billing_datas['shop_id'],data=batch_stock_update)
-                    await inv_obj.bulk_qty_decr_update(shop_id=billing_datas['shop_id'],data=inv_stock_update)
-                    
                     await StockAdjService(session=session).create(
                         can_update_stock=False,
                         data=CreateStockAdjSchema(
@@ -168,6 +162,13 @@ class MessagingQueueBillingproducer:
                             products=stockadj_prod_toadd,
                         )
                     )
+                    
+                    await inv_obj.bulk_update_serialno(data=serialno_update,shop_id=billing_datas['shop_id'])
+                    await inv_obj.bulk_variant_decr_qty_update(shop_id=billing_datas['shop_id'],data=variant_stock_update)
+                    await inv_obj.bulk_batch_decr_qty_update(shop_id=billing_datas['shop_id'],data=batch_stock_update)
+                    await inv_obj.bulk_qty_decr_update(shop_id=billing_datas['shop_id'],data=inv_stock_update)
+                    
+                    
 
                     await session.commit()
 
