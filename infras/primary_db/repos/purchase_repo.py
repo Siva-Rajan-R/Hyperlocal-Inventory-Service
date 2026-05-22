@@ -12,7 +12,10 @@ from typing import Optional,List
 from icecream import ic
 from core.data_formats.enums.purchase_enums import PurchaseTypeEnums,PurchaseViewsEnums
 
-# aliases
+# =========================================================
+# ALIASES
+# =========================================================
+
 p = Purchase
 pip = PurchaseInventoryProducts
 i = Inventory
@@ -51,20 +54,59 @@ pip_agg = (
 
 
 # =========================================================
-# SERIAL SUBQUERY
+# SERIALS INSIDE BATCH
 # =========================================================
 
 serial_subq = (
     select(
-        func.jsonb_build_object(
-            "id", s.id,
-            "serial_numbers", s.serial_numbers
+        func.jsonb_agg(
+            func.distinct(
+                func.jsonb_build_object(
+                    "id", s.id,
+                    "serial_numbers", s.serial_numbers
+                )
+            )
         )
     )
-    .where(s.batch_id == b.id)
-    .limit(1)
+    .where(
+        s.batch_id == b.id
+    )
     .scalar_subquery()
 )
+
+
+# =========================================================
+# DIRECT SERIALS (WITHOUT BATCH)
+# =========================================================
+
+direct_serial_subq = (
+    select(
+        pip_agg.c.purchase_id,
+        pip_agg.c.inventory_id,
+        pip_agg.c.variant_id,
+
+        func.jsonb_agg(
+            func.distinct(
+                func.jsonb_build_object(
+                    "id", s.id,
+                    "serial_numbers", s.serial_numbers
+                )
+            )
+        ).label("serials")
+    )
+    .join(
+        s,
+        s.inventory_id == pip_agg.c.inventory_id
+    )
+    .where(
+        pip_agg.c.batch_id.is_(None)
+    )
+    .group_by(
+        pip_agg.c.purchase_id,
+        pip_agg.c.inventory_id,
+        pip_agg.c.variant_id,
+    )
+).subquery()
 
 
 # =========================================================
@@ -82,9 +124,13 @@ batch_subq = (
                 func.jsonb_build_object(
                     "id", b.id,
                     "name", b.name,
+
                     "stocks", pip_agg.c.stocks,
+
                     "expiry_date", b.expiry_date,
                     "manufacturing_date", b.manufacturing_date,
+
+                    # SERIALS INSIDE BATCH
                     "serials", serial_subq
                 )
             )
@@ -123,7 +169,11 @@ variant_subq = (
                     "buy_price", pip_agg.c.buy_price,
                     "sell_price", pip_agg.c.sell_price,
 
-                    "batches", batch_subq.c.batches
+                    # BATCHES
+                    "batches", batch_subq.c.batches,
+
+                    # DIRECT SERIALS
+                    "serials", direct_serial_subq.c.serials
                 )
             )
         ).label("variants")
@@ -132,6 +182,11 @@ variant_subq = (
         v,
         v.id == pip_agg.c.variant_id
     )
+
+    # =====================================================
+    # BATCH JOIN
+    # =====================================================
+
     .outerjoin(
         batch_subq,
         and_(
@@ -140,10 +195,34 @@ variant_subq = (
             batch_subq.c.variant_id == pip_agg.c.variant_id,
         )
     )
+
+    # =====================================================
+    # DIRECT SERIAL JOIN
+    # =====================================================
+
+    .outerjoin(
+        direct_serial_subq,
+        and_(
+            direct_serial_subq.c.purchase_id == pip_agg.c.purchase_id,
+            direct_serial_subq.c.inventory_id == pip_agg.c.inventory_id,
+
+            or_(
+                direct_serial_subq.c.variant_id == pip_agg.c.variant_id,
+
+                and_(
+                    direct_serial_subq.c.variant_id.is_(None),
+                    pip_agg.c.variant_id.is_(None)
+                )
+            )
+        )
+    )
+
     .group_by(
         pip_agg.c.purchase_id,
         pip_agg.c.inventory_id,
         pip_agg.c.variant_id,
+        batch_subq.c.batches,
+        direct_serial_subq.c.serials,
     )
 ).subquery()
 
@@ -162,7 +241,10 @@ product_subq = (
         pip_agg.c.stocks_before,
         pip_agg.c.received_stocks,
 
-        # inventory fields
+        # =================================================
+        # INVENTORY FIELDS
+        # =================================================
+
         i.id.label("id"),
         i.ui_id.label("ui_id"),
         i.sequence_id.label("sequence_id"),
@@ -173,29 +255,101 @@ product_subq = (
         i.category.label("category"),
         i.created_at.label("created_at"),
         i.updated_at.label("updated_at"),
+
         i.has_batch.label("has_batch"),
         i.has_serialno.label("has_serialno"),
         i.has_variant.label("has_variant"),
+
         i.datas.label("datas"),
 
-        # purchase values
+        # =================================================
+        # PURCHASE VALUES
+        # =================================================
+
         pip_agg.c.stocks.label("stocks"),
         pip_agg.c.buy_price.label("buy_price"),
         pip_agg.c.sell_price.label("sell_price"),
 
-        # ONLY CURRENT VARIANT
+        # =================================================
+        # VARIANTS
+        # =================================================
+
         variant_subq.c.variants,
+
+        # =================================================
+        # BATCHES WITHOUT VARIANTS
+        # =================================================
+
+        batch_subq.c.batches,
+
+        # =================================================
+        # SERIALS WITHOUT BATCH
+        # =================================================
+
+        direct_serial_subq.c.serials,
     )
+
+    # =====================================================
+    # INVENTORY JOIN
+    # =====================================================
+
     .join(
         i,
         i.id == pip_agg.c.inventory_id
     )
+
+    # =====================================================
+    # VARIANT JOIN
+    # =====================================================
+
     .outerjoin(
         variant_subq,
         and_(
             variant_subq.c.purchase_id == pip_agg.c.purchase_id,
             variant_subq.c.inventory_id == pip_agg.c.inventory_id,
             variant_subq.c.variant_id == pip_agg.c.variant_id,
+        )
+    )
+
+    # =====================================================
+    # BATCH JOIN
+    # =====================================================
+
+    .outerjoin(
+        batch_subq,
+        and_(
+            batch_subq.c.purchase_id == pip_agg.c.purchase_id,
+            batch_subq.c.inventory_id == pip_agg.c.inventory_id,
+
+            or_(
+                batch_subq.c.variant_id == pip_agg.c.variant_id,
+
+                and_(
+                    batch_subq.c.variant_id.is_(None),
+                    pip_agg.c.variant_id.is_(None)
+                )
+            )
+        )
+    )
+
+    # =====================================================
+    # DIRECT SERIAL JOIN
+    # =====================================================
+
+    .outerjoin(
+        direct_serial_subq,
+        and_(
+            direct_serial_subq.c.purchase_id == pip_agg.c.purchase_id,
+            direct_serial_subq.c.inventory_id == pip_agg.c.inventory_id,
+
+            or_(
+                direct_serial_subq.c.variant_id == pip_agg.c.variant_id,
+
+                and_(
+                    direct_serial_subq.c.variant_id.is_(None),
+                    pip_agg.c.variant_id.is_(None)
+                )
+            )
         )
     )
 ).subquery()
@@ -208,14 +362,21 @@ product_subq = (
 products_agg = func.jsonb_agg(
     func.distinct(
         func.jsonb_build_object(
+
+            # =================================================
+            # INVENTORY
+            # =================================================
+
             "id", product_subq.c.id,
             "ui_id", product_subq.c.ui_id,
             "sequence_id", product_subq.c.sequence_id,
             "barcode", product_subq.c.barcode,
             "shop_id", product_subq.c.shop_id,
+
             "name", product_subq.c.name,
             "description", product_subq.c.description,
             "category", product_subq.c.category,
+
             "created_at", product_subq.c.created_at,
             "updated_at", product_subq.c.updated_at,
 
@@ -225,15 +386,38 @@ products_agg = func.jsonb_agg(
 
             "datas", product_subq.c.datas,
 
+            # =================================================
+            # STOCKS
+            # =================================================
+
             "stocks_before", product_subq.c.stocks_before,
             "received_stocks", product_subq.c.received_stocks,
-
             "stocks", product_subq.c.stocks,
+
+            # =================================================
+            # PRICES
+            # =================================================
+
             "buy_price", product_subq.c.buy_price,
             "sell_price", product_subq.c.sell_price,
 
-            # ONLY SINGLE VARIANT
+            # =================================================
+            # VARIANT PRODUCTS
+            # =================================================
+
             "variants", product_subq.c.variants,
+
+            # =================================================
+            # NON VARIANT PRODUCTS
+            # =================================================
+
+            "batches", product_subq.c.batches,
+
+            # =================================================
+            # NON BATCH SERIAL PRODUCTS
+            # =================================================
+
+            "serials", product_subq.c.serials,
         )
     )
 )
