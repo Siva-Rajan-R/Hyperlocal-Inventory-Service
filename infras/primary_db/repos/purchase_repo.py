@@ -156,6 +156,7 @@ product_subq = (
         i.has_batch.label("has_batch"),
         i.has_serialno.label("has_serialno"),
         i.has_variant.label("has_variant"),
+        i.datas.label("datas"),
 
         # 🔹 aggregated purchase values
         func.sum(pip_agg.c.stocks).label("stocks"),
@@ -193,6 +194,7 @@ product_subq = (
         i.has_batch,
         i.has_serialno,
         i.has_variant,
+        i.datas,
 
         variant_subq.c.variants
     )
@@ -216,6 +218,7 @@ products_agg = func.jsonb_agg(
         "has_variant", product_subq.c.has_variant,
         "stocks_before",product_subq.c.stocks_before,
         "received_stocks",product_subq.c.received_stocks,
+        "datas",product_subq.c.datas,
 
         # 🔹 purchase values
         "stocks", product_subq.c.stocks,
