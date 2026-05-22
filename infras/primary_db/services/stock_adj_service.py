@@ -95,6 +95,11 @@ class StockAdjService(BaseServiceModel):
 
         ic(structured_inventory, structured_variant, structured_batch, structured_serialno)
 
+        ic(len(verified_inv_product) != len(inv_checked_results),
+           len(verified_variant) != len(variant_checked_results) ,
+           len(verified_batch) != len(batch_checked_results) ,
+           len(verified_serialno) != len(serialno_checked_results))
+
         if len(verified_inv_product) != len(inv_checked_results) or \
            len(verified_variant) != len(variant_checked_results) or \
            len(verified_batch) != len(batch_checked_results) or \
