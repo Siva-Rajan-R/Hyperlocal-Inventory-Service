@@ -537,10 +537,13 @@ class PurchaseService(BaseServiceModel):
 
                 stocks_before=result['stocks']
                 if has_variant:
-                    stocks_before=structured_variant[variant_id]['stocks']
+                    variant_exisist=structured_variant.get(variant_id)
+                    stocks_before=variant_exisist['stocks'] if variant_exisist else stocks_before
                 
                 if has_batch:
-                    stocks_before=structured_batch[batch_id]['stocks']
+                    batch_exists=structured_batch.get(batch_id)
+                    stocks_before=batch_exists['stocks'] if batch_exists else stocks_before
+
 
                 ic(stocks_before)
                 
