@@ -604,6 +604,8 @@ class PurchaseService(BaseServiceModel):
             pur_inv_res=await pur_repo_obj.create_purchase_inv_bulk(data=purchase_inv_product_toadd)
             ic(pur_inv_res)
             ic(stock_adj_products)
+            await inv_repo_obj.create_batch_bulk(datas=batch_toadd)
+            await inv_repo_obj.create_serialno_bulk(datas=serialno_toadd) 
             stock_res=await StockAdjService(session=self.session).create(
                 can_update_stock=False,
                 data=CreateStockAdjSchema(
