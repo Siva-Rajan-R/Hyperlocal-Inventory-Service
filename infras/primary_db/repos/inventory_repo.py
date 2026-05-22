@@ -147,6 +147,7 @@ class InventoryRepo(BaseRepoModel):
         self.inv_cols=(
             Inventory.id,
             Inventory.ui_id,
+            Inventory.sku,
             Inventory.sequence_id,
             Inventory.barcode,
             Inventory.shop_id,
