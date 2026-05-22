@@ -175,7 +175,7 @@ class InventoryService(BaseServiceModel):
         data_tocheck=data.model_dump(mode='json',exclude=['shop_id'],exclude_none=True,exclude_unset=True)
 
         if not data_tocheck or len(data_tocheck)<1:
-            return False
+            return {'id':'','exists':False}
 
         res=await InventoryRepo(session=self.session).verify(data=data)
 
