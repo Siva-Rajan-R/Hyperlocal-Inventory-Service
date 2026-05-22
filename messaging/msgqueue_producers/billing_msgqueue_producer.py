@@ -169,6 +169,8 @@ class MessagingQueueBillingproducer:
                         )
                     )
 
+                    await session.commit()
+
     
                 ic("CUSTOMER DEDUCTED SUCCESSFULLY")
                 ic(orders_data)

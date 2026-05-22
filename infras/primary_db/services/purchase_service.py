@@ -622,8 +622,8 @@ class PurchaseService(BaseServiceModel):
             await inv_repo_obj.bulk_batch_qty_update(data=batch_toupdate,shop_id=data.shop_id)
             await inv_repo_obj.bulk_add_serialno(data=serialno_toupdate,shop_id=data.shop_id)
 
-            await inv_repo_obj.create_batch_bulk(datas=batch_toadd)
-            await inv_repo_obj.create_serialno_bulk(datas=serialno_toadd)
+            # await inv_repo_obj.create_batch_bulk(datas=batch_toadd)
+            # await inv_repo_obj.create_serialno_bulk(datas=serialno_toadd)
 
 
             
