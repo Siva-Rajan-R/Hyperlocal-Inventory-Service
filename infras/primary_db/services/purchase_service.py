@@ -537,11 +537,12 @@ class PurchaseService(BaseServiceModel):
 
                 stocks_before=result['stocks']
                 if has_variant:
-                    stocks_before=structured_variant[inv_prod_id]
+                    stocks_before=structured_variant[inv_prod_id]['stocks']
                 
                 if has_batch:
-                    stocks_before=structured_batch[inv_checked_results]
+                    stocks_before=structured_batch[inv_prod_id]['stocks']
 
+                ic(stocks_before)
                 
                 purchase_inv_product_toadd.append(
                     PurchaseInventoryProducts(
