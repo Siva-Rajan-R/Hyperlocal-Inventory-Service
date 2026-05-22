@@ -150,12 +150,13 @@ class StockAdjService(BaseServiceModel):
         )
 
         stockadj_res=await stockadj_repo_obj.create(data=stock_adjtoadd)
+        ic(stockadj_res)
         NEXT=stockadj_res
-
+        ic(NEXT)
         if NEXT:
             stockadj_inv_prod_res=await stockadj_repo_obj.create_bulk_stockadj_inv_prod(datas=stock_adj_inv_prod_toadd)
             NEXT=stockadj_inv_prod_res
-
+        ic(NEXT)
         if NEXT and can_update_stock:
             inv_repo_obj=InventoryRepo(session=self.session)
             if inventory_toincr:

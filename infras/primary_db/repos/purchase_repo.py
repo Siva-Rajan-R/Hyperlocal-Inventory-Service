@@ -12,7 +12,7 @@ from typing import Optional,List
 from icecream import ic
 from core.data_formats.enums.purchase_enums import PurchaseTypeEnums,PurchaseViewsEnums
 
-# aliases (optional but cleaner)
+# aliases
 p = Purchase
 pip = PurchaseInventoryProducts
 i = Inventory
@@ -20,14 +20,21 @@ v = InventoryVariants
 b = InventoryBatches
 s = InventorySerialNumbers
 
+
+# =========================================================
+# PURCHASE ITEM AGG
+# =========================================================
+
 pip_agg = (
     select(
         pip.purchase_id,
         pip.inventory_id,
         pip.variant_id,
         pip.batch_id,
-        pip.stocks_before.label('stocks_before'),
-        pip.received_stocks.label('received_stocks'),
+
+        pip.stocks_before.label("stocks_before"),
+        pip.received_stocks.label("received_stocks"),
+
         func.sum(pip.stocks).label("stocks"),
         func.max(pip.buy_price).label("buy_price"),
         func.max(pip.sell_price).label("sell_price"),
@@ -38,9 +45,14 @@ pip_agg = (
         pip.variant_id,
         pip.batch_id,
         pip.stocks_before,
-        pip.received_stocks
+        pip.received_stocks,
     )
 ).subquery()
+
+
+# =========================================================
+# SERIAL SUBQUERY
+# =========================================================
 
 serial_subq = (
     select(
@@ -54,95 +66,103 @@ serial_subq = (
     .scalar_subquery()
 )
 
+
+# =========================================================
+# BATCH SUBQUERY
+# =========================================================
+
 batch_subq = (
     select(
-        pip_agg.c.purchase_id,        # ✅ ADD THIS
+        pip_agg.c.purchase_id,
+        pip_agg.c.inventory_id,
         pip_agg.c.variant_id,
+
         func.jsonb_agg(
-            func.distinct(           # ✅ IMPORTANT
+            func.distinct(
                 func.jsonb_build_object(
                     "id", b.id,
                     "name", b.name,
                     "stocks", pip_agg.c.stocks,
                     "expiry_date", b.expiry_date,
-                    "manufacturing_date", b.manufacturing_date
+                    "manufacturing_date", b.manufacturing_date,
+                    "serials", serial_subq
                 )
             )
         ).label("batches")
     )
-    .join(b, b.id == pip_agg.c.batch_id)
+    .join(
+        b,
+        b.id == pip_agg.c.batch_id
+    )
     .group_by(
-        pip_agg.c.purchase_id,       # ✅ ADD THIS
-        pip_agg.c.variant_id
+        pip_agg.c.purchase_id,
+        pip_agg.c.inventory_id,
+        pip_agg.c.variant_id,
     )
 ).subquery()
 
+
+# =========================================================
+# VARIANT SUBQUERY
+# =========================================================
+
 variant_subq = (
     select(
-        pip_agg.c.purchase_id,       # ✅ ADD THIS
+        pip_agg.c.purchase_id,
         pip_agg.c.inventory_id,
+        pip_agg.c.variant_id,
+
         func.jsonb_agg(
-            func.distinct(           # ✅ IMPORTANT
+            func.distinct(
                 func.jsonb_build_object(
                     "id", v.id,
                     "name", v.name,
+
                     "stocks", pip_agg.c.stocks,
+
                     "buy_price", pip_agg.c.buy_price,
                     "sell_price", pip_agg.c.sell_price,
+
                     "batches", batch_subq.c.batches
                 )
             )
         ).label("variants")
     )
-    .join(v, v.id == pip_agg.c.variant_id)
+    .join(
+        v,
+        v.id == pip_agg.c.variant_id
+    )
     .outerjoin(
         batch_subq,
         and_(
-            batch_subq.c.variant_id == v.id,
-            batch_subq.c.purchase_id == pip_agg.c.purchase_id   # ✅ CRITICAL
+            batch_subq.c.purchase_id == pip_agg.c.purchase_id,
+            batch_subq.c.inventory_id == pip_agg.c.inventory_id,
+            batch_subq.c.variant_id == pip_agg.c.variant_id,
         )
     )
     .group_by(
-        pip_agg.c.purchase_id,       # ✅ ADD THIS
-        pip_agg.c.inventory_id
+        pip_agg.c.purchase_id,
+        pip_agg.c.inventory_id,
+        pip_agg.c.variant_id,
     )
 ).subquery()
 
 
-# product_subq = (
-#     select(
-#         pip_agg.c.purchase_id,
-#         pip_agg.c.inventory_id,
-
-#         func.sum(pip_agg.c.stocks).label("stocks"),
-#         func.max(pip_agg.c.buy_price).label("buy_price"),
-#         func.max(pip_agg.c.sell_price).label("sell_price"),
-
-#         variant_subq.c.variants
-#     )
-#     .outerjoin(
-#         variant_subq,
-#         and_(
-#             variant_subq.c.inventory_id == pip_agg.c.inventory_id,
-#             variant_subq.c.purchase_id == pip_agg.c.purchase_id
-#         )
-#     )
-#     .group_by(
-#         pip_agg.c.purchase_id,
-#         pip_agg.c.inventory_id,
-#         variant_subq.c.variants
-#     )
-# ).subquery()
-
+# =========================================================
+# PRODUCT SUBQUERY
+# =========================================================
 
 product_subq = (
     select(
         pip_agg.c.purchase_id,
+
         pip_agg.c.inventory_id,
+        pip_agg.c.variant_id,
+
         pip_agg.c.stocks_before,
         pip_agg.c.received_stocks,
 
-        # 🔹 inventory fields
+        # inventory fields
         i.id.label("id"),
         i.ui_id.label("ui_id"),
         i.sequence_id.label("sequence_id"),
@@ -158,88 +178,66 @@ product_subq = (
         i.has_variant.label("has_variant"),
         i.datas.label("datas"),
 
-        # 🔹 aggregated purchase values
-        func.sum(pip_agg.c.stocks).label("stocks"),
-        func.max(pip_agg.c.buy_price).label("buy_price"),
-        func.max(pip_agg.c.sell_price).label("sell_price"),
+        # purchase values
+        pip_agg.c.stocks.label("stocks"),
+        pip_agg.c.buy_price.label("buy_price"),
+        pip_agg.c.sell_price.label("sell_price"),
 
-        # 🔹 nested variants
-        variant_subq.c.variants
+        # ONLY CURRENT VARIANT
+        variant_subq.c.variants,
     )
-    .join(i, i.id == pip_agg.c.inventory_id)  # ✅ move join here
+    .join(
+        i,
+        i.id == pip_agg.c.inventory_id
+    )
     .outerjoin(
         variant_subq,
         and_(
+            variant_subq.c.purchase_id == pip_agg.c.purchase_id,
             variant_subq.c.inventory_id == pip_agg.c.inventory_id,
-            variant_subq.c.purchase_id == pip_agg.c.purchase_id
+            variant_subq.c.variant_id == pip_agg.c.variant_id,
         )
-    )
-    .group_by(
-        pip_agg.c.purchase_id,
-        pip_agg.c.inventory_id,
-        pip_agg.c.stocks_before,
-        pip_agg.c.received_stocks,
-
-        # 🔴 ALL non-aggregated columns MUST be grouped
-        i.id,
-        i.ui_id,
-        i.sequence_id,
-        i.barcode,
-        i.shop_id,
-        i.name,
-        i.description,
-        i.category,
-        i.created_at,
-        i.updated_at,
-        i.has_batch,
-        i.has_serialno,
-        i.has_variant,
-        i.datas,
-
-        variant_subq.c.variants
     )
 ).subquery()
 
 
+# =========================================================
+# PRODUCTS AGG
+# =========================================================
+
 products_agg = func.jsonb_agg(
-    func.jsonb_build_object(
-        "id", product_subq.c.id,
-        "ui_id", product_subq.c.ui_id,
-        "sequence_id", product_subq.c.sequence_id,
-        "barcode", product_subq.c.barcode,
-        "shop_id", product_subq.c.shop_id,
-        "name", product_subq.c.name,
-        "description", product_subq.c.description,
-        "category", product_subq.c.category,
-        "created_at", product_subq.c.created_at,
-        "updated_at", product_subq.c.updated_at,
-        "has_batch", product_subq.c.has_batch,
-        "has_serialno", product_subq.c.has_serialno,
-        "has_variant", product_subq.c.has_variant,
-        "stocks_before",product_subq.c.stocks_before,
-        "received_stocks",product_subq.c.received_stocks,
-        "datas",product_subq.c.datas,
+    func.distinct(
+        func.jsonb_build_object(
+            "id", product_subq.c.id,
+            "ui_id", product_subq.c.ui_id,
+            "sequence_id", product_subq.c.sequence_id,
+            "barcode", product_subq.c.barcode,
+            "shop_id", product_subq.c.shop_id,
+            "name", product_subq.c.name,
+            "description", product_subq.c.description,
+            "category", product_subq.c.category,
+            "created_at", product_subq.c.created_at,
+            "updated_at", product_subq.c.updated_at,
 
-        # 🔹 purchase values
-        "stocks", product_subq.c.stocks,
-        "buy_price", product_subq.c.buy_price,
-        "sell_price", product_subq.c.sell_price,
+            "has_batch", product_subq.c.has_batch,
+            "has_serialno", product_subq.c.has_serialno,
+            "has_variant", product_subq.c.has_variant,
 
-        # 🔹 nested
-        "variants", product_subq.c.variants
+            "datas", product_subq.c.datas,
+
+            "stocks_before", product_subq.c.stocks_before,
+            "received_stocks", product_subq.c.received_stocks,
+
+            "stocks", product_subq.c.stocks,
+            "buy_price", product_subq.c.buy_price,
+            "sell_price", product_subq.c.sell_price,
+
+            # ONLY SINGLE VARIANT
+            "variants", product_subq.c.variants,
+        )
     )
 )
 
-# products_agg = func.json_agg(
-#     func.jsonb_build_object(
-#         "id", i.id,
-#         "name", i.name,
-#         "stocks", product_subq.c.stocks,
-#         "buy_price", product_subq.c.buy_price,
-#         "sell_price", product_subq.c.sell_price,
-#         "variants", product_subq.c.variants
-#     )
-# )
 
 class PurchaseRepo(BaseRepoModel):
     def __init__(self, session:AsyncSession):
