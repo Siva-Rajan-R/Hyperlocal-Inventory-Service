@@ -582,15 +582,6 @@ class PurchaseService(BaseServiceModel):
         if res:
             pur_inv_res=await pur_repo_obj.create_purchase_inv_bulk(data=purchase_inv_product_toadd)
             ic(pur_inv_res)
-            await inv_repo_obj.update_bulk(datas=inv_prod_toupdate)
-            await inv_repo_obj.update_variant_bulk(datas=variant_toupdate)
-            await inv_repo_obj.bulk_batch_qty_update(data=batch_toupdate,shop_id=data.shop_id)
-            await inv_repo_obj.bulk_add_serialno(data=serialno_toupdate,shop_id=data.shop_id)
-
-            await inv_repo_obj.create_batch_bulk(datas=batch_toadd)
-            await inv_repo_obj.create_serialno_bulk(datas=serialno_toadd)
-
-
             await StockAdjService(session=self.session).create(
                 can_update_stock=False,
                 data=CreateStockAdjSchema(
@@ -601,6 +592,16 @@ class PurchaseService(BaseServiceModel):
                     products=stock_adj_products
                 )
             )
+            await inv_repo_obj.update_bulk(datas=inv_prod_toupdate)
+            await inv_repo_obj.update_variant_bulk(datas=variant_toupdate)
+            await inv_repo_obj.bulk_batch_qty_update(data=batch_toupdate,shop_id=data.shop_id)
+            await inv_repo_obj.bulk_add_serialno(data=serialno_toupdate,shop_id=data.shop_id)
+
+            await inv_repo_obj.create_batch_bulk(datas=batch_toadd)
+            await inv_repo_obj.create_serialno_bulk(datas=serialno_toadd)
+
+
+            
 
 
             ic("all of them updated successfully")
