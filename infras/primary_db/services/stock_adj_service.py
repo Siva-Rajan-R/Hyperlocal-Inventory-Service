@@ -25,29 +25,83 @@ class StockAdjService(BaseServiceModel):
     async def create(self, data:CreateStockAdjSchema,can_update_stock:Optional[bool]=True):
         ic(data)
         stockadj_id=generate_uuid()
-        inventories_tocheck=[]
-        formatted_req_inventories={}
+        
+        verified_inv_product=[]
+        verified_variant=[]
+        verified_batch=[]
+        verified_serialno=[]
 
-        for inventory in data.products:
-            inventories_tocheck.append(inventory.inventory_id)
-            if formatted_req_inventories.get(inventory.inventory_id,None):
+        checking_formatted_data={}
+
+        for product in data.products:
+            if (not product.batch_id and not product.variant_id) and product.inventory_id in verified_inv_product:
+                ic("Same product should not be added twice")
                 return False
             
-            formatted_req_inventories[inventory.inventory_id]=inventory.model_dump(mode="json")
+            if product.variant_id and product.variant_id in verified_variant:
+                ic("Same product + variant should not be added twice")
+                return False
+            
+            if product.batch_id and product.batch_id in verified_batch:
+                ic("Same product + batch should not be added twice")
+                return False
 
-        ic(inventories_tocheck,formatted_req_inventories)
-        if len(inventories_tocheck)!=len(data.products):
-            ic("Invalid datas length")
-            return False
+            if product.serialno_id and product.serialno_id in verified_serialno:
+                ic("Same product + serial number should not be added twice")
+                return False
+
+            if product.batch_id:
+                verified_batch.append(product.batch_id)
+
+            if product.variant_id:
+                verified_variant.append(product.variant_id)
+
+            if product.serialno_id:
+                verified_serialno.append(product.serialno_id)
+            
+            if product.inventory_id not in verified_inv_product:
+                verified_inv_product.append(product.inventory_id)
+
+            if product.inventory_id not in checking_formatted_data:
+                checking_formatted_data[product.inventory_id] = []
+
+            checking_formatted_data[product.inventory_id].append(
+                product.model_dump(mode="json")
+            )
+
+        ic(verified_inv_product, verified_variant, verified_batch, verified_serialno, checking_formatted_data)
+
+        inv_repo_obj = InventoryRepo(session=self.session)
+        inv_checked_results = await inv_repo_obj.bulk_check(data=BulkCheckInventorySchema(shop_id=data.shop_id,id=verified_inv_product))
+        variant_checked_results = await inv_repo_obj.bulk_varient_check(shop_id=data.shop_id,variants_id=verified_variant)
+        batch_checked_results = await inv_repo_obj.bulk_batch_check(shop_id=data.shop_id,batches_id=verified_batch)
+        serialno_checked_results = await inv_repo_obj.bulk_serialno_check(shop_id=data.shop_id,serialnos_id=verified_serialno)
+
+        structured_inventory = {}
+        for result in inv_checked_results:
+            structured_inventory[result['id']] = result
+
+        structured_variant = {}
+        for variant in variant_checked_results:
+            structured_variant[variant['id']] = variant
         
-        checked_results=await InventoryRepo(session=self.session).bulk_check(data=BulkCheckInventorySchema(shop_id=data.shop_id,id=inventories_tocheck))
+        structured_batch = {}
+        for batch in batch_checked_results:
+            structured_batch[batch['id']] = batch
 
-        ic(checked_results)
+        structured_serialno = {}
+        for serial in serialno_checked_results:
+            structured_serialno[serial['id']] = serial
 
-        if len(checked_results)!=len(data.products):
-            ic("Invalid checked results")
+        ic(structured_inventory, structured_variant, structured_batch, structured_serialno)
+
+        if len(verified_inv_product) != len(inv_checked_results) or \
+           len(verified_variant) != len(variant_checked_results) or \
+           len(verified_batch) != len(batch_checked_results) or \
+           len(verified_serialno) != len(serialno_checked_results):
+            ic("Some of the IDs are mismatching/not found in primary DB")
             return False
-        
+
         variant_toincr={}
         batch_toincr={}
         inventory_toincr={}
@@ -60,83 +114,98 @@ class StockAdjService(BaseServiceModel):
 
         stock_adj_inv_prod_toadd=[]
 
-        ERROR_OCCURED=None
-        for inv_res in checked_results:
-            ic(inv_res)
-            requested_data=formatted_req_inventories.get(inv_res['id'],None)
-            ic(requested_data)
+        ERROR_OCCURED=False
+        for inv_res in inv_checked_results:
+            inv_prod_id = inv_res['id']
+            has_variant = inv_res['has_variant']
+            has_batch = inv_res['has_batch']
+            has_serialno = inv_res['has_serialno']
+            
+            # Net change for this base product
+            net_inv_change = 0.0
 
-            batch_id:str=requested_data.get('batch_id',None)
-            inv_id:str=requested_data.get('inventory_id',None)
-            variant_id:str=requested_data.get('variant_id',None)
-            serial_id:list=requested_data.get("serialno_id",None)
-            stocks:int=requested_data['stocks']
+            for requested_data in checking_formatted_data[inv_prod_id]:
+                batch_id:str=requested_data.get('batch_id',None)
+                variant_id:str=requested_data.get('variant_id',None)
+                serial_id:str=requested_data.get("serialno_id",None)
+                stocks:float=requested_data['stocks']
+                adjustment_type=requested_data['type']
+                serial_numbers = requested_data.get('serial_numbers', []) or []
 
-            adjustment_type=requested_data['type']
+                ic(batch_id, inv_prod_id, variant_id, serial_id, stocks, adjustment_type)
 
-            ic(batch_id,inv_id,variant_id,serial_id,stocks,adjustment_type)
-
-            if inv_res['has_variant'] and not variant_id:
+                if has_variant and not variant_id:
                     ic("There is no variant id")
                     ERROR_OCCURED=True
                     return None
                 
-            if inv_res['has_batch'] and not batch_id:
-                ic("There is no batch id")
-                ERROR_OCCURED=True
-                return None
-            
+                if has_batch and not batch_id:
+                    ic("There is no batch id")
+                    ERROR_OCCURED=True
+                    return None
 
-            if (inv_res['has_serialno'] and not serial_id) or ((inv_res['has_serialno'] and serial_id) and len(requested_data.get('serial_numbers',[]) or [])!=stocks):
-                ic("invalid Serial numbers")
-                ERROR_OCCURED=True
-                return None
-            
+                if has_serialno and not serial_id:
+                    ic("Serial number ID is missing for serialized inventory")
+                    ERROR_OCCURED=True
+                    return None
 
-            if adjustment_type==StockAdjustmentTypesEnum.INCREMENT.value:
-                if inv_res['has_variant'] and variant_id:
-                    variant_toincr[variant_id]=stocks
+                if has_serialno and len(serial_numbers) != stocks:
+                    ic("Invalid Serial numbers length vs stocks count")
+                    ERROR_OCCURED=True
+                    return None
 
-                if inv_res['has_batch'] and batch_id:
-                    batch_toincr[batch_id]=stocks
+                # Determine the correct stocks_before
+                stocks_before = inv_res['stocks']
+                if has_variant and variant_id in structured_variant:
+                    stocks_before = structured_variant[variant_id]['stocks']
+                if has_batch and batch_id in structured_batch:
+                    stocks_before = structured_batch[batch_id]['stocks']
 
-                if inv_res['has_serialno'] and serial_id:
-                    serailno_incr[serial_id]=requested_data.get('serial_numbers')
+                # Track quantities for updates
+                is_increment = (adjustment_type == StockAdjustmentTypesEnum.INCREMENT.value or adjustment_type == StockAdjustmentTypesEnum.INCREMENT)
+                is_decrement = (adjustment_type == StockAdjustmentTypesEnum.DECREMENT.value or adjustment_type == StockAdjustmentTypesEnum.DECREMENT)
 
-                inventory_toincr[inv_id]=stocks
+                if is_increment:
+                    if has_variant and variant_id:
+                        variant_toincr[variant_id]=stocks
+                    if has_batch and batch_id:
+                        batch_toincr[batch_id]=stocks
+                    if has_serialno and serial_id:
+                        serailno_incr[serial_id]=serial_numbers
+                    net_inv_change += stocks
 
-            if adjustment_type==StockAdjustmentTypesEnum.DECREMENT.value:
-                if inv_res['has_variant'] and variant_id:
-                    variant_todecr[variant_id]=stocks
+                elif is_decrement:
+                    if has_variant and variant_id:
+                        variant_todecr[variant_id]=stocks
+                    if has_batch and batch_id:
+                        batch_todecr[batch_id]=stocks
+                    if has_serialno and serial_id:
+                        serailno_decr[serial_id]=serial_numbers
+                    net_inv_change -= stocks
 
-                if inv_res['has_batch'] and batch_id:
-                    batch_todecr[batch_id]=stocks
-
-                if inv_res['has_serialno'] and serial_id:
-                    serailno_decr[serial_id]=requested_data.get('serial_numbers')
-
-                inventory_todecr[inv_id]=stocks
-            
-
-            stock_adj_inv_prod_toadd.append(
-                StockAdjustmentInventoryProducts(
-                    inventory_id=inv_id,
-                    stockadjustment_id=stockadj_id,
-                    variant_id=variant_id,
-                    batch_id=batch_id,
-                    stocks=stocks,
-                    type=adjustment_type,
-                    stocks_before=inv_res['stocks']
-
+                stock_adj_inv_prod_toadd.append(
+                    StockAdjustmentInventoryProducts(
+                        inventory_id=inv_prod_id,
+                        stockadjustment_id=stockadj_id,
+                        variant_id=variant_id,
+                        batch_id=batch_id,
+                        stocks=stocks,
+                        type=adjustment_type,
+                        stocks_before=stocks_before
+                    )
                 )
-            )
+
+            # Apply net inventory change
+            if net_inv_change > 0:
+                inventory_toincr[inv_prod_id] = net_inv_change
+            elif net_inv_change < 0:
+                inventory_todecr[inv_prod_id] = abs(net_inv_change)
 
         ic(inventory_toincr,variant_toincr,batch_toincr,serailno_incr,stock_adj_inv_prod_toadd)
         ic(inventory_todecr,variant_todecr,batch_todecr,serailno_decr)
         if ERROR_OCCURED:
             ic("Error occured")
             return False
-        
 
         NEXT=False
         stockadj_repo_obj=StockAdjRepo(session=self.session)
