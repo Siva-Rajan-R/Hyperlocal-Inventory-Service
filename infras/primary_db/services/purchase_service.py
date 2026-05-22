@@ -419,6 +419,15 @@ class PurchaseService(BaseServiceModel):
         batch_checked_results=await inv_repo_obj.bulk_batch_check(shop_id=data.shop_id,batches_id=batch_tocheck)
         serialno_checked_results=await inv_repo_obj.bulk_serialno_check(shop_id=data.shop_id,serialnos_id=serialno_tocheck)
 
+        structured_variant={}
+        structured_batch={}
+        for variant in variant_checked_results:
+            structured_variant[variant['inventory_id']]=variant
+        
+        for batch in batch_checked_results:
+            structured_batch[batch['inventory_id']]=batch
+
+        ic(structured_batch,structured_variant)
 
         ic(inv_checked_results,variant_checked_results,batch_checked_results,serialno_tocheck)
         ic(len(inventory_tocheck)!=len(inv_checked_results) , len(batch_tocheck)!=len(batch_checked_results) , len(variant_tocheck)!=len(variant_checked_results), len(serialno_tocheck)!=len(serialno_checked_results))
@@ -525,6 +534,14 @@ class PurchaseService(BaseServiceModel):
                             serial_numbers=serial_numbers
                         )
                     )
+
+                stocks_before=result['stocks']
+                if has_variant:
+                    stocks_before=structured_variant[inv_prod_id]
+                
+                if has_batch:
+                    stocks_before=structured_batch[inv_checked_results]
+
                 
                 purchase_inv_product_toadd.append(
                     PurchaseInventoryProducts(
@@ -536,7 +553,7 @@ class PurchaseService(BaseServiceModel):
                         sell_price=sell_price,
                         buy_price=buy_price,
                         received_stocks=stocks,
-                        stocks_before=result['stocks']
+                        stocks_before=stocks_before
                     )
                 )
 

@@ -1074,8 +1074,7 @@ class InventoryRepo(BaseRepoModel):
                 variants,batches,serials
             )
             .where(
-                or_(Inventory.id==data.id,
-                Inventory.barcode==data.barcode),
+                Inventory.id==data.id,
                 Inventory.shop_id==data.shop_id
             )
         )
