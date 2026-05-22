@@ -455,6 +455,7 @@ class PurchaseService(BaseServiceModel):
                 serialno_id:str=formated_data.get('serialno_id')
                 buy_price:float=formated_data['buy_price']
                 sell_price:float=formated_data['sell_price']
+                reorder_point:int=formated_data['reorder_point']
                 batch:InventoryBatchSchema=InventoryBatchSchema(**formated_data['batch']) if formated_data.get('batch',None) else None
                 serial_numbers:list[str]=formated_data.get('serial_numbers',None)
                 inv_stocks+=stocks
@@ -485,7 +486,8 @@ class PurchaseService(BaseServiceModel):
                             'is_absolute':False,
                             'stocks':stocks,
                             'buy_price':buy_price,
-                            'sell_price':sell_price
+                            'sell_price':sell_price,
+                            'reorder_point':reorder_point
                         }
                     )
 
@@ -557,6 +559,7 @@ class PurchaseService(BaseServiceModel):
                     'stocks':inv_stocks,
                     'buy_price':buy_price,
                     'sell_price':sell_price,
+                    'reorder_point':reorder_point,
                     'is_active':True
                 }
             )
