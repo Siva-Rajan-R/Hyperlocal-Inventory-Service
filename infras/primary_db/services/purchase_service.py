@@ -422,10 +422,10 @@ class PurchaseService(BaseServiceModel):
         structured_variant={}
         structured_batch={}
         for variant in variant_checked_results:
-            structured_variant[variant['inventory_id']]=variant
+            structured_variant[variant['id']]=variant
         
         for batch in batch_checked_results:
-            structured_batch[batch['inventory_id']]=batch
+            structured_batch[batch['id']]=batch
 
         ic(structured_batch,structured_variant)
 
@@ -537,10 +537,10 @@ class PurchaseService(BaseServiceModel):
 
                 stocks_before=result['stocks']
                 if has_variant:
-                    stocks_before=structured_variant[inv_prod_id]['stocks']
+                    stocks_before=structured_variant[variant_id]['stocks']
                 
                 if has_batch:
-                    stocks_before=structured_batch[inv_prod_id]['stocks']
+                    stocks_before=structured_batch[batch_id]['stocks']
 
                 ic(stocks_before)
                 
@@ -600,7 +600,7 @@ class PurchaseService(BaseServiceModel):
         if res:
             pur_inv_res=await pur_repo_obj.create_purchase_inv_bulk(data=purchase_inv_product_toadd)
             ic(pur_inv_res)
-            await StockAdjService(session=self.session).create(
+            stock_res=await StockAdjService(session=self.session).create(
                 can_update_stock=False,
                 data=CreateStockAdjSchema(
                     shop_id=data.shop_id,
@@ -610,6 +610,7 @@ class PurchaseService(BaseServiceModel):
                     products=stock_adj_products
                 )
             )
+            ic(stock_res)
             await inv_repo_obj.update_bulk(datas=inv_prod_toupdate)
             await inv_repo_obj.update_variant_bulk(datas=variant_toupdate)
             await inv_repo_obj.bulk_batch_qty_update(data=batch_toupdate,shop_id=data.shop_id)
