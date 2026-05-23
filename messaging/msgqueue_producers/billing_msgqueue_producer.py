@@ -8,6 +8,8 @@ from infras.primary_db.main import AsyncInventoryLocalSession
 from icecream import ic
 from ..main import RabbitMQMessagingConfig
 from datetime import date
+from hyperlocal_platform.infras.saga.repo import SagaStatesRepo
+from hyperlocal_platform.infras.saga.main import AsyncInfraDbLocalSession
 
 class MessagingQueueBillingproducer:
     def __init__(self,headers:dict,payload:dict,saga_datas:dict):
@@ -103,12 +105,22 @@ class MessagingQueueBillingproducer:
         try:
             ic(self.headers,self.payload,self.saga_datas)
             saga_datas:dict=self.saga_datas
+            saga_id:str=self.headers.get('saga_id')
+
+            # Re-fetch saga state from DB to avoid race conditions / stale cached data
+            if saga_id:
+                async with AsyncInfraDbLocalSession() as infra_session:
+                    fresh_saga = await SagaStatesRepo(session=infra_session).getby_id(saga_id=saga_id)
+                    if fresh_saga:
+                        saga_datas = fresh_saga
+
             data:dict=saga_datas['data']
 
             billing_datas=data['billing']
             rb_msg=RabbitMQMessagingConfig(rabbitMQ_connection=await RabbitMQMessagingConfig.get_rabbitmq_connection())
-            ic(saga_datas['execution']['step'])
-            if saga_datas['execution']['step']=="ORDER_CREATION" or saga_datas['execution']['step']=="ORDER_EXCHANGE":
+            current_step = saga_datas['execution']['step']
+            ic(current_step)
+            if current_step=="ORDER_CREATION" or current_step=="ORDER_EXCHANGE":
                 orders_data:dict|str=data.get('orders','not_found')
 
                 if orders_data=="not_found":
@@ -121,17 +133,21 @@ class MessagingQueueBillingproducer:
                 stockadj_prod_toadd:List[StockAdjInventoryProductSchema]=[]
 
                 for product in billing_datas['products']:
-                    inv_stock_update[product['id']]=product['quantity']
+                    # Accumulate quantities for same inventory/variant/batch
+                    # (same product can appear with different variants or batches)
+                    inv_stock_update[product['id']] = inv_stock_update.get(product['id'], 0) + product['quantity']
 
                     if product['variant_id']:
-                        variant_stock_update[product['variant_id']]=product['quantity']
+                        variant_stock_update[product['variant_id']] = variant_stock_update.get(product['variant_id'], 0) + product['quantity']
 
                     if product['batch_id']:
-                        batch_stock_update[product['batch_id']]=product['quantity']
+                        batch_stock_update[product['batch_id']] = batch_stock_update.get(product['batch_id'], 0) + product['quantity']
 
                     if product['serialno_id']:
-                        serialno_update[product['serialno_id']]=product['serial_numbers']
+                        existing = serialno_update.get(product['serialno_id'], [])
+                        serialno_update[product['serialno_id']] = existing + product['serial_numbers']
 
+                    # Keep individual line items for stock adjustment audit trail
                     stockadj_prod_toadd.append(
                         StockAdjInventoryProductSchema(
                             inventory_id=product['id'],
@@ -163,6 +179,10 @@ class MessagingQueueBillingproducer:
                         )
                     )
                     
+                    ic(serialno_update)
+                    ic(variant_stock_update)
+                    ic(inv_stock_update)
+                    ic(batch_stock_update)
                     await inv_obj.bulk_update_serialno(data=serialno_update,shop_id=billing_datas['shop_id'])
                     await inv_obj.bulk_variant_decr_qty_update(shop_id=billing_datas['shop_id'],data=variant_stock_update)
                     await inv_obj.bulk_batch_decr_qty_update(shop_id=billing_datas['shop_id'],data=batch_stock_update)
@@ -172,8 +192,6 @@ class MessagingQueueBillingproducer:
 
                     await session.commit()
 
-    
-                ic("CUSTOMER DEDUCTED SUCCESSFULLY")
                 ic(orders_data)
                 await rb_msg.publish_event(
                     routing_key="customers.service.routing.key",
@@ -192,9 +210,9 @@ class MessagingQueueBillingproducer:
                 )
                 return {"response":True,'execution':{'next_step':'CUSTOMER_OUTSTANDING','service':'CUSTOMERS'}}
                 
-            if saga_datas['execution']['step']=="CUSTOMER_OUTSTANDING":
-                ic("CUSTOMER DEDUCTED SUCCESSFULLY")
-                return {"response":False,'execution':None}
+            if current_step=="CUSTOMER_OUTSTANDING":
+                ic("CUSTOMER OUTSTANDING STEP ALREADY COMPLETED — ACK")
+                return {"response":True,'execution':None}
 
 
             

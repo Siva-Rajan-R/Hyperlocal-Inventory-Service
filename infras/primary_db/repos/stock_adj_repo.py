@@ -10,6 +10,17 @@ from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional,List
 from icecream import ic
 
+from sqlalchemy import (
+    select,
+    func,
+    and_,
+    or_
+)
+
+# =========================================================
+# ALIASES
+# =========================================================
+
 sa = StockAdjustments
 sap = StockAdjustmentInventoryProducts
 i = Inventory
@@ -17,86 +28,403 @@ v = InventoryVariants
 b = InventoryBatches
 s = InventorySerialNumbers
 
+
+# =========================================================
+# STOCK AGG
+# =========================================================
+
+sap_agg = (
+    select(
+        sap.stockadjustment_id,
+        sap.inventory_id,
+        sap.variant_id,
+        sap.batch_id,
+
+        sap.stocks_before,
+        sap.type,
+
+        func.sum(sap.stocks).label("stocks")
+
+    )
+    .group_by(
+        sap.stockadjustment_id,
+        sap.inventory_id,
+        sap.variant_id,
+        sap.batch_id,
+        sap.stocks_before,
+        sap.type
+    )
+).subquery()
+
+
+# =========================================================
+# SERIALS INSIDE BATCH
+# =========================================================
+
 serial_subq = (
     select(
-        func.jsonb_build_object(
-            "id", s.id,
-            "serial_numbers", s.serial_numbers
+        func.jsonb_agg(
+            func.distinct(
+                func.jsonb_build_object(
+                    "id", s.id,
+                    "serial_numbers",
+                    s.serial_numbers
+                )
+            )
         )
     )
-    .where(s.batch_id == sap.batch_id)
-    .correlate(sap)          # ✅ FIX
+    .where(
+        s.batch_id == b.id
+    )
     .scalar_subquery()
 )
+
+
+# =========================================================
+# DIRECT SERIALS
+# =========================================================
+
+direct_serial_subq = (
+    select(
+        sap_agg.c.stockadjustment_id,
+        sap_agg.c.inventory_id,
+        sap_agg.c.variant_id,
+
+        func.jsonb_agg(
+            func.distinct(
+                func.jsonb_build_object(
+                    "id", s.id,
+                    "serial_numbers",
+                    s.serial_numbers
+                )
+            )
+        ).label("serials")
+    )
+    .join(
+        s,
+        s.inventory_id ==
+        sap_agg.c.inventory_id
+    )
+    .where(
+        sap_agg.c.batch_id.is_(None)
+    )
+    .group_by(
+        sap_agg.c.stockadjustment_id,
+        sap_agg.c.inventory_id,
+        sap_agg.c.variant_id
+    )
+).subquery()
+
+
+# =========================================================
+# BATCH SUBQUERY
+# =========================================================
 
 batch_subq = (
     select(
-        func.coalesce(
-            func.jsonb_agg(
+        sap_agg.c.stockadjustment_id,
+        sap_agg.c.inventory_id,
+        sap_agg.c.variant_id,
+
+        func.jsonb_agg(
+            func.distinct(
                 func.jsonb_build_object(
                     "id", b.id,
                     "name", b.name,
-                    "stocks", sap.stocks,
-                    "expiry_date", b.expiry_date,
-                    "manufacturing_date", b.manufacturing_date,
-                    "serial_numbers", serial_subq,
 
+                    "stocks",
+                    sap_agg.c.stocks,
+
+                    "expiry_date",
+                    b.expiry_date,
+
+                    "manufacturing_date",
+                    b.manufacturing_date,
+
+                    "serials",
+                    serial_subq
                 )
-            ),
-            literal_column("'[]'::jsonb")
-        )
+            )
+        ).label("batches")
     )
-    .where(
-        b.variant_id == v.id,
-        b.id == sap.batch_id   # ✅ only relevant batches
+    .join(
+        b,
+        b.id ==
+        sap_agg.c.batch_id
     )
-    .correlate(v, sap)
-    .scalar_subquery()
-)
+    .group_by(
+        sap_agg.c.stockadjustment_id,
+        sap_agg.c.inventory_id,
+        sap_agg.c.variant_id
+    )
+).subquery()
+
+
+# =========================================================
+# VARIANTS
+# =========================================================
 
 variant_subq = (
     select(
-        func.coalesce(
-            func.jsonb_agg(
-                func.distinct(
-                    func.jsonb_build_object(
-                        "id", v.id,
-                        "name", v.name,
-                        "batches", batch_subq
-                    )
+        sap_agg.c.stockadjustment_id,
+        sap_agg.c.inventory_id,
+        sap_agg.c.variant_id,
+
+        func.jsonb_agg(
+            func.distinct(
+                func.jsonb_build_object(
+                    "id", v.id,
+                    "name", v.name,
+
+                    "stocks",
+                    sap_agg.c.stocks,
+
+                    "batches",
+                    batch_subq.c.batches,
+
+                    "serials",
+                    direct_serial_subq.c.serials
                 )
-            ),
-            literal_column("'[]'::jsonb")
+            )
+        ).label("variants")
+    )
+
+    .join(
+        v,
+        v.id ==
+        sap_agg.c.variant_id
+    )
+
+    .outerjoin(
+        batch_subq,
+        and_(
+            batch_subq.c.stockadjustment_id ==
+            sap_agg.c.stockadjustment_id,
+
+            batch_subq.c.inventory_id ==
+            sap_agg.c.inventory_id,
+
+            batch_subq.c.variant_id ==
+            sap_agg.c.variant_id
         )
     )
-    .where(
-        v.id == sap.variant_id,
-        sap.inventory_id == i.id
-    )
-    .correlate(i, sap)
-    .scalar_subquery()
-)
 
+    .outerjoin(
+        direct_serial_subq,
+        and_(
+            direct_serial_subq.c.stockadjustment_id ==
+            sap_agg.c.stockadjustment_id,
+
+            direct_serial_subq.c.inventory_id ==
+            sap_agg.c.inventory_id,
+
+            or_(
+                direct_serial_subq.c.variant_id ==
+                sap_agg.c.variant_id,
+
+                and_(
+                    direct_serial_subq.c.variant_id.is_(None),
+                    sap_agg.c.variant_id.is_(None)
+                )
+            )
+        )
+    )
+
+    .group_by(
+        sap_agg.c.stockadjustment_id,
+        sap_agg.c.inventory_id,
+        sap_agg.c.variant_id,
+
+        batch_subq.c.batches,
+        direct_serial_subq.c.serials
+    )
+).subquery()
+
+
+# =========================================================
+# PRODUCT SUBQUERY
+# =========================================================
+
+product_subq = (
+    select(
+        sap_agg.c.stockadjustment_id,
+
+        i.id.label("id"),
+        i.ui_id.label("ui_id"),
+        i.sequence_id.label("sequence_id"),
+
+        i.name.label("name"),
+        i.description.label("description"),
+        i.barcode.label("barcode"),
+        i.category.label("category"),
+
+        i.has_variant,
+        i.has_batch,
+        i.has_serialno,
+
+        sap_agg.c.stocks,
+        sap_agg.c.stocks_before,
+        sap_agg.c.type,
+
+        variant_subq.c.variants,
+        batch_subq.c.batches,
+        direct_serial_subq.c.serials
+    )
+
+    .join(
+        i,
+        i.id ==
+        sap_agg.c.inventory_id
+    )
+
+    .outerjoin(
+        variant_subq,
+        and_(
+            variant_subq.c.stockadjustment_id ==
+            sap_agg.c.stockadjustment_id,
+
+            variant_subq.c.inventory_id ==
+            sap_agg.c.inventory_id,
+
+            or_(
+                variant_subq.c.variant_id ==
+                sap_agg.c.variant_id,
+
+                and_(
+                    variant_subq.c.variant_id.is_(None),
+                    sap_agg.c.variant_id.is_(None)
+                )
+            )
+        )
+    )
+
+    .outerjoin(
+        batch_subq,
+        and_(
+            batch_subq.c.stockadjustment_id ==
+            sap_agg.c.stockadjustment_id,
+
+            batch_subq.c.inventory_id ==
+            sap_agg.c.inventory_id,
+
+            or_(
+                batch_subq.c.variant_id ==
+                sap_agg.c.variant_id,
+
+                and_(
+                    batch_subq.c.variant_id.is_(None),
+                    sap_agg.c.variant_id.is_(None)
+                )
+            )
+        )
+    )
+
+    .outerjoin(
+        direct_serial_subq,
+        and_(
+            direct_serial_subq.c.stockadjustment_id ==
+            sap_agg.c.stockadjustment_id,
+
+            direct_serial_subq.c.inventory_id ==
+            sap_agg.c.inventory_id,
+
+            or_(
+                direct_serial_subq.c.variant_id ==
+                sap_agg.c.variant_id,
+
+                and_(
+                    direct_serial_subq.c.variant_id.is_(None),
+                    sap_agg.c.variant_id.is_(None)
+                )
+            )
+        )
+    )
+
+).subquery()
+
+
+# =========================================================
+# PRODUCTS AGG
+# =========================================================
 
 products_agg = func.jsonb_agg(
-    func.jsonb_build_object(
-        "inventory_id", i.id,
-        "name", i.name,
-        "description", i.description,
-        "category", i.category,
-        "barcode",i.barcode,
+    func.distinct(
+        func.jsonb_build_object(
 
-        "stocks", sap.stocks,
-        "type", sap.type,
-        "stocks_before",sap.stocks_before,
+            "id", product_subq.c.id,
+            "ui_id", product_subq.c.ui_id,
+            "sequence_id", product_subq.c.sequence_id,
 
-        "has_variant", i.has_variant,
-        "has_batch", i.has_batch,
-        "has_serialno", i.has_serialno,
+            "name", product_subq.c.name,
+            "description", product_subq.c.description,
+            "barcode", product_subq.c.barcode,
+            "category", product_subq.c.category,
 
-        "variants", variant_subq
+            "has_variant", product_subq.c.has_variant,
+            "has_batch", product_subq.c.has_batch,
+            "has_serialno", product_subq.c.has_serialno,
+
+            "stocks",
+            product_subq.c.stocks,
+
+            "stocks_before",
+            product_subq.c.stocks_before,
+
+            "type",
+            product_subq.c.type,
+
+            "variants",
+            product_subq.c.variants,
+
+            "batches",
+            product_subq.c.batches,
+
+            "serials",
+            product_subq.c.serials
+        )
     )
 )
+
+
+# =========================================================
+# FINAL QUERY
+# =========================================================
+
+async def get(self,data:GetAllStockAdjSchema):
+
+    created_at=func.date(
+        func.timezone(
+            data.timezone.value,
+            sa.created_at
+        )
+    )
+
+    cursor=(data.offset-1)*data.limit
+
+    select_stmt=(
+        select(
+            *self.stock_adj_cols,
+            products_agg.label("products")
+        )
+
+        .join(
+            product_subq,
+            product_subq.c.stockadjustment_id == sa.id
+        )
+
+        .group_by(sa.id)
+
+        .offset(cursor)
+        .limit(data.limit)
+    )
+
+    results=(
+        await self.session.execute(
+            select_stmt
+        )
+    ).mappings().all()
+
+    return results
 
 class StockAdjRepo(BaseRepoModel):
     def __init__(self, session:AsyncSession):
@@ -247,12 +575,50 @@ class StockAdjRepo(BaseRepoModel):
                 *self.stock_adj_cols,
                 products_agg.label("products")
             )
-            .join(sap, sap.stockadjustment_id == sa.id)
-            .join(i, i.id == sap.inventory_id)
-            .outerjoin(v, v.id == sap.variant_id)
-            .outerjoin(b, b.id == sap.batch_id)
+            .join(
+                sap_agg,
+                sap_agg.c.stockadjustment_id == sa.id
+            )
+            .join(
+                i,
+                i.id == sap_agg.c.inventory_id
+            )
+            .outerjoin(
+                variant_subq,
+                and_(
+                    variant_subq.c.stockadjustment_id ==
+                    sap_agg.c.stockadjustment_id,
+
+                    variant_subq.c.inventory_id ==
+                    sap_agg.c.inventory_id,
+
+                    variant_subq.c.variant_id ==
+                    sap_agg.c.variant_id
+                )
+            )
+            .outerjoin(
+                batch_subq,
+                and_(
+                    batch_subq.c.stockadjustment_id ==
+                    sap_agg.c.stockadjustment_id,
+
+                    batch_subq.c.inventory_id ==
+                    sap_agg.c.inventory_id
+                )
+            )
+            .outerjoin(
+                direct_serial_subq,
+                and_(
+                    direct_serial_subq.c.stockadjustment_id ==
+                    sap_agg.c.stockadjustment_id,
+
+                    direct_serial_subq.c.inventory_id ==
+                    sap_agg.c.inventory_id
+                )
+            )
             .group_by(sa.id)
-            .offset(offset=cursor).limit(limit=data.limit)
+            .offset(cursor)
+            .limit(data.limit)
         )
 
         results=(

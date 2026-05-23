@@ -138,6 +138,12 @@ async def producer_main_controller(msg:AbstractIncomingMessage):
             execution=result['execution']
             next_step=execution['next_step'] if execution else None
             execution_service=execution['service'] if execution else None
+
+            # Re-fetch saga to get the CURRENT execution step (avoids stale cached value
+            # causing the same step to be re-marked when subsequent messages arrive)
+            fresh_saga_datas = await saga_repo.getby_id(saga_id=saga_id)
+            current_step_key = fresh_saga_datas['execution']['step']
+
             if response:
                 ic(f"Successfully processed the message for entity '{reply_entity_name}' with response: {response}")
                 await saga_repo.update_status(
@@ -147,9 +153,10 @@ async def producer_main_controller(msg:AbstractIncomingMessage):
 
                 await saga_repo.update_step(
                     saga_id=saga_id,
-                    key=saga_datas['execution']['step'],
+                    key=current_step_key,
                     status=SagaStepsValueEnum.COMPLETED
                 )
+                ic(next_step,execution_service)
                 if execution:
                     await saga_repo.update_execution(
                         saga_id=saga_id,
@@ -158,7 +165,10 @@ async def producer_main_controller(msg:AbstractIncomingMessage):
                             service=execution_service
                         )
                     )
+                
                 await session.commit()
+
+                ic(await saga_repo.getby_id(saga_id=saga_id))
 
             else:
                 ic(f"Failed to process the message for entity '{reply_entity_name}'")
@@ -176,7 +186,7 @@ async def producer_main_controller(msg:AbstractIncomingMessage):
                 )
                 await saga_repo.update_step(
                     saga_id=saga_id,
-                    key=saga_datas['execution']['step'],
+                    key=current_step_key,
                     status=SagaStepsValueEnum.FAILED
                 )
 
