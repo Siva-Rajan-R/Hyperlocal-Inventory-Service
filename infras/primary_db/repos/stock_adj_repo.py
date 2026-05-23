@@ -546,15 +546,52 @@ class StockAdjRepo(BaseRepoModel):
                 *self.stock_adj_cols,
                 products_agg.label("products")
             )
-            .join(sap, sap.stockadjustment_id == sa.id)
-            .join(i, i.id == sap.inventory_id)
-            .outerjoin(v, v.id == sap.variant_id)
-            .outerjoin(b, b.id == sap.batch_id)
+            .join(
+                sap_agg,
+                sap_agg.c.stockadjustment_id == sa.id
+            )
+            .join(
+                i,
+                i.id == sap_agg.c.inventory_id
+            )
+            .outerjoin(
+                variant_subq,
+                and_(
+                    variant_subq.c.stockadjustment_id ==
+                    sap_agg.c.stockadjustment_id,
+
+                    variant_subq.c.inventory_id ==
+                    sap_agg.c.inventory_id,
+
+                    variant_subq.c.variant_id ==
+                    sap_agg.c.variant_id
+                )
+            )
+            .outerjoin(
+                batch_subq,
+                and_(
+                    batch_subq.c.stockadjustment_id ==
+                    sap_agg.c.stockadjustment_id,
+
+                    batch_subq.c.inventory_id ==
+                    sap_agg.c.inventory_id
+                )
+            )
+            .outerjoin(
+                direct_serial_subq,
+                and_(
+                    direct_serial_subq.c.stockadjustment_id ==
+                    sap_agg.c.stockadjustment_id,
+
+                    direct_serial_subq.c.inventory_id ==
+                    sap_agg.c.inventory_id
+                )
+            )
+            .group_by(sa.id)
             .where(
                 StockAdjustments.shop_id==data.shop_id,
                 StockAdjustmentInventoryProducts.inventory_id==data.inventory_id
             )
-            .group_by(sa.id)
         )
 
         results=(
@@ -636,15 +673,52 @@ class StockAdjRepo(BaseRepoModel):
                 *self.stock_adj_cols,
                 products_agg.label("products")
             )
-            .join(sap, sap.stockadjustment_id == sa.id)
-            .join(i, i.id == sap.inventory_id)
-            .outerjoin(v, v.id == sap.variant_id)
-            .outerjoin(b, b.id == sap.batch_id)
+            .join(
+                sap_agg,
+                sap_agg.c.stockadjustment_id == sa.id
+            )
+            .join(
+                i,
+                i.id == sap_agg.c.inventory_id
+            )
+            .outerjoin(
+                variant_subq,
+                and_(
+                    variant_subq.c.stockadjustment_id ==
+                    sap_agg.c.stockadjustment_id,
+
+                    variant_subq.c.inventory_id ==
+                    sap_agg.c.inventory_id,
+
+                    variant_subq.c.variant_id ==
+                    sap_agg.c.variant_id
+                )
+            )
+            .outerjoin(
+                batch_subq,
+                and_(
+                    batch_subq.c.stockadjustment_id ==
+                    sap_agg.c.stockadjustment_id,
+
+                    batch_subq.c.inventory_id ==
+                    sap_agg.c.inventory_id
+                )
+            )
+            .outerjoin(
+                direct_serial_subq,
+                and_(
+                    direct_serial_subq.c.stockadjustment_id ==
+                    sap_agg.c.stockadjustment_id,
+
+                    direct_serial_subq.c.inventory_id ==
+                    sap_agg.c.inventory_id
+                )
+            )
+            .group_by(sa.id)
             .where(
                 StockAdjustments.shop_id==data.shop_id,
                 StockAdjustments.id==data.id
             )
-            .group_by(sa.id)
         )
 
         results=(await self.session.execute(select_stmt)).mappings().one_or_none()

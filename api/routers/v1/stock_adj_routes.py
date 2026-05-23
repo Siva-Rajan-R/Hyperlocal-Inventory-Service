@@ -31,7 +31,7 @@ async def get_all(session:PG_ASYNC_SESSION,data:GetAllStockAdjSchema=Depends()):
 async def get_all(session:PG_ASYNC_SESSION,data:GetStockAdjByShopIdSchema=Depends()):
     return await HandleStockAdjRequest(session=session).getby_shop_id(data=data)
 
-@router.get('/by/{shop_id}/{stock_adj_id}')
+@router.get('/by/{shop_id}/{id}')
 async def getby_inventory_id(session:PG_ASYNC_SESSION,data:GetStockAdjByIdSchema=Depends()):
     return await HandleStockAdjRequest(session=session).getby_id(data=data)
 
