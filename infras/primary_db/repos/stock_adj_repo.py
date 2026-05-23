@@ -344,87 +344,47 @@ product_subq = (
 
 
 # =========================================================
-# PRODUCTS AGG
+# PRODUCTS AGG SUBQUERY
 # =========================================================
 
-products_agg = func.jsonb_agg(
-    func.distinct(
-        func.jsonb_build_object(
+products_subq = (
+    select(
+        product_subq.c.stockadjustment_id,
 
-            "id", product_subq.c.id,
-            "ui_id", product_subq.c.ui_id,
-            "sequence_id", product_subq.c.sequence_id,
+        func.jsonb_agg(
+            func.distinct(
+                func.jsonb_build_object(
+                    "id", product_subq.c.id,
+                    "ui_id", product_subq.c.ui_id,
+                    "sequence_id", product_subq.c.sequence_id,
 
-            "name", product_subq.c.name,
-            "description", product_subq.c.description,
-            "barcode", product_subq.c.barcode,
-            "category", product_subq.c.category,
+                    "name", product_subq.c.name,
+                    "description", product_subq.c.description,
+                    "barcode", product_subq.c.barcode,
+                    "category", product_subq.c.category,
 
-            "has_variant", product_subq.c.has_variant,
-            "has_batch", product_subq.c.has_batch,
-            "has_serialno", product_subq.c.has_serialno,
+                    "has_variant", product_subq.c.has_variant,
+                    "has_batch", product_subq.c.has_batch,
+                    "has_serialno", product_subq.c.has_serialno,
 
-            "stocks",
-            product_subq.c.stocks,
+                    "stocks", product_subq.c.stocks,
+                    "stocks_before", product_subq.c.stocks_before,
+                    "type", product_subq.c.type,
 
-            "stocks_before",
-            product_subq.c.stocks_before,
-
-            "type",
-            product_subq.c.type,
-
-            "variants",
-            product_subq.c.variants,
-
-            "batches",
-            product_subq.c.batches,
-
-            "serials",
-            product_subq.c.serials
-        )
-    )
-)
-
-
-# =========================================================
-# FINAL QUERY
-# =========================================================
-
-async def get(self,data:GetAllStockAdjSchema):
-
-    created_at=func.date(
-        func.timezone(
-            data.timezone.value,
-            sa.created_at
-        )
+                    "variants", product_subq.c.variants,
+                    "batches", product_subq.c.batches,
+                    "serials", product_subq.c.serials
+                )
+            )
+        ).label("products")
     )
 
-    cursor=(data.offset-1)*data.limit
-
-    select_stmt=(
-        select(
-            *self.stock_adj_cols,
-            products_agg.label("products")
-        )
-
-        .join(
-            product_subq,
-            product_subq.c.stockadjustment_id == sa.id
-        )
-
-        .group_by(sa.id)
-
-        .offset(cursor)
-        .limit(data.limit)
+    .group_by(
+        product_subq.c.stockadjustment_id
     )
 
-    results=(
-        await self.session.execute(
-            select_stmt
-        )
-    ).mappings().all()
+).subquery()
 
-    return results
 
 class StockAdjRepo(BaseRepoModel):
     def __init__(self, session:AsyncSession):
@@ -516,20 +476,22 @@ class StockAdjRepo(BaseRepoModel):
         created_at=func.date(func.timezone(data.timezone.value,StockAdjustments.created_at))
         cursor=(data.offset-1)*data.limit
         ic(data.shop_id,data.query)
-        select_stmt=(
+        select_stmt = (
             select(
                 *self.stock_adj_cols,
-                products_agg.label("products")
+                products_subq.c.products
             )
-            .join(sap, sap.stockadjustment_id == sa.id)
-            .join(i, i.id == sap.inventory_id)
-            .outerjoin(v, v.id == sap.variant_id)
-            .outerjoin(b, b.id == sap.batch_id)
+
+            .join(
+                products_subq,
+                products_subq.c.stockadjustment_id == sa.id
+            )
             .where(
                 StockAdjustments.shop_id==data.shop_id
             )
-            .group_by(sa.id)
-            .offset(offset=cursor).limit(limit=data.limit)
+
+            .offset(cursor)
+            .limit(data.limit)
         )
 
         results=(
@@ -541,58 +503,22 @@ class StockAdjRepo(BaseRepoModel):
         return results
     
     async def getby_inventory_id(self,data:GetStockAdjByInventoryIdSchema):
-        select_stmt=(
+        select_stmt = (
             select(
                 *self.stock_adj_cols,
-                products_agg.label("products")
+                products_subq.c.products
             )
+
             .join(
-                sap_agg,
-                sap_agg.c.stockadjustment_id == sa.id
+                products_subq,
+                products_subq.c.stockadjustment_id == sa.id
             )
-            .join(
-                i,
-                i.id == sap_agg.c.inventory_id
-            )
-            .outerjoin(
-                variant_subq,
-                and_(
-                    variant_subq.c.stockadjustment_id ==
-                    sap_agg.c.stockadjustment_id,
-
-                    variant_subq.c.inventory_id ==
-                    sap_agg.c.inventory_id,
-
-                    variant_subq.c.variant_id ==
-                    sap_agg.c.variant_id
-                )
-            )
-            .outerjoin(
-                batch_subq,
-                and_(
-                    batch_subq.c.stockadjustment_id ==
-                    sap_agg.c.stockadjustment_id,
-
-                    batch_subq.c.inventory_id ==
-                    sap_agg.c.inventory_id
-                )
-            )
-            .outerjoin(
-                direct_serial_subq,
-                and_(
-                    direct_serial_subq.c.stockadjustment_id ==
-                    sap_agg.c.stockadjustment_id,
-
-                    direct_serial_subq.c.inventory_id ==
-                    sap_agg.c.inventory_id
-                )
-            )
-            .group_by(sa.id)
             .where(
                 StockAdjustments.shop_id==data.shop_id,
                 StockAdjustmentInventoryProducts.inventory_id==data.inventory_id
             )
         )
+       
 
         results=(
             await self.session.execute(
@@ -607,53 +533,17 @@ class StockAdjRepo(BaseRepoModel):
     async def get(self,data:GetAllStockAdjSchema):
         created_at=func.date(func.timezone(data.timezone.value,StockAdjustments.created_at))
         cursor=(data.offset-1)*data.limit
-        select_stmt=(
+        select_stmt = (
             select(
                 *self.stock_adj_cols,
-                products_agg.label("products")
+                products_subq.c.products
             )
+
             .join(
-                sap_agg,
-                sap_agg.c.stockadjustment_id == sa.id
+                products_subq,
+                products_subq.c.stockadjustment_id == sa.id
             )
-            .join(
-                i,
-                i.id == sap_agg.c.inventory_id
-            )
-            .outerjoin(
-                variant_subq,
-                and_(
-                    variant_subq.c.stockadjustment_id ==
-                    sap_agg.c.stockadjustment_id,
 
-                    variant_subq.c.inventory_id ==
-                    sap_agg.c.inventory_id,
-
-                    variant_subq.c.variant_id ==
-                    sap_agg.c.variant_id
-                )
-            )
-            .outerjoin(
-                batch_subq,
-                and_(
-                    batch_subq.c.stockadjustment_id ==
-                    sap_agg.c.stockadjustment_id,
-
-                    batch_subq.c.inventory_id ==
-                    sap_agg.c.inventory_id
-                )
-            )
-            .outerjoin(
-                direct_serial_subq,
-                and_(
-                    direct_serial_subq.c.stockadjustment_id ==
-                    sap_agg.c.stockadjustment_id,
-
-                    direct_serial_subq.c.inventory_id ==
-                    sap_agg.c.inventory_id
-                )
-            )
-            .group_by(sa.id)
             .offset(cursor)
             .limit(data.limit)
         )
@@ -668,59 +558,22 @@ class StockAdjRepo(BaseRepoModel):
     
     async def getby_id(self,data:GetStockAdjByIdSchema):
         created_at=func.date(func.timezone(data.timezone.value,StockAdjustments.created_at))
-        select_stmt=(
+        select_stmt = (
             select(
                 *self.stock_adj_cols,
-                products_agg.label("products")
+                products_subq.c.products
             )
+
             .join(
-                sap_agg,
-                sap_agg.c.stockadjustment_id == sa.id
+                products_subq,
+                products_subq.c.stockadjustment_id == sa.id
             )
-            .join(
-                i,
-                i.id == sap_agg.c.inventory_id
-            )
-            .outerjoin(
-                variant_subq,
-                and_(
-                    variant_subq.c.stockadjustment_id ==
-                    sap_agg.c.stockadjustment_id,
-
-                    variant_subq.c.inventory_id ==
-                    sap_agg.c.inventory_id,
-
-                    variant_subq.c.variant_id ==
-                    sap_agg.c.variant_id
-                )
-            )
-            .outerjoin(
-                batch_subq,
-                and_(
-                    batch_subq.c.stockadjustment_id ==
-                    sap_agg.c.stockadjustment_id,
-
-                    batch_subq.c.inventory_id ==
-                    sap_agg.c.inventory_id
-                )
-            )
-            .outerjoin(
-                direct_serial_subq,
-                and_(
-                    direct_serial_subq.c.stockadjustment_id ==
-                    sap_agg.c.stockadjustment_id,
-
-                    direct_serial_subq.c.inventory_id ==
-                    sap_agg.c.inventory_id
-                )
-            )
-            .group_by(sa.id)
             .where(
                 StockAdjustments.shop_id==data.shop_id,
                 StockAdjustments.id==data.id
-            )
+            ) 
         )
-
+        
         results=(await self.session.execute(select_stmt)).mappings().one_or_none()
 
         return results
