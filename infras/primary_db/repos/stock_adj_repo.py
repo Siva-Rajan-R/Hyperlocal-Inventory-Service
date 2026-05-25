@@ -357,7 +357,7 @@ products_subq = (
                     "id", product_subq.c.id,
                     "ui_id", product_subq.c.ui_id,
                     "sequence_id", product_subq.c.sequence_id,
-
+                    "inventory_id", product_subq.c.id,
                     "name", product_subq.c.name,
                     "description", product_subq.c.description,
                     "barcode", product_subq.c.barcode,
@@ -502,7 +502,11 @@ class StockAdjRepo(BaseRepoModel):
 
         return results
     
-    async def getby_inventory_id(self,data:GetStockAdjByInventoryIdSchema):
+    async def getby_inventory_id(
+        self,
+        data: GetStockAdjByInventoryIdSchema
+    ):
+
         select_stmt = (
             select(
                 *self.stock_adj_cols,
@@ -513,14 +517,24 @@ class StockAdjRepo(BaseRepoModel):
                 products_subq,
                 products_subq.c.stockadjustment_id == sa.id
             )
+
+            .join(
+                sap_agg,
+                sap_agg.c.stockadjustment_id == sa.id
+            )
+
             .where(
-                StockAdjustments.shop_id==data.shop_id,
-                StockAdjustmentInventoryProducts.inventory_id==data.inventory_id
+                sa.shop_id == data.shop_id,
+                sap_agg.c.inventory_id == data.inventory_id
+            )
+
+            .group_by(
+                *self.stock_adj_cols,
+                products_subq.c.products
             )
         )
-       
 
-        results=(
+        results = (
             await self.session.execute(
                 select_stmt
             )
