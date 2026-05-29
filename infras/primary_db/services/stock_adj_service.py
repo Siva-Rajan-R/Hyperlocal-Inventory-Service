@@ -161,10 +161,10 @@ class StockAdjService(BaseServiceModel):
 
                 # Determine the correct stocks_before
                 stocks_before = inv_res['stocks']
-                if has_variant and variant_id in structured_variant:
-                    stocks_before = structured_variant[variant_id]['stocks']
-                if has_batch and batch_id in structured_batch:
-                    stocks_before = structured_batch[batch_id]['stocks']
+                if has_variant:
+                    stocks_before = structured_variant[variant_id]['stocks'] if variant_id in structured_variant else 0.0
+                if has_batch:
+                    stocks_before = structured_batch[batch_id]['stocks'] if batch_id in structured_batch else 0.0
 
                 # Track quantities for updates
                 is_increment = (adjustment_type == StockAdjustmentTypesEnum.INCREMENT.value or adjustment_type == StockAdjustmentTypesEnum.INCREMENT)

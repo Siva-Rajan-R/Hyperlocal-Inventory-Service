@@ -17,13 +17,45 @@ class MessagingQueueBillingproducer:
         self.payload=payload
         self.saga_datas=saga_datas
 
-    async def process_stock_restore(self,orders_data:dict,billing_datas:dict,shop_id:str,restore_type:str):
+    async def process_stock_restore(self,orders_data:dict,billing_datas:dict,shop_id:Optional[str]=None,restore_type:str="EXCHANGE"):
         ic(orders_data,billing_datas,shop_id)
-        order_inventory_data={}
+        if not shop_id:
+            shop_id = billing_datas.get('shop_id')
+            
+        order_items_by_id = {}
+        order_items_by_inventory_id = {}
         ic("Inside the stock recover function")
-        for item in orders_data['items']:
+        for item in orders_data.get('items', []):
             ic(item)
-            order_inventory_data[item['inventory_id']]=item
+            order_items_by_id[item['id']] = item
+            order_items_by_inventory_id[item['inventory_id']] = item
+
+        # Determine which items are being returned/refunded/exchanged to restore stock
+        restore_items = []
+        if 'exchange_items' in billing_datas:
+            restore_items = billing_datas['exchange_items']
+        elif 'items' in billing_datas:
+            if isinstance(billing_datas['items'], list):
+                if restore_type == "EXCHANGE":
+                    restore_items = billing_datas.get('exchange_items', [])
+                else:
+                    restore_items = billing_datas['items']
+            elif isinstance(billing_datas['items'], dict):
+                # Single exchange - items key holds new item dict.
+                # Old item to restore is identified by item_id.
+                old_item_id = billing_datas.get('item_id')
+                old_item = None
+                for item in orders_data.get('items', []):
+                    if item.get('id') == old_item_id:
+                        old_item = item
+                        break
+                if old_item:
+                    restore_items = [{
+                        'id': old_item['id'],
+                        'inventory_id': old_item['inventory_id'],
+                        'quantity': old_item['quantity'],
+                        'serial_numbers': billing_datas.get('inv_serial_numbers', []) or billing_datas.get('serial_numbers', [])
+                    }]
 
         inventory_tocheck=[]
         inv_prod_toupdate:dict={}
@@ -32,38 +64,43 @@ class MessagingQueueBillingproducer:
         serialno_toupdate:dict={}
         stockadj_prod_toadd:List[StockAdjInventoryProductSchema]=[]
         
-        ic(order_inventory_data)
-        for billing_data in billing_datas['items']:
+        ic(order_items_by_id)
+        for billing_data in restore_items:
             ic(billing_data)
-            cur_inventory_data=order_inventory_data.get(billing_data['inventory_id'],None)
+            item_id = billing_data.get('id') or billing_data.get('item_id')
+            cur_inventory_data = None
+            if item_id:
+                cur_inventory_data = order_items_by_id.get(item_id)
+            if not cur_inventory_data:
+                cur_inventory_data = order_items_by_inventory_id.get(billing_data['inventory_id'])
+                
             ic(cur_inventory_data)
             if not cur_inventory_data:
-                ic("Inventory id not found in orders")
+                ic("Inventory/order item not found in orders")
                 return False
             
             inventory_id:str=billing_data['inventory_id']
-            variant_id:str=cur_inventory_data['variant_id']
-            batch_id:str=cur_inventory_data['batch_id']
-            serialno_id:str=cur_inventory_data['serialno_id']
-            serial_numbers=billing_data['serial_numbers']
+            variant_id:str=cur_inventory_data.get('variant_id')
+            batch_id:str=cur_inventory_data.get('batch_id')
+            serialno_id:str=cur_inventory_data.get('serialno_id')
+            serial_numbers=billing_data.get('serial_numbers') or billing_data.get('inv_serial_numbers') or []
             
             quantity_toincrease=billing_data['quantity']
             
             ic(inventory_id,variant_id,batch_id,serialno_id,serial_numbers,quantity_toincrease)
 
             inventory_tocheck.append(inventory_id)
-            inv_prod_toupdate[inventory_id]=quantity_toincrease
+            inv_prod_toupdate[inventory_id] = inv_prod_toupdate.get(inventory_id, 0) + quantity_toincrease
 
             if variant_id:
-                variant_toupdate[variant_id]=quantity_toincrease
+                variant_toupdate[variant_id] = variant_toupdate.get(variant_id, 0) + quantity_toincrease
 
             if batch_id:
-                batch_toupdate[batch_id]=quantity_toincrease
+                batch_toupdate[batch_id] = batch_toupdate.get(batch_id, 0) + quantity_toincrease
 
-            if serialno_id:
-                serialno_toupdate[serialno_id]=serial_numbers
+            if serialno_id and serial_numbers:
+                serialno_toupdate[serialno_id] = serialno_toupdate.get(serialno_id, []) + serial_numbers
 
-            
             stockadj_prod_toadd.append(
                 StockAdjInventoryProductSchema(
                     inventory_id=inventory_id,
@@ -366,16 +403,17 @@ class MessagingQueueBillingproducer:
                 serialno_update={}
 
                 for product in billing_datas['products']:
-                    inv_stock_update[product['id']]=product['quantity']
+                    inv_stock_update[product['id']] = inv_stock_update.get(product['id'], 0) + product['quantity']
 
                     if product['variant_id']:
-                        variant_stock_update[product['variant_id']]=product['quantity']
+                        variant_stock_update[product['variant_id']] = variant_stock_update.get(product['variant_id'], 0) + product['quantity']
 
                     if product['batch_id']:
-                        batch_stock_update[product['batch_id']]=product['quantity']
+                        batch_stock_update[product['batch_id']] = batch_stock_update.get(product['batch_id'], 0) + product['quantity']
 
                     if product['serialno_id']:
-                        serialno_update[product['serialno_id']]=product['serial_numbers']
+                        existing = serialno_update.get(product['serialno_id'], [])
+                        serialno_update[product['serialno_id']] = existing + product['serial_numbers']
                     
 
                 async with AsyncInventoryLocalSession() as session:

@@ -26,20 +26,15 @@ class HandleBillingRequest:
     async def create(self,data:CreateBillingSchema):
         
         inv_service_obj=InventoryService(session=self.session)
-        inv_id=[]
-        structured_data={}
+        unique_inv_ids = list(set(product.id for product in data.products))
         items=[]
         ERROR_OCCURED=None
-        for product in data.products:
-            inv_id.append(product.id)
-            structured_data[product.id]=product.model_dump()
-            
 
         res=await inv_service_obj.bulk_check(
-            data=BulkCheckInventorySchema(shop_id=data.shop_id,id=inv_id)
+            data=BulkCheckInventorySchema(shop_id=data.shop_id,id=unique_inv_ids)
         )
 
-        if len(inv_id)!=len(res):
+        if len(unique_inv_ids)!=len(res):
             return HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
@@ -50,49 +45,56 @@ class HandleBillingRequest:
                 )
             )
         
+        db_products = {inv['id']: inv for inv in res}
+        processed_products = []
         variant_id=[]
         batch_id=[]
         serialno_id=[]
 
-        for inv_res in res:
-            ic(inv_res)
-            ic(structured_data[inv_res['id']])
-            if inv_res['has_variant'] and not structured_data[inv_res['id']]['variant_id']:
+        for product in data.products:
+            inv_res = db_products.get(product.id)
+            if not inv_res:
                 ERROR_OCCURED=True
-                ic("Variant exists but variant id not forund")
+                break
+
+            prod_dict = product.model_dump()
+            ic(inv_res)
+            ic(prod_dict)
+
+            if inv_res['has_variant'] and not prod_dict['variant_id']:
+                ERROR_OCCURED=True
+                ic("Variant exists but variant id not found")
                 break 
 
-            if inv_res['has_batch'] and not structured_data[inv_res['id']]['batch_id']:
+            if inv_res['has_batch'] and not prod_dict['batch_id']:
                 ERROR_OCCURED=True
                 ic("batch exists but batch id not found")
                 break
             
             ic(inv_res['has_serialno'])
-            ic(inv_res['has_serialno'] and (not structured_data[inv_res['id']]['serialno_id'] or len(structured_data[inv_res['id']]['serial_numbers'] or [])!=structured_data[inv_res['id']]['quantity']))
-            ic(inv_res['has_serialno'],not structured_data[inv_res['id']]['serialno_id'],len(structured_data[inv_res['id']]['serial_numbers'] or [])!=structured_data[inv_res['id']]['quantity'])
-            if inv_res['has_serialno'] and (not structured_data[inv_res['id']]['serialno_id'] or len(structured_data[inv_res['id']]['serial_numbers'] or [])!=structured_data[inv_res['id']]['quantity']):
+            ic(inv_res['has_serialno'] and (not prod_dict['serialno_id'] or len(prod_dict['serial_numbers'] or [])!=prod_dict['quantity']))
+            ic(inv_res['has_serialno'],not prod_dict['serialno_id'],len(prod_dict['serial_numbers'] or [])!=prod_dict['quantity'])
+            if inv_res['has_serialno'] and (not prod_dict['serialno_id'] or len(prod_dict['serial_numbers'] or [])!=prod_dict['quantity']):
                 ERROR_OCCURED=True
-                ic("Serial no exisits but serialno id not forund or serial numbers doesnot match the quantity")
+                ic("Serial no exists but serialno id not found or serial numbers does not match the quantity")
                 break
 
             if inv_res['has_variant']:
-                variant_id.append(structured_data[inv_res['id']]['variant_id'])
+                variant_id.append(prod_dict['variant_id'])
 
             if inv_res['has_batch']:
-                batch_id.append(structured_data[inv_res['id']]['batch_id'])
+                batch_id.append(prod_dict['batch_id'])
 
             if inv_res['has_serialno']:
+                serialno_id.append(prod_dict['serialno_id'])
 
-                serialno_id.append(structured_data[inv_res['id']]['serialno_id'])
+            prod_dict['buy_price']=inv_res['buy_price']
+            prod_dict['sell_price']=inv_res['sell_price']
+            prod_dict['barcode']=inv_res['barcode']
+            prod_dict['gst']="0%"
 
-            structured_data[inv_res['id']]['buy_price']=inv_res['buy_price']
-            structured_data[inv_res['id']]['sell_price']=inv_res['sell_price']
-            structured_data[inv_res['id']]['barcode']=inv_res['barcode']
-            structured_data[inv_res['id']]['gst']="0%"
+            processed_products.append(prod_dict)
 
-            
-
-        
         if ERROR_OCCURED:
             return HTTPException(
                 status_code=400,
@@ -104,9 +106,9 @@ class HandleBillingRequest:
                 )
             )
 
-
-        variant_res=await inv_service_obj.bulk_varient_check(shop_id=data.shop_id,variants_id=variant_id)
-        if len(variant_id)!=len(variant_res):
+        unique_variant_ids = list(set(variant_id))
+        variant_res=await inv_service_obj.bulk_varient_check(shop_id=data.shop_id,variants_id=unique_variant_ids)
+        if len(unique_variant_ids)!=len(variant_res):
             return HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
@@ -117,12 +119,17 @@ class HandleBillingRequest:
                 )
             )
         
-        for variant in variant_res:
-            structured_data[variant['inventory_id']]['buy_price']=variant['buy_price']
-            structured_data[variant['inventory_id']]['sell_price']=variant['sell_price']
+        db_variants = {variant['id']: variant for variant in variant_res}
+        for prod in processed_products:
+            if prod['variant_id']:
+                variant = db_variants.get(prod['variant_id'])
+                if variant:
+                    prod['buy_price']=variant['buy_price']
+                    prod['sell_price']=variant['sell_price']
         
-        batch_res=await inv_service_obj.bulk_batch_check(shop_id=data.shop_id,batches_id=batch_id)
-        if len(batch_id)!=len(batch_res):
+        unique_batch_ids = list(set(batch_id))
+        batch_res=await inv_service_obj.bulk_batch_check(shop_id=data.shop_id,batches_id=unique_batch_ids)
+        if len(unique_batch_ids)!=len(batch_res):
             return HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
@@ -133,8 +140,9 @@ class HandleBillingRequest:
                 )
             )
         
-        serialno_res=await inv_service_obj.bulk_serialno_check(shop_id=data.shop_id,serianos_id=serialno_id)
-        if len(serialno_id)!=len(serialno_res):
+        unique_serialno_ids = list(set(serialno_id))
+        serialno_res=await inv_service_obj.bulk_serialno_check(shop_id=data.shop_id,serianos_id=unique_serialno_ids)
+        if len(unique_serialno_ids)!=len(serialno_res):
             return HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
@@ -146,9 +154,7 @@ class HandleBillingRequest:
             )
         
 
-        for key,val in structured_data.items():
-            ic(key)
-            ic(val)
+        for val in processed_products:
             items.append(
                 {
                     'inventory_id':val['id'],
@@ -483,20 +489,15 @@ class HandleBillingRequest:
 
     async def exchange_order_bulk(self,data:CreateBillingBulkExchangeSchema):
         inv_service_obj=InventoryService(session=self.session)
-        inv_id=[]
-        structured_data={}
+        unique_inv_ids = list(set(product.id for product in data.products))
         items=[]
         ERROR_OCCURED=None
-        for product in data.products:
-            inv_id.append(product.id)
-            structured_data[product.id]=product.model_dump()
-            
 
         res=await inv_service_obj.bulk_check(
-            data=BulkCheckInventorySchema(shop_id=data.shop_id,id=inv_id)
+            data=BulkCheckInventorySchema(shop_id=data.shop_id,id=unique_inv_ids)
         )
 
-        if len(inv_id)!=len(res):
+        if len(unique_inv_ids)!=len(res):
             return HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
@@ -507,49 +508,56 @@ class HandleBillingRequest:
                 )
             )
         
+        db_products = {inv['id']: inv for inv in res}
+        processed_products = []
         variant_id=[]
         batch_id=[]
         serialno_id=[]
 
-        for inv_res in res:
-            ic(inv_res)
-            ic(structured_data[inv_res['id']])
-            if inv_res['has_variant'] and not structured_data[inv_res['id']]['variant_id']:
+        for product in data.products:
+            inv_res = db_products.get(product.id)
+            if not inv_res:
                 ERROR_OCCURED=True
-                ic("Variant exists but variant id not forund")
+                break
+
+            prod_dict = product.model_dump()
+            ic(inv_res)
+            ic(prod_dict)
+
+            if inv_res['has_variant'] and not prod_dict['variant_id']:
+                ERROR_OCCURED=True
+                ic("Variant exists but variant id not found")
                 break 
 
-            if inv_res['has_batch'] and not structured_data[inv_res['id']]['batch_id']:
+            if inv_res['has_batch'] and not prod_dict['batch_id']:
                 ERROR_OCCURED=True
                 ic("batch exists but batch id not found")
                 break
             
             ic(inv_res['has_serialno'])
-            ic(inv_res['has_serialno'] and (not structured_data[inv_res['id']]['serialno_id'] or len(structured_data[inv_res['id']]['serial_numbers'] or [])!=structured_data[inv_res['id']]['quantity']))
-            ic(inv_res['has_serialno'],not structured_data[inv_res['id']]['serialno_id'],len(structured_data[inv_res['id']]['serial_numbers'] or [])!=structured_data[inv_res['id']]['quantity'])
-            if inv_res['has_serialno'] and (not structured_data[inv_res['id']]['serialno_id'] or len(structured_data[inv_res['id']]['serial_numbers'] or [])!=structured_data[inv_res['id']]['quantity']):
+            ic(inv_res['has_serialno'] and (not prod_dict['serialno_id'] or len(prod_dict['serial_numbers'] or [])!=prod_dict['quantity']))
+            ic(inv_res['has_serialno'],not prod_dict['serialno_id'],len(prod_dict['serial_numbers'] or [])!=prod_dict['quantity'])
+            if inv_res['has_serialno'] and (not prod_dict['serialno_id'] or len(prod_dict['serial_numbers'] or [])!=prod_dict['quantity']):
                 ERROR_OCCURED=True
-                ic("Serial no exisits but serialno id not forund or serial numbers doesnot match the quantity")
+                ic("Serial no exists but serialno id not found or serial numbers does not match the quantity")
                 break
 
             if inv_res['has_variant']:
-                variant_id.append(structured_data[inv_res['id']]['variant_id'])
+                variant_id.append(prod_dict['variant_id'])
 
             if inv_res['has_batch']:
-                batch_id.append(structured_data[inv_res['id']]['batch_id'])
+                batch_id.append(prod_dict['batch_id'])
 
             if inv_res['has_serialno']:
+                serialno_id.append(prod_dict['serialno_id'])
 
-                serialno_id.append(structured_data[inv_res['id']]['serialno_id'])
+            prod_dict['buy_price']=inv_res['buy_price']
+            prod_dict['sell_price']=inv_res['sell_price']
+            prod_dict['barcode']=inv_res['barcode']
+            prod_dict['gst']="0%"
 
-            structured_data[inv_res['id']]['buy_price']=inv_res['buy_price']
-            structured_data[inv_res['id']]['sell_price']=inv_res['sell_price']
-            structured_data[inv_res['id']]['barcode']=inv_res['barcode']
-            structured_data[inv_res['id']]['gst']="0%"
+            processed_products.append(prod_dict)
 
-            
-
-        
         if ERROR_OCCURED:
             return HTTPException(
                 status_code=400,
@@ -561,9 +569,9 @@ class HandleBillingRequest:
                 )
             )
 
-
-        variant_res=await inv_service_obj.bulk_varient_check(shop_id=data.shop_id,variants_id=variant_id)
-        if len(variant_id)!=len(variant_res):
+        unique_variant_ids = list(set(variant_id))
+        variant_res=await inv_service_obj.bulk_varient_check(shop_id=data.shop_id,variants_id=unique_variant_ids)
+        if len(unique_variant_ids)!=len(variant_res):
             return HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
@@ -574,12 +582,17 @@ class HandleBillingRequest:
                 )
             )
         
-        for variant in variant_res:
-            structured_data[variant['inventory_id']]['buy_price']=variant['buy_price']
-            structured_data[variant['inventory_id']]['sell_price']=variant['sell_price']
+        db_variants = {variant['id']: variant for variant in variant_res}
+        for prod in processed_products:
+            if prod['variant_id']:
+                variant = db_variants.get(prod['variant_id'])
+                if variant:
+                    prod['buy_price']=variant['buy_price']
+                    prod['sell_price']=variant['sell_price']
         
-        batch_res=await inv_service_obj.bulk_batch_check(shop_id=data.shop_id,batches_id=batch_id)
-        if len(batch_id)!=len(batch_res):
+        unique_batch_ids = list(set(batch_id))
+        batch_res=await inv_service_obj.bulk_batch_check(shop_id=data.shop_id,batches_id=unique_batch_ids)
+        if len(unique_batch_ids)!=len(batch_res):
             return HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
@@ -590,8 +603,9 @@ class HandleBillingRequest:
                 )
             )
         
-        serialno_res=await inv_service_obj.bulk_serialno_check(shop_id=data.shop_id,serianos_id=serialno_id)
-        if len(serialno_id)!=len(serialno_res):
+        unique_serialno_ids = list(set(serialno_id))
+        serialno_res=await inv_service_obj.bulk_serialno_check(shop_id=data.shop_id,serianos_id=unique_serialno_ids)
+        if len(unique_serialno_ids)!=len(serialno_res):
             return HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
@@ -603,9 +617,7 @@ class HandleBillingRequest:
             )
         
 
-        for key,val in structured_data.items():
-            ic(key)
-            ic(val)
+        for val in processed_products:
             items.append(
                 {
                     'inventory_id':val['id'],
