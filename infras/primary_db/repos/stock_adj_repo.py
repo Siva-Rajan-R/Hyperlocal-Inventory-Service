@@ -1,6 +1,6 @@
 from models.repo_models.base_repo_model import BaseRepoModel
 from models.service_models.base_service_model import BaseServiceModel
-from sqlalchemy import select,update,delete,func,or_,and_,String,case,literal,literal_column,bindparam
+from sqlalchemy import select,update,delete,func,or_,and_,String,case,literal,literal_column,bindparam,insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from schemas.v1.request_schemas.stock_adj_schema import GetStockAdjByShopIdSchema,GetAllStockAdjSchema,GetStockAdjByIdSchema,GetStockAdjByInventoryIdSchema
 from ..models.inventory_model import StockAdjustments,StockAdjustmentInventoryProducts,Inventory,InventoryBatches,InventorySerialNumbers,InventoryVariants
@@ -402,11 +402,19 @@ class StockAdjRepo(BaseRepoModel):
         super().__init__(session)
 
     @start_db_transaction
+    async def get_next_sequence(self, shop_id: str, start_from: int) -> int:
+        from sqlalchemy import text
+        seq_name = f"seq_stockadj_{shop_id.replace('-', '_').lower()}"
+        await self.session.execute(text(f"CREATE SEQUENCE IF NOT EXISTS {seq_name} START WITH {start_from}"))
+        res = await self.session.execute(text(f"SELECT nextval('{seq_name}')"))
+        return res.scalar_one()
+
+    @start_db_transaction
     async def create(self, data:CreateStockAdjDbSchema):
         ic(data)
-        data_toadd=StockAdjustments(**data.model_dump())
-        self.session.add(data_toadd)
-        return True
+        stmt = insert(StockAdjustments).values(**data.model_dump()).returning(StockAdjustments.ui_id)
+        res = (await self.session.execute(stmt)).scalar_one()
+        return res
     
     @start_db_transaction
     async def create_bulk_stockadj_inv_prod(self, datas: List[StockAdjustmentInventoryProducts]):
@@ -592,11 +600,24 @@ class StockAdjRepo(BaseRepoModel):
 
         return results
 
-    async def search(self, query, limit = 5):
-        """
-        This is just a wrapper method for the baserepo model
-        Instead use the get method to get all kind of results by simply adjusting the limit
-        """
+    async def search(self, shop_id: str, query: str, limit: int = 5):
+        search_term = f"%{query}%"
+        stmt = (
+            select(
+                StockAdjustments.id,
+                StockAdjustments.description
+            )
+            .where(
+                StockAdjustments.shop_id == shop_id,
+                or_(
+                    StockAdjustments.id.ilike(search_term),
+                    StockAdjustments.ui_id.ilike(search_term),
+                    StockAdjustments.description.ilike(search_term)
+                )
+            ).limit(limit)
+        )
+        results = (await self.session.execute(stmt)).mappings().all()
+        return results
         
 
 

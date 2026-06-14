@@ -15,6 +15,9 @@ class OptionalInventorySchema(BaseModel):
     reorder_point:Optional[int]=None
     opening_stock:Optional[int]=None
     variant_types:Optional[List[dict]]=None
+    images:Optional[List[str]]=None
+    supplier:Optional[str]=None
+    hsn:Optional[str]=None
 
 
 
@@ -100,6 +103,8 @@ class GetAllInventorySchema(BaseModel):
     limit:int=Field(default=10,le=100)
     offset:int=Field(default=1)
     timezone:Optional[TimeZoneEnum]=TimeZoneEnum.Asia_Kolkata
+    from_date:Optional[str]=None
+    to_date:Optional[str]=None
 
 class GetInventoryByShopIdSchema(BaseModel):
     shop_id:str
@@ -108,6 +113,8 @@ class GetInventoryByShopIdSchema(BaseModel):
     offset:int=Field(default=1)
     is_active:bool|None=Field(default=None)
     timezone:Optional[TimeZoneEnum]=TimeZoneEnum.Asia_Kolkata
+    from_date:Optional[str]=None
+    to_date:Optional[str]=None
 
 
 class GetInventoryByIdSchema(BaseModel):

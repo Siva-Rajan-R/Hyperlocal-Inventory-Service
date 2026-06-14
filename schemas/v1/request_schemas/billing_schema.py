@@ -25,7 +25,7 @@ class CreateBillingSchema(BaseModel):
     products:List[BillingProductSchema]
     shop_id:str
     payments:dict
-    customer_id:str
+    customer_id:Optional[str]=None
     datas:Optional[dict]=None
     status:Optional[str]="COMPLETED"
 
@@ -33,9 +33,14 @@ class CreateBillingSchema(BaseModel):
 class CreateBillingReturnBulkSchema(BaseModel):
     order_id:str
     shop_id:str
+    customer_id:Optional[str]=None
+    payments:Optional[dict]=None
     items:List[BillingRefundItemsInfoSchema]
 
 class CreateBillingReturnSchema(BaseModel):
+    shop_id:str
+    customer_id:Optional[str]=None
+    payments:Optional[dict]=None
     order_id:str
     item_id:str
     
@@ -43,15 +48,15 @@ class CreateBillingReturnSchema(BaseModel):
 
 class CreateBillingExchangeSchema(BaseModel):
     shop_id:str
-    customer_id:str
+    customer_id:Optional[str]=None
     order_id:str
     item_id:str
-    payments:str
+    payments:dict
     product:BillingProductSchema
     
 class CreateBillingBulkExchangeSchema(BaseModel):
     shop_id:str
-    customer_id:str
+    customer_id:Optional[str]=None
     order_id:str
     items:List[BillingRefundItemsInfoSchema]
     payments:dict

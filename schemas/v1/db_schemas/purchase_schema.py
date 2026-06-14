@@ -6,6 +6,7 @@ from core.data_formats.typed_dicts.purchase_typdict import PurchaseCalculationsT
 
 class CreatePurchaseDbSchema(BaseModel):
     id:str
+    ui_id:str
     shop_id:str
     type:PurchaseTypeEnums
     purchase_view:bool

@@ -18,6 +18,8 @@ class PurchaseInventoryProductSchema(BaseModel):
     reorder_point:int
     stocks:float
     received_stocks:Optional[int]=None
+    datas:Optional[dict]=None
+    storage_location:Optional[str]=None
 
 
 class CreatePurchaseSchema(BaseModel):
@@ -39,10 +41,14 @@ class BulkCheckPurchaseSchema(BaseModel):
 class GetPurchaseByShopIdSchema(BaseModel):
     timezone:Optional[TimeZoneEnum]=TimeZoneEnum.Asia_Kolkata
     shop_id:str
-    view:PurchaseViewsEnums
+    view:PurchaseViewsEnums=PurchaseViewsEnums.PO_VIEW
     query:Optional[str]=Field(default="")
     limit:Optional[int]=Field(default=10,le=100)
     offset:Optional[int]=Field(default=1)
+    from_date:Optional[str]=None
+    to_date:Optional[str]=None
+    type:Optional[str]=None
+    supplier_id:Optional[str]=None
 
 class GetPurchaseByIdSchema(BaseModel):
     id:str

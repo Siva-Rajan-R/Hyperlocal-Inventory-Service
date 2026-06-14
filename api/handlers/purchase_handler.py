@@ -33,45 +33,57 @@ class HandlePurchaseRequest:
                 )
             )
         
-        res=await PurchaseService(session=self.session).create_direct_purchase(data=data)
+        saga_id=generate_uuid()
+        saga_data={
+            'data':data.model_dump(mode="json"),
+            'additional_data':{'shop_id':data.shop_id}
+        }
 
-        ic(res)
-        
-        if not res:
-            raise HTTPException(
-                status_code=400,
-                detail=ErrorResponseTypDict(
-                    msg="Error : Creating Purchase",
-                    status_code=400,
-                    description=f"Invalid data types",
-                    success=False
-                )
-            )
-        
+        await SagaProducer.emit(
+            saga_payload=CreateSagaStateSchema(
+                id=saga_id,
+                status=SagaStatusEnum.PENDING,
+                type="create",
+                steps={
+                    'supplier.verify':SagaStepsValueEnum.PENDING
+                },
+                execution=SagaStateExecutionTypDict(
+                    step='supplier.verify',
+                    service="SUPPLIERS"
+                ),
+                data=saga_data
+            ),
+            routing_key="suppliers.service.routing.key",
+            exchange_name="suppliers.service.exchange",
+            headers={
+                'saga_id':saga_id,
+                'reply_key': "purchase.producer.routing.key",
+                'reply_exchange': 'purchase.producer.exchange',
+                'reply_entity_name': 'create_purchase_v2',
+                'reply_service_name': 'PURCHASE',
+                'entity_name': 'get_supplier_by_id',
+                'service_name': 'SUPPLIERS',
+                'body': {
+                    "id": data.supplier_id,
+                    "shop_id": data.shop_id
+                }
+            }
+        )
+
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
-                msg="Purchase Created successfully",
-                status_code=201,
+                msg="Purchase Creation Request Accepted",
+                status_code=202,
                 success=True
             )
         )
     
 
-    async def update(self,data:dict,user_id:str):
-        ic(self.purchase_types)
-        if data.datas.type!=PurchaseTypeEnums.PO_UPDATE.value:
-            raise HTTPException(
-                status_code=400,
-                detail=ErrorResponseTypDict(
-                    status_code=400,
-                    msg="Error : Updating Purchase",
-                    description="Purchase type should be PO UPDATE",
-                    success=False
-                )
-            )
-        
-
-        res=await self.purchase_service_obj.update(data=data,shop_id=data.datas.shop_id)
+    async def update(self,data:CreatePurchaseSchema,user_id:str):
+        if data.type.value == PurchaseTypeEnums.PO_UPDATE.value:
+            res=await self.purchase_service_obj.update(data=data.model_dump(mode='json'),shop_id=data.shop_id)
+        else:
+            res=await self.purchase_service_obj.edit_direct_purchase(data=data,user_id=user_id)
 
         if res:
             return SuccessResponseTypDict(
@@ -117,7 +129,12 @@ class HandlePurchaseRequest:
     
 
     async def get(self,data:GetPurchaseByShopIdSchema):
-        res=await self.purchase_service_obj.get(data=data)
+        from infras.read_db.repos.purchase_repo import PurchaseReadDbRepo, PurchaseStatsReadDbRepo
+        res=await PurchaseReadDbRepo.get_all_purchases(data=data)
+        stats_res=await PurchaseStatsReadDbRepo.get_stats(shop_id=data.shop_id)
+        if stats_res and "_id" in stats_res:
+            stats_res["_id"] = str(stats_res["_id"])
+        
         ic(res)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
@@ -125,23 +142,28 @@ class HandlePurchaseRequest:
                 success=True,
                 msg="Purchase fetched successfully"
             ),
-            data=res
+            data={
+                "purchases": res,
+                "overall_stats": stats_res
+            }
         )
     
     async def getby_id(self,data:GetPurchaseByIdSchema):
-        res=await self.purchase_service_obj.getby_id(data=data)
+        from infras.read_db.repos.purchase_repo import PurchaseReadDbRepo
+        res=await PurchaseReadDbRepo.get_purchase_by_id(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 status_code=200,
                 success=True,
                 msg="Purchase fetched successfully"
             ),
-            data=res
+            data=res.model_dump(mode="json") if res else None
         )
     
 
     async def get_by_inventory_id(self,data:GetPurchaseByInventoryIdSchema):
-        res= await self.purchase_service_obj.get_by_inventory_id(data=data)
+        from infras.read_db.repos.purchase_repo import PurchaseReadDbRepo
+        res= await PurchaseReadDbRepo.get_purchases_by_inventory_id(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 status_code=200,
@@ -152,7 +174,8 @@ class HandlePurchaseRequest:
         )
     
     async def getby_supplier_id(self,data:GetPurchaseBySupplierIdSchema):
-        res= await self.purchase_service_obj.getby_supplier_id(data=data)
+        from infras.read_db.repos.purchase_repo import PurchaseReadDbRepo
+        res= await PurchaseReadDbRepo.get_purchases_by_supplier_id(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 status_code=200,
@@ -162,6 +185,19 @@ class HandlePurchaseRequest:
             data=res
         )
     
+    async def get_supplier_stats(self, shop_id: str, supplier_id: str):
+        from infras.read_db.repos.purchase_repo import PurchaseReadDbRepo
+        res = await PurchaseReadDbRepo.get_supplier_stats(shop_id=shop_id, supplier_id=supplier_id)
+        return SuccessResponseTypDict(
+            detail=BaseResponseTypDict(
+                status_code=200,
+                success=True,
+                msg="Supplier stats fetched successfully"
+            ),
+            data=res
+        )
+
+
 
     async def pre_purchase(self,data:CreatePurchaseSchema,user_id:str):
         data_to_check=[]
@@ -204,4 +240,18 @@ class HandlePurchaseRequest:
                     'saga_id':saga_id
                 }
             )
+        
+    async def search(self, shop_id: str, query: str, limit: int = 5):
+        from infras.read_db.repos.purchase_repo import PurchaseReadDbRepo
+        from schemas.v1.request_schemas.purchase_schema import GetPurchaseByShopIdSchema
+        req_data = GetPurchaseByShopIdSchema(shop_id=shop_id, query=query, limit=limit, offset=1)
+        res = await PurchaseReadDbRepo.get_all_purchases(data=req_data)
+        return SuccessResponseTypDict(
+            detail=BaseResponseTypDict(
+                msg="Purchase fetched successfully",
+                status_code=200,
+                success=True
+            ),
+            data=res
+        )
         

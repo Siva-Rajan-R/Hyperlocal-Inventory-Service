@@ -7,7 +7,7 @@ class Purchase(BASE):
     __tablename__="purchase"
     id=Column(String,primary_key=True)
     sequence_id=Column(BigInteger,Identity(always=True),nullable=False)
-    ui_id=Column(BigInteger,Identity(always=True),nullable=False)
+    ui_id=Column(String,nullable=False,index=True)
     shop_id=Column(String,nullable=False)
     supplier_id=Column(String,nullable=False)
     type=Column(String,nullable=False)

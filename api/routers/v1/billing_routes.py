@@ -15,7 +15,7 @@ ASYNC_PG_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 
 @router.post('')
 async def create_billing(data:CreateBillingSchema,session:ASYNC_PG_SESSION):
-    return await HandleBillingRequest(session=session).create(data=data)
+    return await HandleBillingRequest(session=session).create_v2(data=data)
 
 @router.post('/return')
 async def create_billing(data:CreateBillingReturnBulkSchema,session:ASYNC_PG_SESSION):
@@ -24,3 +24,11 @@ async def create_billing(data:CreateBillingReturnBulkSchema,session:ASYNC_PG_SES
 @router.post('/exchange')
 async def create_billing(data:CreateBillingBulkExchangeSchema,session:ASYNC_PG_SESSION):
     return await HandleBillingRequest(session=session).exchange_order_bulk(data=data)
+
+@router.get('/stats')
+async def get_billing_stats(shop_id: str = Query(...), session: ASYNC_PG_SESSION = None):
+    return await HandleBillingRequest(session=session).get_billing_stats(shop_id=shop_id)
+
+@router.get('')
+async def get_billings(shop_id: str = Query(...), limit: int = Query(50), skip: int = Query(0), session: ASYNC_PG_SESSION = None):
+    return await HandleBillingRequest(session=session).get_billings(shop_id=shop_id, limit=limit, skip=skip)

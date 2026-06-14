@@ -38,3 +38,7 @@ async def getby_inventory_id(session:PG_ASYNC_SESSION,data:GetStockAdjByIdSchema
 @router.get('/by/product/{shop_id}/{inventory_id}')
 async def getby_inventory_id(session:PG_ASYNC_SESSION,data:GetStockAdjByInventoryIdSchema=Depends()):
     return await HandleStockAdjRequest(session=session).getby_inventory_id(data=data)
+
+@router.get('/search/{shop_id}')
+async def search(shop_id: str, session:PG_ASYNC_SESSION, q: str = Query(""), limit: int = Query(10, ge=1, le=50)):
+    return await HandleStockAdjRequest(session=session).search(shop_id=shop_id, query=q, limit=limit)

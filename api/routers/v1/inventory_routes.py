@@ -35,3 +35,7 @@ async def getby_shop_id(session:PG_ASYNC_SESSION,data:GetInventoryByShopIdSchema
 @router.get('/by/{shop_id}/{id}')
 async def getby_id(session:PG_ASYNC_SESSION,data:GetInventoryByIdSchema=Depends()):
     return await HandleInventoryRequest(session=session).getby_id(data=data)
+
+@router.get('/search/{shop_id}')
+async def search(shop_id: str, session:PG_ASYNC_SESSION, q: str = Query(""), limit: int = Query(10, ge=1, le=50)):
+    return await HandleInventoryRequest(session=session).search(shop_id=shop_id, query=q, limit=limit)

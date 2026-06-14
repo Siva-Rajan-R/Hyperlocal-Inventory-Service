@@ -18,11 +18,12 @@ from hyperlocal_platform.core.utils.routingkey_builder import generate_routingke
 from typing import Optional
 from hyperlocal_platform.core.basemodels.readdb_model import ReadDbBaseModel
 from ..msgqueue_producers.billing_msgqueue_producer import MessagingQueueBillingproducer
-
+from ..msgqueue_producers.supplier_msgqueue_producer import MessagingQueueSupplierProducer
 
 
 MESSAGING_QUEUE_PRODUCER_MAPPER_BY_SERVICE_NAME={
-    "BILLING": MessagingQueueBillingproducer
+    "BILLING": MessagingQueueBillingproducer,
+    "PURCHASE": MessagingQueueSupplierProducer
 }
 
 SERVICE_NAME="BILLING".upper()

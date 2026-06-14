@@ -23,7 +23,12 @@ async def create(data:CreatePurchaseSchema,session:ASYNC_PG_SESSION):
 
 
 @router.put("")
-async def update(data:dict,session:ASYNC_PG_SESSION):
+async def update(data:CreatePurchaseSchema,session:ASYNC_PG_SESSION):
+    return await HandlePurchaseRequest(session=session).update(data=data,user_id=ADDED_BY)
+
+@router.put("/{purchase_id}")
+async def update_by_id(purchase_id:str,data:CreatePurchaseSchema,session:ASYNC_PG_SESSION):
+    data.purchase_id = purchase_id
     return await HandlePurchaseRequest(session=session).update(data=data,user_id=ADDED_BY)
 
 
@@ -47,3 +52,11 @@ async def getby_inventory_id(session:ASYNC_PG_SESSION,data:GetPurchaseByInventor
 @router.get("/by/supplier/{shop_id}/{supplier_id}")
 async def getby_inventory_id(session:ASYNC_PG_SESSION,data:GetPurchaseBySupplierIdSchema=Depends()):
     return await HandlePurchaseRequest(session=session).getby_supplier_id(data=data)
+
+@router.get("/search/{shop_id}")
+async def search(shop_id: str, session:ASYNC_PG_SESSION, q: str = Query(""), limit: int = Query(10, ge=1, le=50)):
+    return await HandlePurchaseRequest(session=session).search(shop_id=shop_id, query=q, limit=limit)
+
+@router.get("/stats/supplier/{shop_id}/{supplier_id}")
+async def get_supplier_stats(shop_id: str, supplier_id: str, session:ASYNC_PG_SESSION):
+    return await HandlePurchaseRequest(session=session).get_supplier_stats(shop_id=shop_id, supplier_id=supplier_id)

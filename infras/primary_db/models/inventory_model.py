@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 class Inventory(BASE):
     __tablename__="inventory"
     id=Column(String,primary_key=True)
-    ui_id=Column(BigInteger,Identity(always=True),autoincrement=True)
+    ui_id=Column(String,nullable=False,index=True)
     sequence_id=Column(BigInteger,Identity(always=True),autoincrement=True)
     shop_id=Column(String,nullable=False)
     name=Column(String,nullable=True)
@@ -72,7 +72,7 @@ class InventorySerialNumbers(BASE):
 class StockAdjustments(BASE):
     __tablename__="stock_adjustments"
     id=Column(String,primary_key=True)
-    ui_id=Column(BigInteger,Identity(always=True),autoincrement=True)
+    ui_id=Column(String,nullable=False,index=True)
     sequence_id=Column(BigInteger,Identity(always=True),autoincrement=True)
     shop_id=Column(String,nullable=False)
     description=Column(String,nullable=False)

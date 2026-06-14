@@ -443,10 +443,19 @@ class PurchaseRepo(BaseRepoModel):
         )
 
     @start_db_transaction
+    async def get_next_sequence(self, shop_id: str, start_from: int) -> int:
+        from sqlalchemy import text
+        seq_name = f"seq_purchase_{shop_id.replace('-', '_').lower()}"
+        await self.session.execute(text(f"CREATE SEQUENCE IF NOT EXISTS {seq_name} START WITH {start_from}"))
+        res = await self.session.execute(text(f"SELECT nextval('{seq_name}')"))
+        return res.scalar_one()
+
+    @start_db_transaction
     async def create(self,data:CreatePurchaseDbSchema):
         data_toadd=Purchase(**data.model_dump(mode='json'))
         self.session.add(data_toadd)
-        return True
+        await self.session.flush()
+        return data_toadd.ui_id
 
     
     @start_db_transaction
@@ -596,8 +605,24 @@ class PurchaseRepo(BaseRepoModel):
 
         return result
 
-    async def search(self, query, limit = 5):
-        ...
+    async def search(self, shop_id: str, query: str, limit: int = 5):
+        search_term = f"%{query}%"
+        stmt = (
+            select(
+                Purchase.id,
+                Purchase.datas
+            )
+            .where(
+                Purchase.shop_id == shop_id,
+                or_(
+                    Purchase.id.ilike(search_term),
+                    Purchase.ui_id.ilike(search_term),
+                    func.cast(Purchase.datas, String).ilike(search_term)
+                )
+            ).limit(limit)
+        )
+        results = (await self.session.execute(stmt)).mappings().all()
+        return results
         
 
     async def bulk_check_purchase_inv_products(self,data:BulkCheckPurchaseSchema):

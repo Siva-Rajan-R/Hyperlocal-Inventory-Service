@@ -24,7 +24,7 @@ class HandleStockAdjRequest:
         modified_data=CreateStockAdjSchema(
             **data.model_dump(exclude=['movement_type']),movement_type=StockAdjustmentMovementType.STOCK_ADJUSTMENT
         )
-        res=await self.stock_adj_service_obj.create(data=modified_data)
+        res=await self.stock_adj_service_obj.create_v2(data=modified_data)
         ic(res)
         if not res:
             raise HTTPException(
@@ -106,18 +106,25 @@ class HandleStockAdjRequest:
     
         
     async def getby_shop_id(self,data:GetStockAdjByShopIdSchema):
-        res=await self.stock_adj_service_obj.getby_shop_id(data=data)
+        from infras.read_db.repos.stock_movement_repo import StockMovementReadDbRepo, StockMovementStatsReadDbRepo
+        res=await StockMovementReadDbRepo.get_all_movements(data=data)
+        stats_res=await StockMovementStatsReadDbRepo.get_stats(shop_id=data.shop_id)
+        
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Stock Adjustment fetched successfully",
                 status_code=200,
                 success=True
             ),
-            data=res
+            data={
+                "movements": res,
+                "overall_stats": stats_res
+            }
         )
     
     async def getby_inventory_id(self,data:GetStockAdjByInventoryIdSchema):
-        res=await self.stock_adj_service_obj.getby_inventory_id(data=data)
+        from infras.read_db.repos.stock_movement_repo import StockMovementReadDbRepo
+        res=await StockMovementReadDbRepo.get_movements_by_inventory_id(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Stock Adjustment fetched successfully",
@@ -129,18 +136,25 @@ class HandleStockAdjRequest:
     
 
     async def get(self,data:GetAllStockAdjSchema):
-        res=await self.stock_adj_service_obj.get(data=data)
+        from infras.read_db.repos.stock_movement_repo import StockMovementReadDbRepo, StockMovementStatsReadDbRepo
+        res=await StockMovementReadDbRepo.get_all_movements(data=data)
+        stats_res=await StockMovementStatsReadDbRepo.get_stats(shop_id=data.shop_id)
+        
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Stock Adjustment fetched successfully",
                 status_code=200,
                 success=True
             ),
-            data=res
+            data={
+                "movements": res,
+                "overall_stats": stats_res
+            }
         )
     
     async def getby_id(self,data:GetStockAdjByIdSchema):
-        res=await self.stock_adj_service_obj.getby_id(data=data)
+        from infras.read_db.repos.stock_movement_repo import StockMovementReadDbRepo
+        res=await StockMovementReadDbRepo.get_movement_by_id(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Stock Adjustment fetched successfully",
@@ -150,12 +164,19 @@ class HandleStockAdjRequest:
             data=res
         )
 
-    async def search(self, query, limit = 5):
-        """
-        This is just a wrapper method for the baserepo model
-        Instead use the get method to get all kind of results by simply adjusting the limit
-        """
-        
+    async def search(self, shop_id: str, query: str, limit: int = 5):
+        from infras.read_db.repos.stock_movement_repo import StockMovementReadDbRepo
+        from schemas.v1.request_schemas.stock_adj_schema import GetStockAdjByShopIdSchema
+        req_data = GetStockAdjByShopIdSchema(shop_id=shop_id, query=query, limit=limit, offset=1)
+        res = await StockMovementReadDbRepo.get_all_movements(data=req_data)
+        return SuccessResponseTypDict(
+            detail=BaseResponseTypDict(
+                msg="Stock Adjustment fetched successfully",
+                status_code=200,
+                success=True
+            ),
+            data=res
+        )
 
 
         

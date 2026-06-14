@@ -5,6 +5,7 @@ from datetime import date,datetime
 
 class CreateStockAdjDbSchema(BaseModel):
     id:str
+    ui_id:str
     shop_id:str
     adjusted_date:date
     movement_type:StockAdjustmentMovementType

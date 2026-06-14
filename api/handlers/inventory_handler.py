@@ -13,7 +13,7 @@ from hyperlocal_platform.core.enums.routingkey_enum import RoutingkeyActions,Rou
 from hyperlocal_platform.core.utils.routingkey_builder import generate_routingkey
 from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
 from core.constants import SERVICE_NAME
-from infras.read_db.services.inventory_service import ReadDbInventoryService
+
 from core.data_formats.enums.inventory_enums import InventoryFetchMode
 from core.utils.calculate_offer import calculate_offer
 from core.utils.validate_offer import validate_offer_input
@@ -98,7 +98,10 @@ class HandleInventoryRequest:
         )
     
     async def get(self,data:GetAllInventorySchema):
-        res=await InventoryService(session=self.session).get(data=data)
+        inv_service = InventoryService(session=self.session)
+        from infras.read_db.repos.inventory_repo import InventoryReadDbRepo
+        res=await InventoryReadDbRepo.get_all_inventories(data=data)
+        stats_res=await inv_service.get_inventory_stats(shop_id=getattr(data, 'shop_id', None))
 
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
@@ -106,10 +109,16 @@ class HandleInventoryRequest:
                 status_code=200,
                 success=True
             ),
-            data=res
+            data={
+                "inventories": res,
+                "overall_stats": stats_res
+            }
         )
     async def getby_shop_id(self,data:GetInventoryByShopIdSchema):
-        res=await InventoryService(session=self.session).getby_shop_id(data=data)
+        inv_service = InventoryService(session=self.session)
+        from infras.read_db.repos.inventory_repo import InventoryReadDbRepo
+        res=await InventoryReadDbRepo.get_all_inventories(data=data)
+        stats_res=await inv_service.get_inventory_stats(shop_id=data.shop_id)
 
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
@@ -117,11 +126,15 @@ class HandleInventoryRequest:
                 status_code=200,
                 success=True
             ),
-            data=res
+            data={
+                "inventories": res,
+                "overall_stats": stats_res
+            }
         )
     
     async def getby_id(self,data:GetInventoryByIdSchema):
-            res = await InventoryService(session=self.session).getby_id(data=data)
+            from infras.read_db.repos.inventory_repo import InventoryReadDbRepo
+            res = await InventoryReadDbRepo.get_inventory_by_id(data=data)
 
             return SuccessResponseTypDict(
                 detail=BaseResponseTypDict(
@@ -131,3 +144,17 @@ class HandleInventoryRequest:
                 ),
                 data=res
             )
+        
+    async def search(self, shop_id: str, query: str, limit: int = 5):
+        from infras.read_db.repos.inventory_repo import InventoryReadDbRepo
+        from schemas.v1.request_schemas.inventory_schema import GetInventoryByShopIdSchema
+        req_data = GetInventoryByShopIdSchema(shop_id=shop_id, query=query, limit=limit, offset=1)
+        res = await InventoryReadDbRepo.get_all_inventories(data=req_data)
+        return SuccessResponseTypDict(
+            detail=BaseResponseTypDict(
+                msg="Inventory fetched successfully",
+                status_code=200,
+                success=True
+            ),
+            data=res
+        )

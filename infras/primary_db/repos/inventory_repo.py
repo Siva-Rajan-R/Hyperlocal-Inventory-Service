@@ -1,7 +1,7 @@
 from models.repo_models.base_repo_model import BaseRepoModel
 from models.service_models.base_service_model import BaseServiceModel
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text,literal,literal_column,text,bindparam
+from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text,literal,literal_column,text,bindparam,null
 from sqlalchemy.dialects.postgresql import JSONB,ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.inventory_model import Inventory,InventoryVariants,InventoryBatches,InventorySerialNumbers
@@ -23,6 +23,8 @@ variants = case(
              func.jsonb_agg(
                  func.jsonb_build_object(
                      "id", InventoryVariants.id,
+                     "inventory_id", InventoryVariants.inventory_id,
+                     "sku", InventoryVariants.sku,
                      "name", InventoryVariants.name,
                      "sell_price", InventoryVariants.sell_price,
                      "buy_price", InventoryVariants.buy_price,
@@ -39,6 +41,8 @@ variants = case(
                              func.jsonb_agg(
                                  func.jsonb_build_object(
                                      "id", InventoryBatches.id,
+                                     "inventory_id", InventoryBatches.inventory_id,
+                                     "variant_id", InventoryBatches.variant_id,
                                      "name", InventoryBatches.name,
                                      "stocks", InventoryBatches.stocks,
                                      "expiry_date", InventoryBatches.expiry_date,
@@ -49,6 +53,9 @@ variants = case(
                                      select(
                                          func.jsonb_build_object(
         "id", InventorySerialNumbers.id,
+        "inventory_id", InventorySerialNumbers.inventory_id,
+        "variant_id", InventorySerialNumbers.variant_id,
+        "batch_id", InventorySerialNumbers.batch_id,
         "serial_numbers", InventorySerialNumbers.serial_numbers
     )
                                      )
@@ -74,6 +81,8 @@ variants = case(
                      select(
                          func.jsonb_build_object(
         "id", InventorySerialNumbers.id,
+        "inventory_id", InventorySerialNumbers.inventory_id,
+        "variant_id", InventorySerialNumbers.variant_id,
         "serial_numbers", InventorySerialNumbers.serial_numbers
     )
                      )
@@ -106,10 +115,28 @@ batches = case(
              func.jsonb_agg(
                  func.jsonb_build_object(
                      "id", InventoryBatches.id,
+                     "inventory_id", InventoryBatches.inventory_id,
+                     "variant_id", InventoryBatches.variant_id,
                      "name", InventoryBatches.name,
                      "stocks", InventoryBatches.stocks,
                      "expiry_date", InventoryBatches.expiry_date,
-                     "manufacturing_date", InventoryBatches.manufacturing_date
+                     "manufacturing_date", InventoryBatches.manufacturing_date,
+
+                     # 🔥 SERIALS INSIDE BATCH (No Variant)
+                     "serial_numbers",
+                     select(
+                         func.jsonb_build_object(
+                             "id", InventorySerialNumbers.id,
+                             "inventory_id", InventorySerialNumbers.inventory_id,
+                             "variant_id", InventorySerialNumbers.variant_id,
+                             "batch_id", InventorySerialNumbers.batch_id,
+                             "serial_numbers", InventorySerialNumbers.serial_numbers
+                         )
+                     )
+                     .select_from(InventorySerialNumbers)
+                     .where(InventorySerialNumbers.batch_id == InventoryBatches.id)
+                     .limit(1)
+                     .scalar_subquery()
                  )
              )
          )
@@ -123,24 +150,26 @@ batches = case(
 ).label("batches")
 
 serials = case(
-    (Inventory.has_variant == False,
+    (and_(Inventory.has_variant == False, Inventory.has_batch == False),
      func.coalesce(
          select(
              func.jsonb_build_object(
-        "id", InventorySerialNumbers.id,
-        "serial_numbers", InventorySerialNumbers.serial_numbers
-    )
-        )
+                 "id", InventorySerialNumbers.id,
+                 "inventory_id", InventorySerialNumbers.inventory_id,
+                 "variant_id", InventorySerialNumbers.variant_id,
+                 "batch_id", InventorySerialNumbers.batch_id,
+                 "serial_numbers", InventorySerialNumbers.serial_numbers
+             )
+         )
          .where(InventorySerialNumbers.inventory_id == Inventory.id)
          .limit(1)
          .select_from(InventorySerialNumbers)
          .scalar_subquery(),
-
-         literal({}, type_=JSONB)
+         null()
      )
     ),
-    else_=literal({}, type_=JSONB)
-).label("serial_number")
+    else_=null()
+).label("serials")
 
 class InventoryRepo(BaseRepoModel):
     def __init__(self, session:AsyncSession):
@@ -170,6 +199,14 @@ class InventoryRepo(BaseRepoModel):
         super().__init__(session)
 
     @start_db_transaction
+    async def get_next_sequence(self, shop_id: str, start_from: int) -> int:
+        from sqlalchemy import text
+        seq_name = f"seq_inventory_{shop_id.replace('-', '_').lower()}"
+        await self.session.execute(text(f"CREATE SEQUENCE IF NOT EXISTS {seq_name} START WITH {start_from}"))
+        res = await self.session.execute(text(f"SELECT nextval('{seq_name}')"))
+        return res.scalar_one()
+
+    @start_db_transaction
     async def create(self,data:CreateInventoryDbSchema)-> dict | None:
         filtered_data=data.model_dump(mode="json",exclude=['offer_offline','offer_online','offer_type'])
         ic(filtered_data)
@@ -185,7 +222,7 @@ class InventoryRepo(BaseRepoModel):
 
         res=(await self.session.execute(stmt)).mappings().one_or_none()
         ic(res)
-        return data
+        return res
     
     @start_db_transaction
     async def update_bulk(self,datas:List[dict]):
@@ -206,7 +243,14 @@ class InventoryRepo(BaseRepoModel):
                 sell_price=bindparam("sell_price"),
                 buy_price=bindparam("buy_price"),
                 is_active=bindparam('is_active'),
-                reorder_point=bindparam('reorder_point')
+                reorder_point=bindparam('reorder_point'),
+                datas=case(
+                    (
+                        func.jsonb_typeof(cast(bindparam("datas", type_=JSONB), JSONB)) == 'object',
+                        Inventory.datas.op('||')(cast(bindparam("datas", type_=JSONB), JSONB))
+                    ),
+                    else_=Inventory.datas
+                )
             )
             .execution_options(synchronize_session=False)
         )
@@ -234,7 +278,14 @@ class InventoryRepo(BaseRepoModel):
                 ),
                 sell_price=bindparam("sell_price"),
                 buy_price=bindparam("buy_price"),
-                reorder_point=bindparam("reorder_point")
+                reorder_point=bindparam("reorder_point"),
+                datas=case(
+                    (
+                        func.jsonb_typeof(cast(bindparam("datas", type_=JSONB), JSONB)) == 'object',
+                        InventoryVariants.datas.op('||')(cast(bindparam("datas", type_=JSONB), JSONB))
+                    ),
+                    else_=InventoryVariants.datas
+                )
             )
             .execution_options(synchronize_session=False)
         )
@@ -350,6 +401,7 @@ class InventoryRepo(BaseRepoModel):
     @start_db_transaction
     async def update(self,data:UpdateInventoryDbSchema)-> dict | NotImplementedError:
         inven_data=data.model_dump(mode="json",exclude=['id','shop_id','barcode','offer_offline','offer_online','offer_type'],exclude_unset=True,exclude_none=True)
+        ic("INVEN_DATA TO DB:", inven_data)
         
         if inven_data or len(inven_data)>0:
             ic("inside nn",inven_data)
@@ -928,7 +980,13 @@ class InventoryRepo(BaseRepoModel):
                 InventoryVariants.stocks,
                 InventoryVariants.buy_price,
                 InventoryVariants.sell_price,
-                InventoryVariants.datas
+                InventoryVariants.datas,
+                InventoryVariants.name,
+                select(InventorySerialNumbers.id)
+                .where(InventorySerialNumbers.variant_id == InventoryVariants.id)
+                .limit(1)
+                .scalar_subquery()
+                .label("serialno_id")
             )
             .where(
                 InventoryVariants.id.in_(variants_id),
@@ -975,7 +1033,15 @@ class InventoryRepo(BaseRepoModel):
                 InventoryBatches.id,
                 InventoryBatches.inventory_id,
                 InventoryBatches.stocks,
-                InventoryBatches.datas
+                InventoryBatches.datas,
+                InventoryBatches.name,
+                InventoryBatches.manufacturing_date,
+                InventoryBatches.expiry_date,
+                select(InventorySerialNumbers.id)
+                .where(InventorySerialNumbers.batch_id == InventoryBatches.id)
+                .limit(1)
+                .scalar_subquery()
+                .label("serialno_id")
             )
             .where(
                 InventoryBatches.id.in_(batches_id),
@@ -998,6 +1064,7 @@ class InventoryRepo(BaseRepoModel):
             Inventory.shop_id == data.shop_id,
             or_(
                 Inventory.id.ilike(search_term),
+                Inventory.ui_id.ilike(search_term),
                 Inventory.name.ilike(search_term),
                 Inventory.description.ilike(search_term),
                 Inventory.category.ilike(search_term),
@@ -1034,6 +1101,7 @@ class InventoryRepo(BaseRepoModel):
         conditions=[
             or_(
                 Inventory.id.ilike(search_term),
+                Inventory.ui_id.ilike(search_term),
                 Inventory.name.ilike(search_term),
                 Inventory.description.ilike(search_term),
                 Inventory.category.ilike(search_term),
@@ -1087,7 +1155,16 @@ class InventoryRepo(BaseRepoModel):
     async def verify(self,data:VerifySchema):
         stmt=(
             select(
-                Inventory.id
+                Inventory.datas,
+                select(InventorySerialNumbers.id)
+                .where(
+                    InventorySerialNumbers.inventory_id == Inventory.id,
+                    InventorySerialNumbers.variant_id.is_(None),
+                    InventorySerialNumbers.batch_id.is_(None)
+                )
+                .limit(1)
+                .scalar_subquery()
+                .label("serialno_id")
             )
             .where(
                 or_(Inventory.id==data.id,
@@ -1103,12 +1180,62 @@ class InventoryRepo(BaseRepoModel):
         
         return {'id':'','exists':False}
 
-    async def search(self, query, limit = 5):
-        """
-        This is just a wrapper method for the baserepo model
-        Instead use the get method to get all kind of results by simply adjusting the limit
-        """
+    async def search(self, shop_id: str, query: str, limit: int = 5):
+        search_term = f"%{query}%"
+        stmt = (
+            select(
+                Inventory.id,
+                Inventory.name,
+                Inventory.barcode
+            )
+            .where(
+                Inventory.shop_id == shop_id,
+                or_(
+                    Inventory.id.ilike(search_term),
+                    Inventory.ui_id.ilike(search_term),
+                    Inventory.name.ilike(search_term),
+                    Inventory.barcode.ilike(search_term)
+                )
+            ).limit(limit)
+        )
+        results = (await self.session.execute(stmt)).mappings().all()
+        return results
         
+    async def get_inventory_stats(self, shop_id: str = None):
+        conditions = [Inventory.is_active == True]
+        if shop_id:
+            conditions.append(Inventory.shop_id == shop_id)
+            
+        stmt = (
+            select(
+                func.count(Inventory.id).label("total_inventory_items"),
+                func.sum(Inventory.stocks * Inventory.buy_price).label("total_stock_value"),
+                func.sum(
+                    case(
+                        (Inventory.stocks == 0, 1),
+                        else_=0
+                    )
+                ).label("no_stocks_count"),
+                func.sum(
+                    case(
+                        ((Inventory.stocks > 0) & (Inventory.stocks <= Inventory.reorder_point), 1),
+                        else_=0
+                    )
+                ).label("low_stocks_count")
+            )
+            .where(*conditions)
+        )
+        
+        result = (await self.session.execute(stmt)).mappings().one_or_none()
+        
+        stats = {
+            "total_inventory_items": result["total_inventory_items"] if result and result["total_inventory_items"] else 0,
+            "total_product_count": result["total_inventory_items"] if result and result["total_inventory_items"] else 0, 
+            "total_stock_value": result["total_stock_value"] if result and result["total_stock_value"] else 0.0,
+            "no_stocks_count": result["no_stocks_count"] if result and result["no_stocks_count"] else 0,
+            "low_stocks_count": result["low_stocks_count"] if result and result["low_stocks_count"] else 0
+        }
+        return stats
 
 
         

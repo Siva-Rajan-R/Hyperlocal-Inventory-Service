@@ -6,6 +6,7 @@ from datetime import date
 
 class CreateInventoryDbSchema(BaseModel):
     id:str
+    ui_id:str
     shop_id:str
     name:str
     category:str
