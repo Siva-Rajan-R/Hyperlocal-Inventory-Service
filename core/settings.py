@@ -7,7 +7,7 @@ load_dotenv()
 class InventorySettings(BaseSettings):
     PG_DATABASE_URL:str
     ENVIRONMENT:EnvironmentEnum
-    MONGO_DB_URL:str
+    READ_DB_URL:str
     
     model_config={
         'case_sensitive':False,

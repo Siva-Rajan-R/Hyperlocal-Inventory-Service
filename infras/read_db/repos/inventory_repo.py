@@ -1,14 +1,13 @@
 from ..main import INVENTORY_COLLECTION
-from ..models.inventory_model import InventoryReadModel
+from ..models.prod_inv_model import ProdInvReadModel
 from icecream import ic
 from schemas.v1.request_schemas.inventory_schema import GetAllInventorySchema, GetInventoryByShopIdSchema, GetInventoryByIdSchema
-from pymongo import UpdateOne
 from typing import List, Dict
 
 class InventoryReadDbRepo:
 
     @staticmethod
-    async def create_inventory(inventory: InventoryReadModel):
+    async def create_inventory(inventory: ProdInvReadModel):
         try:
             document = inventory.model_dump(mode="json")
             result = await INVENTORY_COLLECTION.insert_one(document)
@@ -19,7 +18,7 @@ class InventoryReadDbRepo:
             return False
 
     @staticmethod
-    async def replace_inventory(inventory: InventoryReadModel):
+    async def replace_inventory(inventory: ProdInvReadModel):
         try:
             document = inventory.model_dump(mode="json")
             result = await INVENTORY_COLLECTION.replace_one(
@@ -39,7 +38,7 @@ class InventoryReadDbRepo:
         if hasattr(data, 'shop_id') and data.shop_id:
             query["shop_id"] = data.shop_id
             
-        if data.is_active is not None:
+        if getattr(data, 'is_active', None) is not None:
             query["is_active"] = data.is_active
 
         if getattr(data, 'from_date', None) or getattr(data, 'to_date', None):
@@ -54,7 +53,7 @@ class InventoryReadDbRepo:
             if created_at_query:
                 query["created_at"] = created_at_query
 
-        if data.query:
+        if getattr(data, 'query', None):
             query["$or"] = [
                 {"id": {"$regex": data.query, "$options": "i"}},
                 {"name": {"$regex": data.query, "$options": "i"}},
@@ -64,9 +63,10 @@ class InventoryReadDbRepo:
                 {"sku": {"$regex": data.query, "$options": "i"}}
             ]
             
-        cursor = data.offset-1 if data.offset and data.offset > 0 else 0
-        inventories_cursor = INVENTORY_COLLECTION.find(query).limit(data.limit).skip(cursor * data.limit).sort("created_at", -1)
-        docs = await inventories_cursor.to_list(length=data.limit)
+        cursor = data.offset-1 if getattr(data, 'offset', None) and data.offset > 0 else 0
+        limit = getattr(data, 'limit', 10)
+        inventories_cursor = INVENTORY_COLLECTION.find(query).limit(limit).skip(cursor * limit).sort("created_at", -1)
+        docs = await inventories_cursor.to_list(length=limit)
         
         for doc in docs:
             if "_id" in doc:
@@ -86,31 +86,3 @@ class InventoryReadDbRepo:
     async def delete_inventory(inventory_id: str, shop_id: str):
         result = await INVENTORY_COLLECTION.delete_one({"id": inventory_id, "shop_id": shop_id})
         return result.deleted_count > 0
-
-    @staticmethod
-    async def bulk_update_stocks(shop_id: str, quantity_updates: Dict[str, float]):
-        """
-        Updates the stocks for the given inventory IDs.
-        quantity_updates is a dict mapping inventory_id -> increment/decrement amount
-        """
-        if not quantity_updates:
-            return True
-            
-        operations = []
-        for inv_id, qty_diff in quantity_updates.items():
-            operations.append(
-                UpdateOne(
-                    {"id": inv_id, "shop_id": shop_id},
-                    {"$inc": {"stocks": qty_diff}}
-                )
-            )
-            
-        if operations:
-            try:
-                result = await INVENTORY_COLLECTION.bulk_write(operations, ordered=False)
-                ic(f"Bulk update read db stocks: modified {result.modified_count}")
-                return True
-            except Exception as e:
-                ic(f"Error bulk updating read db stocks: {e}")
-                return False
-        return True

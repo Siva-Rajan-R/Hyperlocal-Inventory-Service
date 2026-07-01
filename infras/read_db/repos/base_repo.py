@@ -71,7 +71,7 @@ class ReadDbBaseRepo:
             cursor = cursor.limit(limit)
 
         # fetch
-        results = await cursor.to_list()
+        results = await cursor.to_list(length=None)
         return results
         
     async def get_one(self,queries:dict):

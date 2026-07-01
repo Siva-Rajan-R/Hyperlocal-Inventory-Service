@@ -3,15 +3,28 @@ from core.configs.settings_config import SETTINGS
 import asyncio
 from icecream import ic
 
-MONGO_CLIENT=AsyncIOMotorClient(SETTINGS.MONGO_DB_URL)
+
+READ_DB_URL=SETTINGS.READ_DB_URL
+
+CLIENT=None
+READ_DATABASE=None
+
+async def init_read_db():
+    global CLIENT,READ_DATABASE
+    CLIENT=AsyncIOMotorClient(READ_DB_URL)
+    READ_DATABASE=CLIENT['InventoryServiceReadDb']
+
+async def close_read_db():
+    global CLIENT
+    if CLIENT:
+        CLIENT.close()
+
+MONGO_CLIENT=AsyncIOMotorClient(SETTINGS.READ_DB_URL)
 
 
-DB=MONGO_CLIENT["InventoryServiceDb"]
+DB=MONGO_CLIENT["InventoryServiceReadDb"]
 
-INVENTORY_COLLECTION=DB['inventory_collections']
-PURCHAESE_COLLECTION=DB['purchase_collections']
-PURCHASE_STATS_COLLECTION=DB['purchase_stats_collections']
-STOCK_MOVEMENT_COLLECTION=DB['stock_movement_collections']
-STOCK_MOVEMENT_STATS_COLLECTION=DB['stock_movement_stats_collections']
-SALES_COLLECTION=DB['sales_collections']
-SUPPLIER_STATS_COLLECTION=DB['supplier_stats_collections']
+INVENTORY_COLLECTION=DB['InventoryCollections']
+PROD_INV_COLLECTION=DB['ProdInvCollections']
+
+

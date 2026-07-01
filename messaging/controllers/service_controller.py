@@ -6,7 +6,7 @@ from messaging.main import RabbitMQMessagingConfig
 from models.messaging_models.consumer_model import BaseConsumerModel
 from hyperlocal_platform.infras.saga.schemas import CreateSagaStateSchema,UpdateSagaStateSchema
 from hyperlocal_platform.infras.saga.repo import SagaStatesRepo
-from core.errors.messaging_errors import BussinessError,RetryableError,FatalError,ErrorTypeSEnum
+from core.errors.messaging_errors import BussinessError,RetryableError,FatalError
 from hyperlocal_platform.core.enums.saga_state_enum import SagaStatusEnum,SagaStepsValueEnum
 from hyperlocal_platform.core.enums.routingkey_enum import RoutingkeyState,RoutingkeyActions
 from hyperlocal_platform.infras.saga.schemas import SagaStateExecutionTypDict,SagaStateErrorTypDict
@@ -17,15 +17,15 @@ from hyperlocal_platform.core.typed_dicts.messaging_typdict import EventPublishi
 from hyperlocal_platform.core.utils.routingkey_builder import generate_routingkey
 from typing import Optional
 from hyperlocal_platform.core.basemodels.readdb_model import ReadDbBaseModel
-from core.constants import SHOP_SERVICE_NAME
+from core.constants import SERVICE_NAME
+from ..msgqueue_services.prod_inv_msgqueue_service import MessagingQueueProductInvService
 
 
 MESSAGING_QUEUE_SERVICE_MAPPER_BY_SERVICE_NAME={
-    "SHOPS": '',
-    "EMPLOYEES":''
+    SERVICE_NAME:MessagingQueueProductInvService
 }
 
-SERVICE_NAME=SHOP_SERVICE_NAME.upper()
+SERVICE_NAME=SERVICE_NAME.upper()
 
 
 
@@ -98,7 +98,7 @@ async def service_main_controller(msg:AbstractIncomingMessage):
                     saga_id=saga_id,
                     error=SagaStateErrorTypDict(
                         code="BUSSINESS_ERROR",
-                        debug=f"entity_name '{entity_name}' is not recognized",
+                        debug=f"Thambi entity_name '{entity_name}' is not recognized",
                         user_msg="Entity name in the message headers is not recognized, please check and try again"
                     )
                 )
@@ -116,26 +116,28 @@ async def service_main_controller(msg:AbstractIncomingMessage):
             ic(response)
             if response is not None:
                 ic(f"Successfully processed the message for entity '{entity_name}' with response: {response}")
-                await saga_repo.merge(
-                    data=response,
-                    saga_id=saga_id,
-                    service=SERVICE_NAME.lower()
-                )
+                if saga_id and saga_id != "none":
+                    await saga_repo.merge(
+                        data=response,
+                        saga_id=saga_id,
+                        service=SERVICE_NAME.lower()
+                    )
 
             else:
                 ic(f"Failed to process the message for entity '{entity_name}'")
-                await saga_repo.update_status(
-                    status=SagaStatusEnum.CANCELED,
-                    saga_id=saga_id
-                )
-                await saga_repo.update_error(
-                    saga_id=saga_id,
-                    error=SagaStateErrorTypDict(
-                        code="BUSSINESS_ERROR",
-                        debug=f"Processing the message for entity '{entity_name}' failed without exceptions, {response}",
-                        user_msg="Failed to process the message due to bussiness error, please check the data and try again"
+                if saga_id and saga_id != "none":
+                    await saga_repo.update_status(
+                        status=SagaStatusEnum.CANCELED,
+                        saga_id=saga_id
                     )
-                )
+                    await saga_repo.update_error(
+                        saga_id=saga_id,
+                        error=SagaStateErrorTypDict(
+                            code="BUSSINESS_ERROR",
+                            debug=f"Processing the message for entity '{entity_name}' failed without exceptions, {response}",
+                            user_msg="Failed to process the message due to bussiness error, please check the data and try again"
+                        )
+                    )
                 
 
             await session.commit()
@@ -147,18 +149,19 @@ async def service_main_controller(msg:AbstractIncomingMessage):
         except Exception as e:
             debug_msg=serialize_exception(e)
             ic(f"An error occurred while processing the message: {e}")
-            await saga_repo.update_status(
-                    status=SagaStatusEnum.CANCELED,
-                    saga_id=saga_id
+            if saga_id and saga_id != "none":
+                await saga_repo.update_status(
+                        status=SagaStatusEnum.CANCELED,
+                        saga_id=saga_id
+                    )
+                await saga_repo.update_error(
+                    saga_id=saga_id,
+                    error=SagaStateErrorTypDict(
+                        code="FATAL_ERROR",
+                        debug=f"Processing the message for entity '{entity_name}' failed with exceptions, {debug_msg}",
+                        user_msg="Failed to process the message due to fatal error, please check the data and try again"
+                    )
                 )
-            await saga_repo.update_error(
-                saga_id=saga_id,
-                error=SagaStateErrorTypDict(
-                    code="FATAL_ERROR",
-                    debug=f"Processing the message for entity '{entity_name}' failed with exceptions, {debug_msg}",
-                    user_msg="Failed to process the message due to fatal error, please check the data and try again"
-                )
-            )
             
 
             await session.commit()
@@ -168,12 +171,13 @@ async def service_main_controller(msg:AbstractIncomingMessage):
         finally:
             ic("Finally publishing the event to reply exchange")
             
-            await RabbitMQMessagingConfig().publish_event(
-                routing_key=reply_key,
-                payload=payload,
-                headers=headers,
-                exchange_name=reply_exchange
-            )
+            if reply_exchange and reply_exchange != "none":
+                await RabbitMQMessagingConfig().publish_event(
+                    routing_key=reply_key,
+                    payload=payload,
+                    headers=headers,
+                    exchange_name=reply_exchange
+                )
 
             await msg.ack()
 

@@ -1,6 +1,6 @@
 from .main import RabbitMQMessagingConfig,ExchangeType
+from .controllers.service_controller import service_main_controller
 from .controllers.producer_controller import producer_main_controller
-from .msgqueue_consumers.shopconfig_msgqueue_consumer import ShopConfigMsgQueueConsumer
 import asyncio
 
 async def worker():
@@ -9,9 +9,8 @@ async def worker():
 
     # Exchanges
     exchanges=[
-        {'name':'billing.producer.exchange','exc_type':ExchangeType.DIRECT},
-        {'name':'purchase.producer.exchange','exc_type':ExchangeType.DIRECT},
-        {'name':'hyperlocal_domain_events','exc_type':ExchangeType.DIRECT}
+        {'name':'products.service.exchange','exc_type':ExchangeType.DIRECT},
+        {'name':'products.producer.exchange','exc_type':ExchangeType.DIRECT},
     ]
 
     for exchange in exchanges:
@@ -19,9 +18,8 @@ async def worker():
 
     # Queues
     queues=[
-        {'exc_name':'billing.producer.exchange','q_name':'billing.producer.queue','r_key':'billing.producer.routing.key'},
-        {'exc_name':'purchase.producer.exchange','q_name':'purchase.producer.queue','r_key':'purchase.producer.routing.key'},
-        {'exc_name':'hyperlocal_domain_events','q_name':'inventory_service_shopconfig_q','r_key':'hyperlocal.shopconfig.updated'}
+        {'exc_name':'products.service.exchange','q_name':'products.service.queue','r_key':'products.service.routing.key'},
+        {'exc_name':'products.producer.exchange','q_name':'products.producer.queue','r_key':'products.producer.routing.key'}
     ]
 
     for queue in queues:
@@ -33,21 +31,12 @@ async def worker():
 
     # Consumers
     consumers=[
-        {'q_name':'billing.producer.queue','handler':producer_main_controller},
-        {'q_name':'purchase.producer.queue','handler':producer_main_controller}
+        {'q_name':'products.service.queue','handler':service_main_controller},
+        {'q_name':'products.producer.queue','handler':producer_main_controller}
     ]
 
     for consumer in consumers:
+
         await rabbitmq_msg_obj.consume_event(queue_name=consumer['q_name'],handler=consumer['handler'])
 
-    # Start ShopConfig Consumer
-    shop_config_consumer = ShopConfigMsgQueueConsumer()
-    await shop_config_consumer.consume()
-
     await asyncio.Event().wait()
-
-    
-
-
-
-    

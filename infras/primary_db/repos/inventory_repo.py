@@ -1,1241 +1,666 @@
 from models.repo_models.base_repo_model import BaseRepoModel
 from models.service_models.base_service_model import BaseServiceModel
+# from ..models.product_model import Products,ProductBatches,ProductSerialNumbers,ProductVariants
+from ..models.inventory_model import InventoryPricings,InventoryStocks,InventoryStoragelocations,InventoryReorderPoint,InventoryReservation
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import select,update,delete,func,or_,and_,String,case,cast,Text,literal,literal_column,text,bindparam,null
 from sqlalchemy.dialects.postgresql import JSONB,ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..models.inventory_model import Inventory,InventoryVariants,InventoryBatches,InventorySerialNumbers
-from schemas.v1.db_schemas.inventory_schema import InventoryProductCategoryEnum,CreateInventoryDbSchema,UpdateInventoryDbSchema,UpdateVarientProductDbSchema,InventoryBatchDbSchema
-from schemas.v1.request_schemas.inventory_schema import DeleteInventorySchema,GetAllInventorySchema,GetInventoryByIdSchema,GetInventoryByShopIdSchema,VerifySchema,BulkCheckInventorySchema
+# from schemas.v1.product_schemas.db_schemas import CreateProductBatchDbSchema,CreateProductDbSchema,CreateProductSerialnoDbSchema,CreateProductVariantDbSchema,UpdateProductBatchDbSchema,UpdateProductDbSchema,UpdateProductSerialnoDbSchema,UpdateProductVariantDbSchema,DeleteProductDbSchema
+# from schemas.v1.product_schemas.request_schemas import GetAllProductSchema,GetProductsById,GetProductsByShopId
+from schemas.v1.inventory_schemas.db_schemas import CreateInventoryPricingDbSchema,CreateInventoryStockDbSchema,CreateInventoryStorageLocationDbSchema,UpdateInventoryPricingDbSchema,UpdateInventoryStockDbSchema,UpdateInventoryStorageLocationDbSchema,CreateInventoryReorderPointDbSchema,UpdateInventoryReorderPointDbSchema
+from schemas.v1.inventory_schemas.request_schemas import VerifyInventoryCombinedSchema, CommitInventorySchema
 from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_transaction
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional,List
 from icecream import ic
 from core.data_formats.enums.stock_adj_enums import StockAdjustmentTypesEnum
+from messaging.main import RabbitMQMessagingConfig
+from schemas.v1.prod_inv_schemas.request_schemas import CreateProdInvSchema,UpdateProdInvSchema,DeleteProdInvSchema
+from schemas.v1.inventory_schemas.request_schemas import ReserveInventorySchema,ReleaseInventorySchema,CommitInventorySchema,ReleaseItemInventorySchema
+import datetime
+from .product_repo import ProductRepo,UpdateProductSerialnoDbSchema
+from core.data_formats.enums.product_enums import ProductSerialnoStatusEnums
+from helpers.emit_stock_mov_adj import emit_stock_mov_adj
+from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
 
 
-EMPTY_JSONB_ARRAY = literal([], type_=JSONB)
 
-variants = case(
-    (Inventory.has_variant == True,
-     func.coalesce(
-         select(
-             func.jsonb_agg(
-                 func.jsonb_build_object(
-                     "id", InventoryVariants.id,
-                     "inventory_id", InventoryVariants.inventory_id,
-                     "sku", InventoryVariants.sku,
-                     "name", InventoryVariants.name,
-                     "sell_price", InventoryVariants.sell_price,
-                     "buy_price", InventoryVariants.buy_price,
-                     "stocks", InventoryVariants.stocks,
-                     "datas", InventoryVariants.datas,
-                     "reorder_point",InventoryVariants.reorder_point,
-
-                     # =========================
-                     # 🔥 BATCHES
-                     # =========================
-                     "batches",
-                     select(
-                         func.coalesce(
-                             func.jsonb_agg(
-                                 func.jsonb_build_object(
-                                     "id", InventoryBatches.id,
-                                     "inventory_id", InventoryBatches.inventory_id,
-                                     "variant_id", InventoryBatches.variant_id,
-                                     "name", InventoryBatches.name,
-                                     "stocks", InventoryBatches.stocks,
-                                     "expiry_date", InventoryBatches.expiry_date,
-                                     "manufacturing_date", InventoryBatches.manufacturing_date,
-
-                                     # 🔥 SERIALS INSIDE BATCH
-                                     "serial_numbers",
-                                     select(
-                                         func.jsonb_build_object(
-        "id", InventorySerialNumbers.id,
-        "inventory_id", InventorySerialNumbers.inventory_id,
-        "variant_id", InventorySerialNumbers.variant_id,
-        "batch_id", InventorySerialNumbers.batch_id,
-        "serial_numbers", InventorySerialNumbers.serial_numbers
-    )
-                                     )
-                                     .select_from(InventorySerialNumbers)
-                                     .where(
-                                         InventorySerialNumbers.batch_id == InventoryBatches.id
-                                     )
-                                     .limit(1)
-                                     .scalar_subquery()
-                                 )
-                             ),
-                             EMPTY_JSONB_ARRAY
-                         )
-                     )
-                     .select_from(InventoryBatches)
-                     .where(InventoryBatches.variant_id == InventoryVariants.id)
-                     .scalar_subquery(),
-
-                     # =========================
-                     # 🔥 VARIANT LEVEL SERIALS (THIS WAS MISSING)
-                     # =========================
-                     "serial_numbers",
-                     select(
-                         func.jsonb_build_object(
-        "id", InventorySerialNumbers.id,
-        "inventory_id", InventorySerialNumbers.inventory_id,
-        "variant_id", InventorySerialNumbers.variant_id,
-        "serial_numbers", InventorySerialNumbers.serial_numbers
-    )
-                     )
-                     .select_from(InventorySerialNumbers)
-                     .where(
-                         and_(
-                             InventorySerialNumbers.variant_id == InventoryVariants.id,
-                             InventorySerialNumbers.batch_id.is_(None)
-                         )
-                     )
-                     .limit(1)
-                     .scalar_subquery()
-                 )
-             )
-         )
-         .select_from(InventoryVariants)
-         .where(InventoryVariants.inventory_id == Inventory.id)
-         .scalar_subquery(),
-         EMPTY_JSONB_ARRAY
-     )
-    ),
-    else_=EMPTY_JSONB_ARRAY
-).label("variants")
-
-
-batches = case(
-    (Inventory.has_variant == False,
-     func.coalesce(
-         select(
-             func.jsonb_agg(
-                 func.jsonb_build_object(
-                     "id", InventoryBatches.id,
-                     "inventory_id", InventoryBatches.inventory_id,
-                     "variant_id", InventoryBatches.variant_id,
-                     "name", InventoryBatches.name,
-                     "stocks", InventoryBatches.stocks,
-                     "expiry_date", InventoryBatches.expiry_date,
-                     "manufacturing_date", InventoryBatches.manufacturing_date,
-
-                     # 🔥 SERIALS INSIDE BATCH (No Variant)
-                     "serial_numbers",
-                     select(
-                         func.jsonb_build_object(
-                             "id", InventorySerialNumbers.id,
-                             "inventory_id", InventorySerialNumbers.inventory_id,
-                             "variant_id", InventorySerialNumbers.variant_id,
-                             "batch_id", InventorySerialNumbers.batch_id,
-                             "serial_numbers", InventorySerialNumbers.serial_numbers
-                         )
-                     )
-                     .select_from(InventorySerialNumbers)
-                     .where(InventorySerialNumbers.batch_id == InventoryBatches.id)
-                     .limit(1)
-                     .scalar_subquery()
-                 )
-             )
-         )
-         .where(InventoryBatches.inventory_id == Inventory.id)
-         .select_from(InventoryBatches)
-         .scalar_subquery(),
-         EMPTY_JSONB_ARRAY
-     )
-    ),
-    else_=EMPTY_JSONB_ARRAY
-).label("batches")
-
-serials = case(
-    (and_(Inventory.has_variant == False, Inventory.has_batch == False),
-     func.coalesce(
-         select(
-             func.jsonb_build_object(
-                 "id", InventorySerialNumbers.id,
-                 "inventory_id", InventorySerialNumbers.inventory_id,
-                 "variant_id", InventorySerialNumbers.variant_id,
-                 "batch_id", InventorySerialNumbers.batch_id,
-                 "serial_numbers", InventorySerialNumbers.serial_numbers
-             )
-         )
-         .where(InventorySerialNumbers.inventory_id == Inventory.id)
-         .limit(1)
-         .select_from(InventorySerialNumbers)
-         .scalar_subquery(),
-         null()
-     )
-    ),
-    else_=null()
-).label("serials")
-
-class InventoryRepo(BaseRepoModel):
-    def __init__(self, session:AsyncSession):
-        self.inv_cols=(
-            Inventory.id,
-            Inventory.ui_id,
-            Inventory.sku,
-            Inventory.sequence_id,
-            Inventory.barcode,
-            Inventory.shop_id,
-            Inventory.reorder_point,
-            Inventory.buy_price,
-            Inventory.sell_price,
-            Inventory.stocks,
-            Inventory.is_active,
-            Inventory.datas,
-            Inventory.name,
-            Inventory.description,
-            Inventory.category,
-            Inventory.created_at,
-            Inventory.updated_at,
-            Inventory.has_batch,
-            Inventory.has_serialno,
-            Inventory.has_variant
+class InventoryRepo:
+    def __init__(self,session:AsyncSession):
+        self.session=session
+        self.invetory_pricing_cols=(
+            InventoryPricings.id,InventoryPricings.buy_price,InventoryPricings.sell_price,InventoryPricings.additional_infos,
+            InventoryPricings.created_at,InventoryPricings.updated_at
+        )
+        self.inventory_stl_cols=(
+            InventoryStoragelocations.id,InventoryStoragelocations.name,InventoryStoragelocations.additional_infos,
+            InventoryStoragelocations.created_at,InventoryStoragelocations.updated_at
+        )
+        self.inventory_stocks_cols=(
+            InventoryStocks.id,InventoryStocks.physical_stocks,InventoryStocks.reserved_stocks,InventoryStocks.available_stocks,
+            InventoryStocks.created_at,InventoryStocks.updated_at,InventoryStocks.additional_infos
+        )
+        self.inventory_rop_cols=(
+            InventoryReorderPoint.id,InventoryReorderPoint.reorder_point,InventoryReorderPoint.additional_infos
         )
 
-        super().__init__(session)
-
     @start_db_transaction
-    async def get_next_sequence(self, shop_id: str, start_from: int) -> int:
-        from sqlalchemy import text
-        seq_name = f"seq_inventory_{shop_id.replace('-', '_').lower()}"
-        await self.session.execute(text(f"CREATE SEQUENCE IF NOT EXISTS {seq_name} START WITH {start_from}"))
-        res = await self.session.execute(text(f"SELECT nextval('{seq_name}')"))
-        return res.scalar_one()
-
-    @start_db_transaction
-    async def create(self,data:CreateInventoryDbSchema)-> dict | None:
-        filtered_data=data.model_dump(mode="json",exclude=['offer_offline','offer_online','offer_type'])
-        ic(filtered_data)
-        stmt=(
-            insert(
-                Inventory
-            )
-            .values(
-                **filtered_data
-            )
-            .returning(*self.inv_cols)
-        )
-
-        res=(await self.session.execute(stmt)).mappings().one_or_none()
-        ic(res)
-        return res
-    
-    @start_db_transaction
-    async def update_bulk(self,datas:List[dict]):
-        if not datas:
-            return []
-        stmt=(
-            update(Inventory.__table__)
-            .where(Inventory.id==bindparam("b_id"))
-            .values(
-                stocks=case(
-                    (
-                        bindparam("is_absolute"),
-                        bindparam("stocks")
-                    ),
-                    else_=Inventory.stocks+bindparam("stocks")
-                    
-                ),
-                sell_price=bindparam("sell_price"),
-                buy_price=bindparam("buy_price"),
-                is_active=bindparam('is_active'),
-                reorder_point=bindparam('reorder_point'),
-                datas=case(
-                    (
-                        func.jsonb_typeof(cast(bindparam("datas", type_=JSONB), JSONB)) == 'object',
-                        Inventory.datas.op('||')(cast(bindparam("datas", type_=JSONB), JSONB))
-                    ),
-                    else_=Inventory.datas
-                )
-            )
-            .execution_options(synchronize_session=False)
-        )
-
-        res=(await self.session.execute(stmt,datas))
-
-        return res
-    
-
-    @start_db_transaction
-    async def update_variant_bulk(self,datas:List[dict]):
-        if not datas:
-            return []
-        stmt=(
-            update(InventoryVariants.__table__)
-            .where(InventoryVariants.id==bindparam("b_id"))
-            .values(
-                stocks=case(
-                    (
-                        bindparam("is_absolute"),
-                        bindparam("stocks")
-                    ),
-                    else_=InventoryVariants.stocks+bindparam("stocks")
-                    
-                ),
-                sell_price=bindparam("sell_price"),
-                buy_price=bindparam("buy_price"),
-                reorder_point=bindparam("reorder_point"),
-                datas=case(
-                    (
-                        func.jsonb_typeof(cast(bindparam("datas", type_=JSONB), JSONB)) == 'object',
-                        InventoryVariants.datas.op('||')(cast(bindparam("datas", type_=JSONB), JSONB))
-                    ),
-                    else_=InventoryVariants.datas
-                )
-            )
-            .execution_options(synchronize_session=False)
-        )
-
-        res=(await self.session.execute(stmt,datas))
-
-        return res
-    
-    @start_db_transaction
-    async def create_bulk(self,datas:List[Inventory])-> bool:
-        if not datas:
-            return True
-        self.session.add_all(datas)
+    async def create_bulk_stocks(self,data:List[InventoryStocks]):
+        if data:
+            self.session.add_all(data)
         return True
     
     @start_db_transaction
-    async def create_variant_bulk(self,datas:List[InventoryVariants])-> bool:
-        if not datas:
-            return True
-        self.session.add_all(datas)
+    async def create_bulk_pricing(self,data: List[InventoryPricings]):
+        ic(data)
+        if data:
+            ic("bulk pricing")
+            self.session.add_all(data)
+
         return True
-    
+
+
     @start_db_transaction
-    async def create_batch_bulk(self,datas:List[InventoryBatches])-> bool:
-        if not datas:
-            return True
-        self.session.add_all(datas)
+    async def create_bulk_storage_location(self,data: List[InventoryStoragelocations]):
+        if data:
+            ic("bulk stl")
+            self.session.add_all(data)
         return True
-    
+
+
     @start_db_transaction
-    async def create_serialno_bulk(self,datas:List[InventorySerialNumbers])-> bool:
-        if not datas:
-            return True
-        self.session.add_all(datas)
+    async def create_bulk_reorder_point(self,data: List[InventoryReorderPoint]):
+        if data:
+            ic("bulk ro")
+            self.session.add_all(data)
         return True
     
 
+
     @start_db_transaction
-    async def bulk_add_serialno(self, data: dict[str, list[str]], shop_id: str):
+    async def update_bulk_stocks(self, data: List[UpdateInventoryStockDbSchema]):
         if not data:
             return True
 
-        results = []
+        updated_keys = []
 
-        for inv_id, serials in data.items():
+        for d in data:
+            amount = d.physical_stocks or 0.0
 
             stmt = (
-                update(InventorySerialNumbers)
+                update(InventoryStocks)
                 .where(
-                    InventorySerialNumbers.id == inv_id,
-                    InventorySerialNumbers.shop_id == shop_id
-                )
-                .values(
-                    serial_numbers=func.array_cat(
-                        func.coalesce(
-                            InventorySerialNumbers.serial_numbers,
-                            cast([], ARRAY(String))
-                        ),
-                        cast(serials, ARRAY(String))
-                    )
-                )
-                .returning(
-                    InventorySerialNumbers.id,
-                    InventorySerialNumbers.serial_numbers
+                    InventoryStocks.product_id == d.product_id,
+                    InventoryStocks.variant_id.is_not_distinct_from(d.variant_id),
+                    InventoryStocks.batch_id.is_not_distinct_from(d.batch_id),
                 )
             )
 
-            res = (await self.session.execute(stmt)).mappings().one_or_none()
-            if res:
-                results.append(res)
+            if d.type == "INCREMENT":
+                stmt = stmt.values(
+                    physical_stocks=InventoryStocks.physical_stocks + amount,
+                    available_stocks=InventoryStocks.available_stocks + amount,
+                )
 
-        return results
-    
+            elif d.type == "DECREMENT":
+                stmt = (
+                    stmt.where(
+                        InventoryStocks.available_stocks >= amount
+                    )
+                    .values(
+                        physical_stocks=InventoryStocks.physical_stocks - amount,
+                        available_stocks=InventoryStocks.available_stocks - amount,
+                    )
+                )
 
-    @start_db_transaction
-    async def bulk_update_serialno(self, data: dict[str, list[str]], shop_id: str):
-        if not data:
-            return True
-        results = []
+            else:  # DIRECT
+                stmt = stmt.values(
+                    physical_stocks=d.physical_stocks,
+                    reserved_stocks=d.reserved_stocks,
+                    available_stocks=(d.physical_stocks or 0.0) - (d.reserved_stocks or 0.0),
+                )
 
-        stmt = text("""
-        UPDATE inventory_serial_numbers
-        SET serial_numbers = (
-            SELECT COALESCE(array_agg(elem), '{}')
-            FROM unnest(serial_numbers) AS elem
-            WHERE elem != ALL(:serials)
-        )
-        WHERE id = :id AND shop_id = :shop_id
-        RETURNING id, serial_numbers
-        """)
+            result = await self.session.execute(stmt)
 
-        for inv_id, serials in data.items():
-            if not serials:
-                continue
+            if d.type == "DECREMENT" and result.rowcount == 0:
+                raise ValueError(
+                    f"Insufficient available stock for Product '{d.product_id}'"
+                )
 
-            res = await self.session.execute(
-                stmt,
+            updated_keys.append(
                 {
-                    "id": inv_id,
-                    "shop_id": shop_id,
-                    "serials": serials
+                    "product_id": d.product_id,
+                    "variant_id": d.variant_id,
+                    "batch_id": d.batch_id,
                 }
             )
 
-            row = res.mappings().one_or_none()
-            if row:
-                results.append(row)
+        # Fetch updated rows
+        conditions = [
+            and_(
+                InventoryStocks.product_id == k["product_id"],
+                InventoryStocks.variant_id.is_not_distinct_from(k["variant_id"]),
+                InventoryStocks.batch_id.is_not_distinct_from(k["batch_id"]),
+            )
+            for k in updated_keys
+        ]
 
-        return results
-    
-
-    
-    @start_db_transaction
-    async def update(self,data:UpdateInventoryDbSchema)-> dict | NotImplementedError:
-        inven_data=data.model_dump(mode="json",exclude=['id','shop_id','barcode','offer_offline','offer_online','offer_type'],exclude_unset=True,exclude_none=True)
-        ic("INVEN_DATA TO DB:", inven_data)
-        
-        if inven_data or len(inven_data)>0:
-            ic("inside nn",inven_data)
-            inve_toupdate=(
-                update(Inventory)
-                .where(
-                    Inventory.id==data.id,
-                    Inventory.shop_id==data.shop_id
+        updated_stocks = (
+            (
+                await self.session.execute(
+                    select(InventoryStocks).where(or_(*conditions))
                 )
-                .values(**inven_data)
-            ).returning(*self.inv_cols)
-            inven_updated=(await self.session.execute(inve_toupdate)).mappings().one_or_none()
-            ic(inven_updated)
+            )
+        )
+        # mapping_res=updated_stocks.mappings().all()
+        scalar_res=updated_stocks.scalars().all()
 
-            return inven_updated
-        
-        return None
-    
+        from ...read_db.services.inventory_service import ReadDbInventoryService
+
+        sync_data = [
+            {
+                "product_id": stock.product_id,
+                "variant_id": stock.variant_id,
+                "batch_id": stock.batch_id,
+                "physical_stocks": stock.physical_stocks,
+                "reserved_stocks": stock.reserved_stocks or 0,
+                "available_stocks":stock.available_stocks
+            }
+            for stock in scalar_res
+        ]
+
+        if sync_data:
+            await ReadDbInventoryService().update_stocks_bulk(sync_data)
+
+        ic(scalar_res,sync_data)
+        return sync_data
     
     @start_db_transaction
-    async def update_qty(self,barcode_inv_id:str,shop_id:str,qty:int):
-        inv_qty_toupdate=update(
-            Inventory
-        ).where(
-            or_(
-                Inventory.id==barcode_inv_id,
-                Inventory.barcode==barcode_inv_id
-            ),
-            Inventory.shop_id==shop_id
-        ).values(
-            stocks=qty
-        ).returning(Inventory.id)
-
-        return (await self.session.execute(inv_qty_toupdate)).scalar_one_or_none()
+    async def update_bulk_pricing(self,data:List[UpdateInventoryPricingDbSchema]):
+        if not data:
+            return True
         
-    
-    @start_db_transaction
-    async def delete(self,data:DeleteInventorySchema):
-        invto_del=(
-            delete(Inventory)
+        stmt = (
+            update(InventoryPricings)
             .where(
-                Inventory.id==data.id,
-                Inventory.shop_id==data.shop_id
+                InventoryPricings.shop_id == bindparam("b_shop_id"),
+                InventoryPricings.product_id == bindparam("b_product_id"),
+                InventoryPricings.variant_id.is_not_distinct_from(bindparam("b_variant_id")),
+                InventoryPricings.batch_id.is_not_distinct_from(bindparam("b_batch_id")),
             )
-        ).returning(*self.inv_cols)
-
-        is_deleted=(await self.session.execute(invto_del)).mappings().one_or_none()
-
-        return is_deleted
-    
-    @start_db_transaction
-    async def bulk_qty_update(self,data:dict,shop_id:str):
-        """
-        Docstring for bulk_qty_update
-        THe data contains product id as a key & the qty to increment as a value
-        """
-        if not data:
-            return True
-        inv_qty_toupdate=update(
-            Inventory
-        ).where(
-            Inventory.id.in_(data.keys()),
-            Inventory.shop_id==shop_id
-        ).values(
-            stocks=Inventory.stocks + case(
-                data,
-                value=Inventory.id    
+            .values(
+                buy_price=bindparam("buy_price"),
+                sell_price=bindparam("sell_price")
             )
-        ).returning(Inventory.id)
-
-        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic(is_updated)
-        return is_updated
-    
-
-    @start_db_transaction
-    async def bulk_variant_qty_update(self,data:dict,shop_id:str):
-        """
-        Docstring for bulk_qty_update
-        THe data contains product barcode as a key & the qty to increment as a value
-        """
-        if not data:
-            return True
-        inv_qty_toupdate=update(
-            InventoryVariants
-        ).where(
-            InventoryVariants.id.in_(data.keys()),
-            InventoryVariants.shop_id==shop_id
-        ).values(
-            stocks=InventoryVariants.stocks + case(
-                data,
-                value=InventoryVariants.id
+            .execution_options(synchronize_session=False)
+        )
+        conn = await self.session.connection()
+        res=(
+            await conn.execute(
+                stmt,
+                [
+                    {
+                        "b_shop_id":d.shop_id,
+                        "b_product_id":d.product_id,
+                        "b_variant_id":d.variant_id,
+                        "b_batch_id":d.batch_id,
+                        "buy_price":d.buy_price,
+                        "sell_price":d.sell_price,
+                    }
+                    for d in data
+                ]
             )
-        ).returning(InventoryVariants.id)
+        )
 
-        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic(is_updated)
-        return is_updated
-    
-    @start_db_transaction
-    async def bulk_variant_decr_qty_update(self,data:dict,shop_id:str):
-        """
-        Docstring for bulk_qty_update
-        THe data contains product barcode as a key & the qty to increment as a value
-        """
-        if not data:
-            return True
-        inv_qty_toupdate=update(
-            InventoryVariants
-        ).where(
-            InventoryVariants.id.in_(data.keys()),
-            InventoryVariants.shop_id==shop_id
-        ).values(
-            stocks=InventoryVariants.stocks - case(
-                data,
-                value=InventoryVariants.id
-            )
-        ).returning(InventoryVariants.id)
+        ic(res)
+        return True
 
-        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic(is_updated)
-        return is_updated
-    
-    @start_db_transaction
-    async def bulk_batch_qty_update(self,data:dict,shop_id:str):
-        """
-        Docstring for bulk_qty_update
-        THe data contains product barcode as a key & the qty to increment as a value
-        """
-        if not data:
-            return True
-        inv_qty_toupdate=update(
-            InventoryBatches
-        ).where(
-            or_(
-                InventoryBatches.id.in_(data.keys()),
-                InventoryBatches.name.in_(data.keys())
-            ),
-            InventoryBatches.shop_id==shop_id
-        ).values(
-            stocks=InventoryBatches.stocks + case(
-                data,
-                value=InventoryBatches.id
-            )
-            
-        ).returning(InventoryBatches.id)
 
-        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic(is_updated)
-        return is_updated
-    
     @start_db_transaction
-    async def bulk_batch_decr_qty_update(self,data:dict,shop_id:str):
-        """
-        Docstring for bulk_qty_update
-        THe data contains product barcode as a key & the qty to increment as a value
-        """
-        ic(data)
+    async def update_bulk_storage_location(self,data:List[UpdateInventoryStorageLocationDbSchema]):
         if not data:
             return True
         
-        inv_qty_toupdate=update(
-            InventoryBatches
-        ).where(
-            or_(
-                InventoryBatches.id.in_(data.keys()),
-                InventoryBatches.name.in_(data.keys())
-            ),
-            InventoryBatches.shop_id==shop_id
-        ).values(
-            stocks=InventoryBatches.stocks - case(
-                data,
-                value=InventoryBatches.id
+        stmt = (
+            update(InventoryStoragelocations)
+            .where(
+                InventoryStoragelocations.shop_id == bindparam("b_shop_id"),
+                InventoryStoragelocations.product_id == bindparam("b_product_id"),
+                InventoryStoragelocations.variant_id.is_not_distinct_from(bindparam("b_variant_id")),
+                InventoryStoragelocations.batch_id.is_not_distinct_from(bindparam("b_batch_id")),
             )
-        ).returning(InventoryBatches.id)
-
-        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic(is_updated)
-        return is_updated
-    
-    
-    @start_db_transaction
-    async def bulk_inventory_batch_qty_add_update(self,datas:List[InventoryBatchDbSchema]):
-        for data in datas:
-            inv_qty_toupdate = (
-                update(InventoryBatches)
-                .where(
-                    or_(
-                        InventoryBatches.id == data.id,
-                        InventoryBatches.name == data.name
-                    ),
-                    InventoryBatches.shop_id == data.shop_id,
-                    InventoryBatches.inventory_id == data.inventory_id,
-                    (InventoryBatches.variant_id == data.variant_id)
-                    if data.variant_id else True,
-                )
-                .values(
-                    stocks=InventoryBatches.stocks + data.stocks  # ✅ FIX
-                )
-                .returning(InventoryBatches.id)
+            .values(
+                name=bindparam("name"),
+                
             )
+            .execution_options(synchronize_session=False)
+        )
+        conn = await self.session.connection()
+        res=(
+            await conn.execute(
+                stmt,
+                [
+                    {
+                        "b_shop_id":d.shop_id,
+                        "b_product_id":d.product_id,
+                        "b_variant_id":d.variant_id,
+                        "b_batch_id":d.batch_id,
+                        "name":d.name,
+                    }
+                    for d in data
+                ]
+            )
+        )
 
-            is_updated = (await self.session.execute(inv_qty_toupdate)).scalars().all()
-
-            if not is_updated:
-                self.session.add(
-                    InventoryBatches(**data.model_dump())
-                )
-            
+        ic(res)
         return True
     
 
     @start_db_transaction
-    async def bulk_serialnumber_update(self, data: dict, shop_id: str):
-        """
-        data = {
-            barcode: [serial_numbers]
-        }
-        """
+    async def update_bulk_reorder_point(self,data:List[UpdateInventoryReorderPointDbSchema]):
         if not data:
             return True
 
-        update_stmt = (
-            update(Inventory)
+        stmt = (
+            update(InventoryReorderPoint)
             .where(
-                Inventory.barcode.in_(data.keys()),
-                Inventory.shop_id == shop_id
+                InventoryReorderPoint.shop_id == bindparam("b_shop_id"),
+                InventoryReorderPoint.product_id == bindparam("b_product_id"),
+                InventoryReorderPoint.variant_id.is_not_distinct_from(bindparam("b_variant_id")),
+                InventoryReorderPoint.batch_id.is_not_distinct_from(bindparam("b_batch_id")),
             )
             .values(
-                datas=func.jsonb_set(
-                    Inventory.datas,
-                    cast(['serial_numbers'], ARRAY(Text)),  # ✅ FIX
-                    func.coalesce(
-                        Inventory.datas['serial_numbers'],
-                        cast('[]', JSONB)
-                    ) + case(
-                        {k: cast(v, JSONB) for k, v in data.items()},
-                        value=Inventory.barcode
-                    )
-                )
+                reorder_point=bindparam("reorder_point"),
             )
-            .returning(Inventory.id)
+            .execution_options(synchronize_session=False)
+        )
+        conn = await self.session.connection()
+        res=(
+            await conn.execute(
+                stmt,
+                [
+                    {
+                        "b_shop_id":d.shop_id,
+                        "b_product_id":d.product_id,
+                        "b_variant_id":d.variant_id,
+                        "b_batch_id":d.batch_id,
+                        "reorder_point":d.reorder_point,
+                    }
+                    for d in data
+                ]
+            )
         )
 
-        result = await self.session.execute(update_stmt)
-        return result.scalars().all()
+        ic(res)
+        return True
     
-    @start_db_transaction
-    async def bulk_serialnumber_remove(self, data: dict, shop_id: str):
 
+    async def get_bulk_stocks(self,data:List[dict]):
         if not data:
-            return []
-
-        results = []
-
-        for barcode, remove_list in data.items():
-
-            elem = func.jsonb_array_elements_text(
-                func.coalesce(
-                    func.coalesce(Inventory.datas, cast('{}', JSONB))['serial_numbers'],
-                    cast('[]', JSONB)
-                )
-            ).table_valued("value").alias("elem")
-
-            update_stmt = (
-                update(Inventory)
-                .where(
-                    Inventory.barcode == barcode,
-                    Inventory.shop_id == shop_id
-                )
-                .values(
-                    datas=func.jsonb_set(
-                        func.coalesce(Inventory.datas, cast('{}', JSONB)),  # ✅ KEY FIX
-                        cast(['serial_numbers'], ARRAY(Text)),
-                        func.coalesce(
-                            select(
-                                func.jsonb_agg(elem.c.value)
-                            )
-                            .select_from(elem)
-                            .where(
-                                ~elem.c.value.in_(remove_list)
-                            )
-                            .scalar_subquery(),
-                            cast('[]', JSONB)
-                        ),
-                        True   # ✅ create key if missing
-                    )
-                )
-                .returning(Inventory.id)
-            )
-
-            res = await self.session.execute(update_stmt)
-            results.extend(res.scalars().all())
-
-        return results
-    
-    @start_db_transaction
-    async def bulk_variant_serialnumber_update(self, data: dict, shop_id: str):
-        """
-        data = {
-            variant_id: [serial_numbers]
-        }
-        """
-
-        if not data:
-            return True
-
-        update_stmt = (
-            update(InventoryVariants)
-            .where(
-                InventoryVariants.id.in_(data.keys()),
-                InventoryVariants.shop_id == shop_id
-            )
-            .values(
-                datas=func.jsonb_set(
-                    InventoryVariants.datas,
-                    cast(['serial_numbers'], ARRAY(Text)),  # ✅ FIX
-                    func.coalesce(
-                        InventoryVariants.datas['serial_numbers'],
-                        cast('[]', JSONB)
-                    ) + case(
-                        {k: cast(v, JSONB) for k, v in data.items()},
-                        value=InventoryVariants.id
-                    )
-                )
-            )
-            .returning(InventoryVariants.id)
-        )
-
-        result = await self.session.execute(update_stmt)
-        return result.scalars().all()
-    
-    @start_db_transaction
-    async def bulk_variant_serialnumber_remove(self, data: dict, shop_id: str):
-
-        if not data:
-            return []
-
-        remove_case = case(
-            *[(InventoryVariants.id == k, cast(v, JSONB)) for k, v in data.items()],
-            else_=cast([], JSONB)
-        )
-
-        # ✅ TEXT-based extraction (key fix)
-        elem = func.jsonb_array_elements_text(
-            func.coalesce(
-                InventoryVariants.datas['serial_numbers'],
-                cast([], JSONB)
-            )
-        ).table_valued("value").alias("elem")
-
-        update_stmt = (
-            update(InventoryVariants)
-            .where(
-                InventoryVariants.id.in_(list(data.keys())),
-                InventoryVariants.shop_id == shop_id
-            )
-            .values(
-                datas=func.jsonb_set(
-                    InventoryVariants.datas,
-                    cast(['serial_numbers'], ARRAY(Text)),
-                    func.coalesce(
-                        select(
-                            func.jsonb_agg(elem.c.value)  # text → jsonb auto
-                        )
-                        .select_from(elem)
-                        .where(
-                            ~elem.c.value.in_(
-                                select(
-                                    func.jsonb_array_elements_text(remove_case)
-                                )
-                            )
-                        )
-                        .scalar_subquery(),
-                        cast('[]', JSONB)
-                    )
-                )
-            )
-            .returning(InventoryVariants.id)
-        )
-
-        result = await self.session.execute(update_stmt)
-        return result.scalars().all()
-    
-
-    @start_db_transaction
-    async def bulk_variant_update(self,datas:List[UpdateVarientProductDbSchema]):
-        result=[]
-        for update_data in datas:
-            structured_data=update_data.model_dump(mode='json',exclude=["shop_id","id","inventory_id","barcode","stocks"],exclude_none=True,exclude_unset=True)
-            is_updated=(await self.session.execute(
-                update(
-                    InventoryVariants
-                ).where(
-                    InventoryVariants.id==update_data.id,
-                    InventoryVariants.shop_id==update_data.shop_id,
-                    InventoryVariants.inventory_id==update_data.inventory_id
-                ).values(
-                    **structured_data
-                ).returning(InventoryVariants.id)
-            )).scalar_one_or_none()
-
-            if not is_updated:
-                self.session.add(
-                    InventoryVariants(
-                        **update_data.model_dump()
-                    )
-                )
-                ic("Variant Added:",update_data.id)
-                result.append(update_data.id)
-            if is_updated:
-                ic("Variant Updated:",update_data.id)
-                result.append(is_updated)
-
-        ic("Bulk Variant Update Result:",result)
-        if len(result)==len(datas):
-            return True
-        ic("Failed to update all variants")
-        return False
-
-    @start_db_transaction
-    async def bulk_sellprice_update(self,data:dict,shop_id:str):
-        """
-        Docstring for bulk_qty_update
-        THe data contains product barcode as a key & the qty to increment as a value
-        """
-        if not data:
-            return True
-        ic(data)
-        inv_qty_toupdate=update(
-            Inventory
-        ).where(
-            Inventory.barcode.in_(data.keys()),
-            Inventory.shop_id==shop_id
-        ).values(
-            sell_price=case(
-                data,
-                value=Inventory.barcode
-            )
-        ).returning(Inventory.id)
-
-        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic("Sell Price Updated:",is_updated)
-        return is_updated
-    
-
-    @start_db_transaction
-    async def bulk_buyprice_update(self,data:dict,shop_id:str):
-        """
-        Docstring for bulk_qty_update
-        THe data contains product barcode as a key & the qty to increment as a value
-        """
-        if not data:
-            return True
-        ic(data)
-        inv_qty_toupdate=update(
-            Inventory
-        ).where(
-            Inventory.barcode.in_(data.keys()),
-            Inventory.shop_id==shop_id
-        ).values(
-            buy_price=case(
-                data,
-                value=Inventory.barcode
-            )
-        ).returning(Inventory.id)
-
-        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic("Buy Price Updated:",is_updated)
-        ic(is_updated)
-        return is_updated
-    
-
-    @start_db_transaction
-    async def bulk_variant_sellprice_update(self,data:dict,shop_id:str):
-        """
-        Docstring for bulk_qty_update
-        THe data contains product barcode as a key & the qty to increment as a value
-        """
-        if not data:
-            return True
-        inv_qty_toupdate=update(
-            InventoryVariants
-        ).where(
-            InventoryVariants.id.in_(data.keys()),
-            InventoryVariants.shop_id==shop_id
-        ).values(
-            sell_price=case(
-                data,
-                value=InventoryVariants.id
-            )
-        ).returning(InventoryVariants.id)
-
-        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic("Variant Sell Price Updated:",is_updated)
-        return is_updated
-    
-
-    @start_db_transaction
-    async def bulk_variant_buyprice_update(self,data:dict,shop_id:str):
-        """
-        Docstring for bulk_qty_update
-        THe data contains product barcode as a key & the qty to increment as a value
-        """
-        if not data:
-            return True
-        inv_qty_toupdate=update(
-            InventoryVariants
-        ).where(
-            InventoryVariants.id.in_(data.keys()),
-            InventoryVariants.shop_id==shop_id
-        ).values(
-            buy_price=case(
-                data,
-                value=InventoryVariants.id
-            )
-        ).returning(InventoryVariants.id)
-
-        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic("Variant Buy Price Updated:",is_updated)
-        return is_updated
-    
-    @start_db_transaction
-    async def bulk_qty_decr_update(self,data:dict,shop_id:str):
-        """
-        Docstring for bulk_qty_update
-        THe data contains product ID as a key & the qty to increment as a value
-        """
-        if not data:
-            return True
-        inv_qty_toupdate=update(
-            Inventory
-        ).where(
-            Inventory.id.in_(data.keys()),
-            Inventory.shop_id==shop_id
-        ).values(
-            stocks=Inventory.stocks - case(
-                data,
-                value=Inventory.id
-            )
-        ).returning(Inventory.id)
-
-        is_updated=(await self.session.execute(inv_qty_toupdate)).scalars().all()
-        ic("Quantity Updated:",is_updated)
-        return is_updated
-    
-    async def bulk_check(self,data:BulkCheckInventorySchema):
-        if not data.id:
             return []
         
-        check_stmt=(
-            select(
-                *self.inv_cols
-            )
-            .where(
-                Inventory.id.in_(data.id),
-                Inventory.shop_id==data.shop_id
-            )
-        )
+        stmt = select(
+            InventoryStocks.id,
+            InventoryStocks.product_id,
+            InventoryStocks.variant_id,
+            InventoryStocks.batch_id,
+            InventoryStocks.available_stocks,
+            InventoryStocks.physical_stocks,
+            InventoryStocks.reserved_stocks
+        ).where(
+            InventoryStocks.shop_id == bindparam("b_shop_id"),
+            InventoryStocks.product_id == bindparam("b_product_id"),
+            InventoryStocks.variant_id.is_not_distinct_from(bindparam("b_variant_id")),
+            InventoryStocks.batch_id.is_not_distinct_from(bindparam("b_batch_id")),
+        ).execution_options(synchronize_session=False)
 
-        results=(await self.session.execute(check_stmt)).mappings().all()
-
-        ic(results)
-
-        return results
-    
-
-    async def bulk_varient_check(self,shop_id:str,variants_id:list,additional_conditions: Optional[tuple]=()):
-        if not variants_id:
-            return []
-        
-        check_stmt=(
-            select(
-                InventoryVariants.id,
-                InventoryVariants.inventory_id,
-                InventoryVariants.stocks,
-                InventoryVariants.buy_price,
-                InventoryVariants.sell_price,
-                InventoryVariants.datas,
-                InventoryVariants.name,
-                select(InventorySerialNumbers.id)
-                .where(InventorySerialNumbers.variant_id == InventoryVariants.id)
-                .limit(1)
-                .scalar_subquery()
-                .label("serialno_id")
-            )
-            .where(
-                InventoryVariants.id.in_(variants_id),
-                InventoryVariants.shop_id==shop_id,
-                *additional_conditions
+        conn = await self.session.connection()
+        res=(
+            await conn.execute(
+                stmt,
+                [
+                    {
+                        "b_shop_id":d.shop_id,
+                        "b_product_id":d.product_id,
+                        "b_variant_id":d.variant_id,
+                        "b_batch_id":d.batch_id
+                    }
+                    for d in data
+                ]
             )
         )
 
-        results=(await self.session.execute(check_stmt)).mappings().all()
+        ic(res)
+        return True
 
-        ic(results)
-
-        return results
-    
-
-    async def bulk_serialno_check(self,shop_id:str,serialnos_id:list,additional_conditions: Optional[tuple]=()):
-        if not serialnos_id:
-            return []
-        
-        check_stmt=(
-            select(
-                InventorySerialNumbers.id,
-                InventorySerialNumbers.inventory_id
-            )
-            .where(
-                InventorySerialNumbers.id.in_(serialnos_id),
-                InventorySerialNumbers.shop_id==shop_id,
-                *additional_conditions
-            )
-        )
-
-        results=(await self.session.execute(check_stmt)).mappings().all()
-
-        ic(results)
-
-        return results
-    
-    async def bulk_batch_check(self,shop_id:str,batches_id:list,additional_conditions: Optional[tuple]=()):
-        if not batches_id:
-            return []
-        
-        check_stmt=(
-            select(
-                InventoryBatches.id,
-                InventoryBatches.inventory_id,
-                InventoryBatches.stocks,
-                InventoryBatches.datas,
-                InventoryBatches.name,
-                InventoryBatches.manufacturing_date,
-                InventoryBatches.expiry_date,
-                select(InventorySerialNumbers.id)
-                .where(InventorySerialNumbers.batch_id == InventoryBatches.id)
-                .limit(1)
-                .scalar_subquery()
-                .label("serialno_id")
-            )
-            .where(
-                InventoryBatches.id.in_(batches_id),
-                InventoryBatches.shop_id==shop_id,
-                *additional_conditions
-            )
-        )
-
-        results=(await self.session.execute(check_stmt)).mappings().all()
-
-        ic(results)
-
-        return results
-        
-    async def getby_shop_id(self,data:GetInventoryByShopIdSchema)-> List[dict] | list:
-        created_at=func.date(func.timezone(data.timezone.value,Inventory.created_at))
-        cursor=(data.offset-1)*data.limit
-        search_term=f"%{data.query.strip()}%"
-        conditions = [
-            Inventory.shop_id == data.shop_id,
-            or_(
-                Inventory.id.ilike(search_term),
-                Inventory.ui_id.ilike(search_term),
-                Inventory.name.ilike(search_term),
-                Inventory.description.ilike(search_term),
-                Inventory.category.ilike(search_term),
-                Inventory.barcode.ilike(search_term),
-                Inventory.shop_id.ilike(search_term),
-                func.cast(created_at, String).ilike(search_term)
-            )
-        ]
-
-        if data.is_active is not None:
-            conditions.append(
-                Inventory.is_active == data.is_active
-            )
-
-        select_stmt=(
-            select(*self.inv_cols,variants,batches,serials)
-            .where(
-                *conditions
-            )
-            .offset(offset=cursor).limit(limit=data.limit)
-        )
-        results=(
-            await self.session.execute(
-                select_stmt 
-            )
-        ).mappings().all()
-
-        return results
-    
-    async def get(self,data:GetAllInventorySchema)-> List[dict] | list:
-        created_at=func.date(func.timezone(data.timezone.value,Inventory.created_at))
-        cursor=(data.offset-1)*data.limit
-        search_term=f"%{data.query.strip()}%"
-        conditions=[
-            or_(
-                Inventory.id.ilike(search_term),
-                Inventory.ui_id.ilike(search_term),
-                Inventory.name.ilike(search_term),
-                Inventory.description.ilike(search_term),
-                Inventory.category.ilike(search_term),
-                Inventory.barcode.ilike(search_term),
-                Inventory.shop_id.ilike(search_term),
-                func.cast(created_at,String).ilike(search_term)
-            )
-        ]
-
-        if data.is_active is not None:
-            conditions.append(
-                Inventory.is_active == data.is_active
-            )
-
-        select_stmt=(
-            select(
-                *self.inv_cols,
-                variants,batches,serials
-            )
-            .where(
-                *conditions
-            )
-            .group_by(*self.inv_cols)
-            .offset(offset=cursor).limit(limit=data.limit)
-        )
-        results=(
-            await self.session.execute(
-                select_stmt 
-            )
-        ).mappings().all()
-
-        return results
-    
-    async def getby_id(self,data:GetInventoryByIdSchema)-> dict | None:
-        stmt=(
-            select(
-                *self.inv_cols,
-                variants,batches,serials
-            )
-            .where(
-                Inventory.id==data.id,
-                Inventory.shop_id==data.shop_id
-            )
-        )
-
-        res=(await self.session.execute(stmt)).mappings().one_or_none()
-
+    async def verify_bulk_stock(self, data: List[str]):
+        stmt = select(InventoryStocks.id).where(InventoryStocks.id.in_(data))
+        res = (await self.session.execute(stmt)).scalars().all()
+        ic(res)
         return res
 
+    async def verify_bulk_pricing(self, data: List[str]):
+        stmt = select(InventoryPricings.id).where(InventoryPricings.id.in_(data))
+        res = (await self.session.execute(stmt)).scalars().all()
+        ic(res)
+        return res
 
-    async def verify(self,data:VerifySchema):
-        stmt=(
-            select(
-                Inventory.datas,
-                select(InventorySerialNumbers.id)
-                .where(
-                    InventorySerialNumbers.inventory_id == Inventory.id,
-                    InventorySerialNumbers.variant_id.is_(None),
-                    InventorySerialNumbers.batch_id.is_(None)
-                )
-                .limit(1)
-                .scalar_subquery()
-                .label("serialno_id")
-            )
-            .where(
-                or_(Inventory.id==data.id,
-                Inventory.shop_id==data.shop_id),
-                Inventory.barcode==data.barcode
-            )
-        )
+    async def verify_bulk_storage_location(self, data: List[str]):
+        stmt = select(InventoryStoragelocations.id).where(InventoryStoragelocations.id.in_(data))
+        res = (await self.session.execute(stmt)).scalars().all()
+        ic(res)
+        return res
 
-        result=(await self.session.execute(stmt)).scalar_one_or_none()
+    async def verify_bulk_reorder_point(self, data: List[str]):
+        stmt = select(InventoryReorderPoint.id).where(InventoryReorderPoint.id.in_(data))
+        res = (await self.session.execute(stmt)).scalars().all()
+        ic(res)
+        return res
 
-        if result:
-            return {'id':result,'exists':True}
+    async def verify_inventory_combined(self, data: VerifyInventoryCombinedSchema):
+        stocks = []
+        pricings = []
+        storage_locations = []
+        reorder_points = []
         
-        return {'id':'','exists':False}
+        if data.stocks:
+            res = await self.verify_bulk_stock(data=data.stocks)
+            ic(res)
+            stocks.extend(res)
 
-    async def search(self, shop_id: str, query: str, limit: int = 5):
-        search_term = f"%{query}%"
-        stmt = (
-            select(
-                Inventory.id,
-                Inventory.name,
-                Inventory.barcode
-            )
-            .where(
-                Inventory.shop_id == shop_id,
-                or_(
-                    Inventory.id.ilike(search_term),
-                    Inventory.ui_id.ilike(search_term),
-                    Inventory.name.ilike(search_term),
-                    Inventory.barcode.ilike(search_term)
-                )
-            ).limit(limit)
-        )
-        results = (await self.session.execute(stmt)).mappings().all()
-        return results
-        
-    async def get_inventory_stats(self, shop_id: str = None):
-        conditions = [Inventory.is_active == True]
-        if shop_id:
-            conditions.append(Inventory.shop_id == shop_id)
-            
-        stmt = (
-            select(
-                func.count(Inventory.id).label("total_inventory_items"),
-                func.sum(Inventory.stocks * Inventory.buy_price).label("total_stock_value"),
-                func.sum(
-                    case(
-                        (Inventory.stocks == 0, 1),
-                        else_=0
-                    )
-                ).label("no_stocks_count"),
-                func.sum(
-                    case(
-                        ((Inventory.stocks > 0) & (Inventory.stocks <= Inventory.reorder_point), 1),
-                        else_=0
-                    )
-                ).label("low_stocks_count")
-            )
-            .where(*conditions)
-        )
-        
-        result = (await self.session.execute(stmt)).mappings().one_or_none()
-        
-        stats = {
-            "total_inventory_items": result["total_inventory_items"] if result and result["total_inventory_items"] else 0,
-            "total_product_count": result["total_inventory_items"] if result and result["total_inventory_items"] else 0, 
-            "total_stock_value": result["total_stock_value"] if result and result["total_stock_value"] else 0.0,
-            "no_stocks_count": result["no_stocks_count"] if result and result["no_stocks_count"] else 0,
-            "low_stocks_count": result["low_stocks_count"] if result and result["low_stocks_count"] else 0
+        if data.pricings:
+            res = await self.verify_bulk_pricing(data=data.pricings)
+            ic(res)
+            pricings.extend(res)
+
+        if data.storage_locations:
+            res = await self.verify_bulk_storage_location(data=data.storage_locations)
+            ic(res)
+            storage_locations.extend(res)
+
+        if data.reorder_points:
+            res = await self.verify_bulk_reorder_point(data=data.reorder_points)
+            ic(res)
+            reorder_points.extend(res)
+
+        return {
+            "stocks": stocks,
+            "pricings": pricings,
+            "storage_locations": storage_locations,
+            "reorder_points": reorder_points
         }
-        return stats
+        
+    @start_db_transaction
+    async def reserve_stock(self, data: ReserveInventorySchema):
+        # data format: {"session_id", "product_id", "variant_id", "batch_id", "shop_id", "qty", "expires_at"}
+        session_id = data.session_id
+        product_id = data.product_id
+        variant_id = data.variant_id
+        batch_id = data.batch_id
+        shop_id = data.shop_id
+        new_qty = float(data.qty)
+        expires_at = data.expires_at
+        serialno_infos=data.serialno_infos or []
 
+        # Find existing active reservation
+        stmt_res = select(InventoryReservation).where(
+            InventoryReservation.session_id == session_id,
+            InventoryReservation.product_id == product_id,
+            InventoryReservation.variant_id == variant_id,
+            InventoryReservation.batch_id == batch_id,
+            InventoryReservation.status == "ACTIVE"
+        ).with_for_update()
+        
+        reservation = (await self.session.execute(stmt_res)).scalars().first()
+        
+        old_qty = 0
+        prev_serialno_infos=reservation.serialno_infos if reservation else []
+        new_serialno_infos=serialno_infos
+        serialno_toverify=[]
+
+
+        if prev_serialno_infos:
+            reformed_serialno_infos={}
+            for serialno in prev_serialno_infos:
+                reformed_serialno_infos[serialno['id']]=serialno['name']
+            
+            for i,serialno in enumerate(new_serialno_infos):
+                if serialno['id'] in reformed_serialno_infos:
+                    new_serialno_infos.pop(i)
+                else:
+                    serialno_toverify.append(serialno['id'])
+        
+
+        ic(prev_serialno_infos,new_serialno_infos)
+        is_serialno_exists=await ProductRepo(session=self.session).verify_bulk_serialno(data=serialno_toverify)
+        if len(is_serialno_exists)!=len(serialno_toverify):
+            ic("Serialno does not exists")
+            return False
+
+
+        if reservation:
+            old_qty = reservation.qty
+            reservation.qty = new_qty
+            reservation.expires_at = expires_at
+            reservation.serialno_infos=prev_serialno_infos+new_serialno_infos
+        else:
+            from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
+            reservation = InventoryReservation(
+                id=generate_uuid(),
+                session_id=session_id,
+                shop_id=shop_id,
+                product_id=product_id,
+                variant_id=variant_id,
+                batch_id=batch_id,
+                serialno_infos=new_serialno_infos,
+                qty=new_qty,
+                status="ACTIVE",
+                expires_at=expires_at
+            )
+            self.session.add(reservation)
+
+        delta = new_qty - old_qty
+        if delta == 0:
+            return True
+
+        # Update InventoryStocks with lock
+        stmt_stock = select(InventoryStocks).where(
+            InventoryStocks.shop_id == shop_id,
+            InventoryStocks.product_id == product_id,
+            InventoryStocks.variant_id == variant_id,
+            InventoryStocks.batch_id == batch_id
+        ).with_for_update()
+        
+        stock_record = (await self.session.execute(stmt_stock)).scalars().first()
+        
+        if not stock_record:
+            ic("Stock record not found for reservation")
+            raise ValueError("Stock record not found")
+            
+        if delta > stock_record.available_stocks:
+            raise ValueError(f"Insufficient stock for reservation. Available: {stock_record.available_stocks}, Requested: {delta}")
+            
+        stock_record.reserved_stocks = (stock_record.reserved_stocks or 0) + delta
+        stock_record.available_stocks = stock_record.physical_stocks - stock_record.reserved_stocks
+
+        if new_serialno_infos:
+            await ProductRepo(session=self.session).update_bulk_serialno(
+                data=[
+                    UpdateProductSerialnoDbSchema(
+                        id=d.id,
+                        shop_id=shop_id,
+                        status=ProductSerialnoStatusEnums.RESERVED
+                    )
+                    for d in new_serialno_infos
+                ]
+            )
+
+            prev_serialno_infos+=serialno_infos
+            reservation.serialno_infos=prev_serialno_infos
+
+        ic(stock_record.physical_stocks,stock_record.reserved_stocks)
+        # await self.session.commit()
+        readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=[product_id])
+        ic(readdb_res)
+        
+        return True
+
+    @start_db_transaction
+    async def release_reservations(self, data:ReleaseInventorySchema):
+        stmt_res = select(InventoryReservation).where(
+            InventoryReservation.session_id == data.session_id,
+            InventoryReservation.status == "ACTIVE"
+        ).with_for_update()
+        
+        reservations = (await self.session.execute(stmt_res)).scalars().all()
+        product_ids=[]
+        shop_id=None
+        for res in reservations:
+            # Update InventoryStocks with lock
+            stmt_stock = select(InventoryStocks).where(
+                InventoryStocks.shop_id == res.shop_id,
+                InventoryStocks.product_id == res.product_id,
+                InventoryStocks.variant_id == res.variant_id,
+                InventoryStocks.batch_id == res.batch_id
+            ).with_for_update()
+
+
+            serialno_infos=res.serialno_infos
+            if serialno_infos:
+                await ProductRepo(session=self.session).update_bulk_serialno(
+                    data=[
+                        UpdateProductSerialnoDbSchema(
+                            id=d['id'],
+                            shop_id=res.shop_id,
+                            status=ProductSerialnoStatusEnums.AVAILABLE
+                        )
+                        for d in serialno_infos
+                    ]
+                )
+            stock_record = (await self.session.execute(stmt_stock)).scalars().first()
+
+            product_ids.append(res.product_id) 
+            shop_id=res.shop_id  
+            res.status = "RELEASED"
+        
+        readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
+        ic(readdb_res)
+            
+        return True
+
+    @start_db_transaction
+    async def release_reservation_item(self, data:ReleaseItemInventorySchema):
+        stmt_res = select(InventoryReservation).where(
+            InventoryReservation.session_id == data.session_id,
+            InventoryReservation.product_id == data.product_id,
+            InventoryReservation.status == "ACTIVE",
+            InventoryReservation.variant_id == data.variant_id,
+            InventoryReservation.batch_id == data.batch_id
+        ).with_for_update()
 
         
+        reservation = (await self.session.execute(stmt_res)).scalars().first()
+        if not reservation:
+            ic("No reservation found for this item")
+            return False
+        
+        # Update InventoryStocks with lock
+        stmt_stock = select(InventoryStocks).where(
+            InventoryStocks.shop_id == reservation.shop_id,
+            InventoryStocks.product_id == reservation.product_id,
+            InventoryStocks.variant_id == reservation.variant_id,
+            InventoryStocks.batch_id == reservation.batch_id
+        ).with_for_update()
+
+        serialno_infos=reservation.serialno_infos
+        if serialno_infos:
+            await ProductRepo(session=self.session).update_bulk_serialno(
+                data=[
+                    UpdateProductSerialnoDbSchema(
+                        id=d['id'],
+                        shop_id=reservation.shop_id,
+                        status=ProductSerialnoStatusEnums.AVAILABLE
+                    )
+                    for d in serialno_infos
+                ]
+            )
+        
+        stock_record = (await self.session.execute(stmt_stock)).scalars().first()
+        if stock_record:
+            stock_record.reserved_stocks = max(0, (stock_record.reserved_stocks or 0) - reservation.qty)
+            stock_record.available_stocks = stock_record.physical_stocks - stock_record.reserved_stocks
+            
+            readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=reservation.shop_id,product_ids=[reservation.product_id])
+            ic(readdb_res)
+            
+        reservation.status = "RELEASED"
+            
+        return True
+
+    @start_db_transaction
+    async def commit_reservations(self, data:CommitInventorySchema):
+        stmt_res = select(InventoryReservation).where(
+            InventoryReservation.session_id == data.session_id,
+            InventoryReservation.status == "ACTIVE"
+        ).with_for_update()
+        
+        reservations = (await self.session.execute(stmt_res)).scalars().all()
+        
+        product_ids=[]
+        shop_id=None
+        for res in reservations:
+            # Update InventoryStocks with lock
+
+            stmt_stock = select(InventoryStocks).where(
+                InventoryStocks.shop_id == res.shop_id,
+                InventoryStocks.product_id == res.product_id,
+                InventoryStocks.variant_id == res.variant_id,
+                InventoryStocks.batch_id == res.batch_id
+            ).with_for_update()
+
+            serialno_infos=res.serialno_infos
+            if serialno_infos:
+                await ProductRepo(session=self.session).delete_bulk_serialno(
+                    data=[
+                        d['id']
+                        for d in serialno_infos
+                    ]
+                )
+            
+            stock_record = (await self.session.execute(stmt_stock)).scalars().first()
+            stock_adj_mov_data=[]
+            if stock_record:
+                for resv in reservations:
+                    ic(resv,data.model_dump())
+                    stock_adj_mov_data.append(
+                        {
+                            "shop_id":resv.shop_id,
+                            "product_id":resv.product_id,
+                            "variant_id":resv.variant_id,
+                            "batch_id":resv.batch_id,
+                            "seriano_numbers":resv.serialno_infos,
+                            "type":"DECREMENT",
+                            "stocks":resv.qty,
+                            "entity_name":data.entity_name
+                        }
+                    )
+
+                
+                # Apply delta to physical stocks (subtract because items are bought)
+                stock_record.physical_stocks -= res.qty
+                # Release reserved stock lock
+                stock_record.reserved_stocks = max(0, (stock_record.reserved_stocks or 0) - abs(res.qty))
+                stock_record.available_stocks = stock_record.physical_stocks - stock_record.reserved_stocks
+                ic(stock_adj_mov_data)
+                stock_mov_adj_res=await emit_stock_mov_adj(session=self.session,data=stock_adj_mov_data)
+                ic(stock_mov_adj_res)
+
+            product_ids.append(res.product_id) 
+            shop_id=res.shop_id  
+            res.status = "COMPLETED"
+        
+        readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
+        ic(readdb_res)
+            
+        return True

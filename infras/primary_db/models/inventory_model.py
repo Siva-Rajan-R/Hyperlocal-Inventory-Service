@@ -3,97 +3,80 @@ from sqlalchemy import Column,String,ForeignKey,Integer,TIMESTAMP,func,Float,Big
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 
-class Inventory(BASE):
-    __tablename__="inventory"
-    id=Column(String,primary_key=True)
-    ui_id=Column(String,nullable=False,index=True)
-    sequence_id=Column(BigInteger,Identity(always=True),autoincrement=True)
-    shop_id=Column(String,nullable=False)
-    name=Column(String,nullable=True)
-    description=Column(String,nullable=True)
-    category=Column(String,nullable=False)
-    stocks=Column(Float,nullable=False)
-    reorder_point=Column(Integer,nullable=False)
-    buy_price=Column(Float,nullable=False)
-    sell_price=Column(Float,nullable=False)
-    sku=Column(String,nullable=False,unique=True)
-    barcode=Column(String,nullable=True,unique=True)
-    has_variant=Column(Boolean,nullable=False)
-    has_batch=Column(Boolean,nullable=False)
-    has_serialno=Column(Boolean,nullable=False)
-    is_active=Column(Boolean,nullable=False)
-    datas=Column(JSONB)
-    created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
-    updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
 
-class InventoryVariants(BASE):
-    __tablename__="inventory_variants"
+class InventoryStocks(BASE):
+    __tablename__="inventory_stocks"
     id=Column(String,primary_key=True)
     shop_id=Column(String,nullable=False)
-    inventory_id=Column(String,nullable=False)
-    sku=Column(String,nullable=False,unique=True)
-    name=Column(String,nullable=True)
-    stocks=Column(Float,nullable=False)
-    buy_price=Column(Float,nullable=False)
-    sell_price=Column(Float,nullable=False)
-    reorder_point=Column(Integer,nullable=False)
-    datas=Column(JSONB)
-    created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
-    updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
-
-
-class InventoryBatches(BASE):
-    __tablename__="inventory_batches"
-    id=Column(String,primary_key=True)
-    shop_id=Column(String,nullable=False)
-    inventory_id=Column(String,nullable=False)
-    variant_id=Column(String,nullable=True)
-    stocks=Column(Float,nullable=False)
-    expiry_date=Column(TIMESTAMP(timezone=True),nullable=True)
-    manufacturing_date=Column(TIMESTAMP(timezone=True),nullable=True)
-    name=Column(String,nullable=True)
-    datas=Column(JSONB)
-    created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
-    updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
-
-class InventorySerialNumbers(BASE):
-    __tablename__="inventory_serial_numbers"
-    id=Column(String,primary_key=True)
-    shop_id=Column(String,nullable=False)
-    inventory_id=Column(String,nullable=False)
+    product_id=Column(String,nullable=False)
     variant_id=Column(String,nullable=True)
     batch_id=Column(String,nullable=True)
-    serial_numbers=Column(ARRAY(String),nullable=False)
+    physical_stocks=Column(Float,nullable=False)
+    reserved_stocks=Column(Float,nullable=True)
+    available_stocks=Column(Float,nullable=False)
+    additional_infos=Column(JSONB,nullable=True)
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
     updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
 
 
-class StockAdjustments(BASE):
-    __tablename__="stock_adjustments"
+class InventoryStoragelocations(BASE):
+    __tablename__="inventory_storage_locations"
     id=Column(String,primary_key=True)
-    ui_id=Column(String,nullable=False,index=True)
-    sequence_id=Column(BigInteger,Identity(always=True),autoincrement=True)
     shop_id=Column(String,nullable=False)
-    description=Column(String,nullable=False)
-    movement_type=Column(String,nullable=False)
-    adjusted_date=Column(Date,nullable=False)
-    datas=Column(JSONB)
-
-    created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
-    updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
-
-
-class StockAdjustmentInventoryProducts(BASE):
-    __tablename__="stockadjustment_inventory_products"
-    id=Column(BigInteger,primary_key=True,autoincrement=True)
-    stockadjustment_id=Column(String,nullable=False)
-    inventory_id=Column(String,nullable=False)
+    product_id=Column(String,nullable=False)
     variant_id=Column(String,nullable=True)
     batch_id=Column(String,nullable=True)
-    stocks=Column(Float,nullable=False)
-    stocks_before=Column(Float,nullable=False)
-    type=Column(String,nullable=False)
+    name=Column(String,nullable=False)
+    additional_infos=Column(JSONB,nullable=True)
 
+    created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
+    updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
+
+
+
+class InventoryPricings(BASE):
+    __tablename__="inventory_pricings"
+    id=Column(String,primary_key=True)
+    shop_id=Column(String,nullable=False)
+    product_id=Column(String,nullable=False)
+    variant_id=Column(String,nullable=True)
+    batch_id=Column(String,nullable=True)
+    buy_price=Column(Float,nullable=False)
+    sell_price=Column(Float,nullable=False)
+    additional_infos=Column(JSONB,nullable=True)
+
+    created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
+    updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
+
+
+class InventoryReorderPoint(BASE):
+    __tablename__="inventory_reorder_point"
+    id=Column(String,primary_key=True)
+    shop_id=Column(String,nullable=False)
+    product_id=Column(String,nullable=False)
+    variant_id=Column(String,nullable=True)
+    batch_id=Column(String,nullable=True)
+    reorder_point=Column(Float)
+    additional_infos=Column(JSONB,nullable=True)
+
+    created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
+    updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
+
+
+
+class InventoryReservation(BASE):
+    __tablename__="inventory_reservations"
+    id=Column(String,primary_key=True)
+    session_id=Column(String,nullable=False,index=True)
+    shop_id=Column(String,nullable=False)
+    product_id=Column(String,nullable=False)
+    variant_id=Column(String,nullable=True)
+    batch_id=Column(String,nullable=True)
+    serialno_infos=Column(ARRAY(JSONB),nullable=True)
+    qty=Column(Float,nullable=False)
+    status=Column(String,nullable=False) # ACTIVE, COMPLETED, RELEASED
+    expires_at=Column(TIMESTAMP(timezone=True),nullable=False)
+    
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
     updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())

@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from api.routers.v1 import inventory_routes,purchase_route,stock_adj_routes,billing_routes
+from api.routers.v1 import prod_inv_routes
 from contextlib import asynccontextmanager
 from icecream import ic
 from dotenv import load_dotenv
@@ -11,6 +11,7 @@ from hyperlocal_platform.infras.saga.main import init_infra_db
 from messaging.worker import worker
 from infras.read_db.main import DB,INVENTORY_COLLECTION
 from infras.caching.main import redis_client,check_redis_health
+from background_jobs.cleanup_reservations import cleanup_expired_reservations
 load_dotenv()
 
 
@@ -23,6 +24,7 @@ async def inventory_service_lifespan(app:FastAPI):
         await check_redis_health()
         # await redis_client.flushdb()
         asyncio.create_task(worker())
+        asyncio.create_task(cleanup_expired_reservations())
         yield
 
     except Exception as e:
@@ -57,9 +59,6 @@ app=FastAPI(
 
 
 # Routes to include
-app.include_router(inventory_routes.router)
-app.include_router(purchase_route.router)
-app.include_router(stock_adj_routes.router)
-app.include_router(billing_routes.router)
+app.include_router(prod_inv_routes.router)
 
 
