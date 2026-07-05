@@ -18,8 +18,12 @@ from core.data_formats.enums.inventory_enums import InventoryFetchMode
 from core.utils.calculate_offer import calculate_offer
 from core.utils.validate_offer import validate_offer_input
 from icecream import ic
+from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
+from infras.primary_db.services.customfield_service import CustomFieldsService
 from schemas.v1.prod_inv_schemas.request_schemas import CreateProdInvSchema,UpdateProdInvSchema,DeleteProdInvSchema
 from schemas.v1.inventory_schemas.request_schemas import ReserveInventorySchema,ReleaseInventorySchema,CommitInventorySchema,ReleaseItemInventorySchema
+from core.utils.validate_custom_fields import validate_and_filter_custom_fields
+from schemas.v1.request_schemas.customfield_schema import BulkCreateCustomFieldValuesSchema
 # [InventoryGetResponseSchema(**r) for r in res] if res else []
 
 class HandleProdInvRequest:
@@ -42,18 +46,32 @@ class HandleProdInvRequest:
                 
             )
         
+        cust_field_obj=CustomFieldsService(session=self.session)
+        fields=await cust_field_obj.get_all_fields(shop_id=data.shop_id)
+        
+        valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
+        
+        defined_fields_map = {f['field_name']: f['id'] for f in fields}
+        cf_values = []
+        for key, val in valid_custom_fields.items():
+            if key in defined_fields_map:
+                cf_values.append({"field_id": defined_fields_map[key], "value": str(val), "field_name": key})
+                
+        data.custom_fields = {"values": cf_values} if cf_values else {}
+        
         res=await ProductInventoryService(session=self.session).create(data=data)
         ic(res)
+        
         if res:
-             return SuccessResponseTypDict(
-                  detail=BaseResponseTypDict(
-                       status_code=201,
-                       success=True,
-                       msg="Inventory Created Successfully"
-                  ),
-                  data=res
-                  
-             )
+            await self.session.commit()
+            return SuccessResponseTypDict(
+                detail=BaseResponseTypDict(
+                    status_code=201,
+                    success=True,
+                    msg="Inventory Created Successfully"
+                ),
+                data=res
+            )
         
         return HTTPException(
              status_code=400,
@@ -77,9 +95,23 @@ class HandleProdInvRequest:
                     status_code=400
                 ),
             )
+        cust_field_obj=CustomFieldsService(session=self.session)
+        fields=await cust_field_obj.get_all_fields(shop_id=data.shop_id)
+        
+        valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
+        
+        defined_fields_map = {f['field_name']: f['id'] for f in fields}
+        cf_values = []
+        for key, val in valid_custom_fields.items():
+            if key in defined_fields_map:
+                cf_values.append({"field_id": defined_fields_map[key], "value": str(val), "field_name": key})
+                
+        data.custom_fields = {"values": cf_values} if cf_values else {}
+        
         res=await ProductInventoryService(session=self.session).update(data=data)
         ic(res)
         if res:
+
              return SuccessResponseTypDict(
                   detail=BaseResponseTypDict(
                        status_code=200,
@@ -123,8 +155,8 @@ class HandleProdInvRequest:
         )
     
     async def get(self,data:GetAllProductSchema):
-        res=await ProductRepo(session=self.session).get_products(data=data)
-
+        # res=await ProductRepo(session=self.session).get_products(data=data)
+        res=await ProdInvReadDbRepo.get_all(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Inventories fetched successfully",
@@ -134,8 +166,8 @@ class HandleProdInvRequest:
             data=res
         )
     async def getby_shop_id(self,data:GetProductsByShopId):
-        res=await ProductRepo(session=self.session).get_products_by_shop_id(data=data)
-
+        # res=await ProductRepo(session=self.session).get_products_by_shop_id(data=data)
+        res=await ProdInvReadDbRepo.get_by_shop_id(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Inventories fetched successfully",
@@ -146,8 +178,8 @@ class HandleProdInvRequest:
         )
     
     async def getby_id(self,data:GetProductsById):
-        res=await ProductRepo(session=self.session).get_products_by_id(data=data)
-
+        # res=await ProductRepo(session=self.session).get_products_by_id(data=data)
+        res=await ProdInvReadDbRepo.get_by_id(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Inventories fetched successfully",

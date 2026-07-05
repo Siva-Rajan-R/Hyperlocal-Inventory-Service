@@ -74,5 +74,6 @@ class ProdInvReadModel(BaseModel):
     is_active:bool
     have_tracking:bool
     gst:str
+    custom_fields:Optional[dict]={}
     created_at:datetime
     updated_at:datetime

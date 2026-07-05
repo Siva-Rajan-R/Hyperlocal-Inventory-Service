@@ -15,6 +15,10 @@ from icecream import ic
 from core.data_formats.enums.stock_adj_enums import StockAdjustmentTypesEnum
 from core.utils.prod_inv_unit_builder import build_inventory_units
 from ..models.inventory_model import InventoryPricings,InventoryStocks,InventoryStoragelocations,InventoryReorderPoint
+from collections import defaultdict
+
+
+
 
 
 
@@ -188,7 +192,7 @@ class ProductRepo:
         return True
     
 
-    @start_db_transaction
+    # @start_db_transaction
     async def update_bulk_serialno(self,data:List[UpdateProductSerialnoDbSchema]):
         if not data:
             return True
@@ -224,7 +228,7 @@ class ProductRepo:
         return res
     
 
-    @start_db_transaction
+    # @start_db_transaction
     async def delete_bulk_serialno(self,data:List[str]):
         stmt=(
             delete(
@@ -233,7 +237,7 @@ class ProductRepo:
             .where(
                 ProductSerialNumbers.id.in_(data)
             )
-            .returning(*self.product_cols)
+            .returning(*self.serialno_cols)
         )
 
         res=(await self.session.execute(stmt)).scalars().all()
@@ -241,25 +245,25 @@ class ProductRepo:
         return res
     
 
-    async def get_products(self,data:GetAllProductSchema):
-        offset=data.offset if data.offset>0 else 1
-        cursor=(offset-1)*data.limit
+    async def get_products(self, data: GetAllProductSchema):
+        # 1. Handle Pagination
+        offset = data.offset if data.offset > 0 else 1
+        cursor = (offset - 1) * data.limit
 
+        # 2. Build Query Statement
         stmt = (
             select(Products)
             .options(
                 selectinload(Products.variants).load_only(*self.variant_cols),
-
                 selectinload(Products.batches).load_only(*self.batch_cols),
-
-
                 selectinload(Products.stocks).load_only(*self.inventory_stocks_cols),
-
                 selectinload(Products.pricings).load_only(*self.invetory_pricing_cols),
-
-                selectinload(Products.storage_locations).load_only(*self.inventory_stl_cols),
-
-                selectinload(Products.reorder_points).load_only(*self.inventory_rop_cols),
+                selectinload(Products.storage_locations).load_only(
+                    *self.inventory_stl_cols
+                ),
+                selectinload(Products.reorder_points).load_only(
+                    *self.inventory_rop_cols
+                ),
             )
             .limit(data.limit)
             .offset(cursor)
@@ -270,12 +274,13 @@ class ProductRepo:
                 selectinload(Products.serialnos).load_only(*self.serialno_cols)
             )
 
+        # 3. Execute Query
         res = (await self.session.execute(stmt)).scalars().all()
-        ic(res)
-        final_res=[]
+        final_res = []
 
+        # 4. Map and Transform Database Rows
         for product in res:
-            res_toadd={
+            res_toadd = {
                 "id": product.id,
                 "shop_id": product.shop_id,
                 "ui_id": product.ui_id,
@@ -290,67 +295,66 @@ class ProductRepo:
                 "created_at": product.created_at,
                 "updated_at": product.updated_at,
                 "type_infos": product.type_infos,
-                "gst":product.gst
+                "gst": product.gst,
             }
 
-            variant={}
-            batches={}
-            serialnos={}
-            stocks={}
-            rops={} 
-            pricings={}
-            stls={}
+            # Build Lookups
+            variant = {var.id: var for var in product.variants}
 
-            for var in product.variants:
-                variant[var['id']]=var
-            
+            # Multi-batch grouped by combined product_id + variant_id
+            batches = defaultdict(list)
             for bat in product.batches:
-                product_id=bat.product_id
-                variant_id=bat.variant_id or ""
-                combined_id=product_id+variant_id
-                batches[combined_id]=bat
+                p_id = bat.product_id
+                v_id = bat.variant_id or ""
+                batches[p_id + v_id].append(bat)
 
+            serialnos = defaultdict(list)
             if data.include_serialno:
                 for serialno in product.serialnos:
-                    product_id=serialno.product_id
-                    variant_id=serialno.variant_id or ""
-                    batch_id=serialno.batch_id or ""
-                    combined_id=product_id+variant_id+batch_id
-                    serialnos[combined_id]=serialno
+                    p_id = serialno.product_id
+                    v_id = serialno.variant_id or ""
+                    b_id = serialno.batch_id or ""
+                    serialnos[p_id + v_id + b_id].append(serialno)
 
+            stocks = {}
             for stock in product.stocks:
-                product_id=stock.product_id
-                variant_id=stock.variant_id or ""
-                batch_id=stock.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                stocks[combined_id]=stock
-            
+                stocks[
+                    (stock.product_id)
+                    + (stock.variant_id or "")
+                    + (stock.batch_id or "")
+                ] = stock
+
+            pricings = {}
             for price in product.pricings:
-                product_id=price.product_id
-                variant_id=price.variant_id or ""
-                batch_id=price.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                pricings[combined_id]=price
-            
+                pricings[
+                    (price.product_id)
+                    + (price.variant_id or "")
+                    + (price.batch_id or "")
+                ] = price
+
+            rops = {}
             for rop in product.reorder_points:
-                product_id=rop.product_id
-                variant_id=rop.variant_id or ""
-                batch_id=rop.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                rops[combined_id]=rop
-            
+                rops[
+                    (rop.product_id)
+                    + (rop.variant_id or "")
+                    + (rop.batch_id or "")
+                ] = rop
+
+            stls = {}
             for stl in product.storage_locations:
-                product_id=stl.product_id
-                variant_id=stl.variant_id or ""
-                batch_id=stl.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                stls[combined_id]=stl
+                stls[
+                    (stl.product_id)
+                    + (stl.variant_id or "")
+                    + (stl.batch_id or "")
+                ] = stl
 
+            # Flags for clean condition evaluations
+            has_variant = product.type_infos.get("has_variant", False)
+            has_batch = product.type_infos.get("has_batch", False)
+            has_serialno = product.type_infos.get("has_serialno", False)
 
-            
-            
-                
-            if product.type_infos['has_variant']:
+            # SITUATION A: Product Has Variants
+            if has_variant:
                 variant_infos = {}
 
                 for key, val in variant.items():
@@ -359,82 +363,95 @@ class ProductRepo:
                     combined_id = product_id + variant_id
 
                     variant_infos[variant_id] = {
-                        "name": val.name
+                        "name": val.name,
+                        "batch_infos": [],
+                        "serialno_infos": [],
+                        "stock_infos": {},
+                        "pricing_infos": {},
+                        "reorder_point_infos": {},
+                        "storage_location_infos": {},
                     }
 
-                    batch_id = ""
+                    # Resolve Batches if tracking exists
+                    if has_batch:
+                        product_batches = batches.get(combined_id, [])
+                        for batch in product_batches:
+                            final_key = combined_id + batch.id
+                            
+                            stock = stocks.get(final_key)
+                            pricing = pricings.get(final_key)
+                            rop = rops.get(final_key)
+                            stl = stls.get(final_key)
+                            sn_list = [
+                                {"id": sn.id, "name": sn.name,"status":sn.status}
+                                for sn in serialnos.get(final_key, [])
+                            ]
 
-                    if product.type_infos["has_batch"]:
-                        batch = batches[combined_id]
-
-                        variant_infos[variant_id]["batch_infos"] = {
-                            "id": batch.id,
-                            "name": batch.name,
-                            "expiry_date": batch.expiry_date,
-                            "manufacturing_date": batch.manufacturing_date,
-                        }
-
-                        batch_id = batch.id
-
-                    final_key = combined_id + batch_id
-
-                    if product.type_infos["has_serialno"] and serialnos:
-                        ic(serialnos)
-                        variant_infos[variant_id]["serialno_infos"] = [
-                            {
-                                "id": sn.id,
-                                "name": sn.name,
+                            b_info = {
+                                "id": batch.id,
+                                "name": batch.name,
+                                "expiry_date": batch.expiration_infos.get("expiry_date") if batch.expiration_infos else None,
+                                "manufacturing_date": batch.expiration_infos.get("manufacturing_date") if batch.expiration_infos else None,
+                                "stock_infos": {
+                                    "id": stock.id,
+                                    "physical_stocks": stock.physical_stocks,
+                                    "available_stocks": stock.available_stocks,
+                                    "reserved_stocks": stock.reserved_stocks,
+                                } if stock else {},
+                                "storage_location_infos": {"id": stl.id, "storage_location": stl.name} if stl else {},
+                                "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point} if rop else {},
+                                "pricing_infos": {
+                                    "id": pricing.id,
+                                    "sell_price": pricing.sell_price,
+                                    "buy_price": pricing.buy_price,
+                                } if pricing else {},
+                                "serialno_infos": sn_list
                             }
+                            variant_infos[variant_id]["batch_infos"].append(b_info)
+                    
+                    # Resolve No-Batch Variant Metrics
+                    else:
+                        final_key = combined_id + ""
+                        stock = stocks.get(final_key)
+                        pricing = pricings.get(final_key)
+                        rop = rops.get(final_key)
+                        stl = stls.get(final_key)
+                        sn_list = [
+                            {"id": sn.id, "name": sn.name,"status":sn.status}
                             for sn in serialnos.get(final_key, [])
                         ]
 
-                    stock = stocks.get(final_key)
-                    variant_infos[variant_id]["stock_infos"] = (
-                        {
-                            "id": stock.id,
-                            "physical_stocks": stock.physical_stocks,
-                            "available_stocks": stock.available_stocks,
-                            "reserved_stocks": stock.reserved_stocks,
-                        }
-                        if stock
-                        else {}
-                    )
-
-                    pricing = pricings.get(final_key)
-                    variant_infos[variant_id]["pricing_infos"] = (
-                        {
-                            "id": pricing.id,
-                            "sell_price": pricing.sell_price,
-                            "buy_price": pricing.buy_price,
-                        }
-                        if pricing
-                        else {}
-                    )
-
-                    rop = rops.get(final_key)
-                    variant_infos[variant_id]["reorder_point_infos"] = (
-                        {
-                            "id": rop.id,
-                            "reorder_point": rop.reorder_point,
-                        }
-                        if rop
-                        else {}
-                    )
-
-                    stl = stls.get(final_key)
-                    variant_infos[variant_id]["storage_location_infos"] = (
-                        {
-                            "id": stl.id,
-                            "storage_location": stl.name,
-                        }
-                        if stl
-                        else {}
-                    )
+                        if has_serialno:
+                            variant_infos[variant_id]["serialno_infos"] = sn_list
+                        if stock:
+                            variant_infos[variant_id]["stock_infos"] = {
+                                "id": stock.id,
+                                "physical_stocks": stock.physical_stocks,
+                                "available_stocks": stock.available_stocks,
+                                "reserved_stocks": stock.reserved_stocks
+                            }
+                        if pricing:
+                            variant_infos[variant_id]["pricing_infos"] = {
+                                "id": pricing.id,
+                                "sell_price": pricing.sell_price,
+                                "buy_price": pricing.buy_price,
+                            }
+                        if rop:
+                            variant_infos[variant_id]["reorder_point_infos"] = {
+                                "id": rop.id,
+                                "reorder_point": rop.reorder_point,
+                            }
+                        if stl:
+                            variant_infos[variant_id]["storage_location_infos"] = {
+                                "id": stl.id,
+                                "storage_location": stl.name,
+                            }
 
                 res_toadd["variants"] = variant_infos
 
+            # SITUATION B: Standard Product (No Variants)
             else:
-                batch_infos = {}
+                batch_infos = []
                 serialno_infos = []
                 stock_infos = {}
                 pricing_infos = {}
@@ -445,74 +462,91 @@ class ProductRepo:
                 product_id = product.id
                 combined_id = product_id + variant_id
 
-                batch_id = ""
+                if has_batch:
+                    product_batches = batches.get(combined_id, [])
+                    for batch in product_batches:
+                        final_key = combined_id + batch.id
+                        
+                        stock = stocks.get(final_key)
+                        pricing = pricings.get(final_key)
+                        rop = rops.get(final_key)
+                        stl = stls.get(final_key)
+                        sn_list = [
+                            {"id": sn.id, "name": sn.name,"status":sn.status}
+                            for sn in serialnos.get(final_key, [])
+                        ]
 
-                if product.type_infos["has_batch"]:
-                    batch = batches[combined_id]
-
-                    batch_infos = {
-                        "id": batch.id,
-                        "name": batch.name,
-                        "expiry_date": batch.expiry_date,
-                        "manufacturing_date": batch.manufacturing_date,
-                    }
-
-                    batch_id = batch.id
-
-                final_key = combined_id + batch_id
-
-                if product.type_infos["has_serialno"] and serialnos:
-                    serialno_infos = [
-                        {
-                            "id": sn.id,
-                            "name": sn.name,
+                        b_info = {
+                            "id": batch.id,
+                            "name": batch.name,
+                            "expiry_date": batch.expiration_infos.get("expiry_date") if batch.expiration_infos else None,
+                            "manufacturing_date": batch.expiration_infos.get("manufacturing_date") if batch.expiration_infos else None,
+                            "stock_infos": {
+                                "id": stock.id,
+                                "physical_stocks": stock.physical_stocks,
+                                "available_stocks": stock.available_stocks,
+                                "reserved_stocks": stock.reserved_stocks,
+                            } if stock else {},
+                            "storage_location_infos": {"id": stl.id, "storage_location": stl.name} if stl else {},
+                            "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point} if rop else {},
+                            "pricing_infos": {
+                                "id": pricing.id,
+                                "sell_price": pricing.sell_price,
+                                "buy_price": pricing.buy_price,
+                            } if pricing else {},
+                            "serialno_infos": sn_list
                         }
+                        batch_infos.append(b_info)
+                else:
+                    final_key = combined_id + ""
+                    stock = stocks.get(final_key)
+                    pricing = pricings.get(final_key)
+                    rop = rops.get(final_key)
+                    stl = stls.get(final_key)
+                    sn_list = [
+                        {"id": sn.id, "name": sn.name,"status":sn.status}
                         for sn in serialnos.get(final_key, [])
                     ]
 
-                stock = stocks.get(final_key)
-                if stock:
-                    stock_infos = {
-                        "id": stock.id,
-                        "physical_stocks": stock.physical_stocks,
-                        "available_stocks": stock.available_stocks,
-                        "reserved_stocks": stock.reserved_stocks,
-                    }
+                    if has_serialno:
+                        serialno_infos = sn_list
+                    if stock:
+                        stock_infos = {
+                            "id": stock.id,
+                            "physical_stocks": stock.physical_stocks,
+                            "available_stocks": stock.available_stocks,
+                            "reserved_stocks": stock.reserved_stocks,
+                        }
+                    if pricing:
+                        pricing_infos = {
+                            "id": pricing.id,
+                            "sell_price": pricing.sell_price,
+                            "buy_price": pricing.buy_price,
+                        }
+                    if rop:
+                        reorder_point_infos = {
+                            "id": rop.id,
+                            "reorder_point": rop.reorder_point,
+                        }
+                    if stl:
+                        storage_location_infos = {
+                            "id": stl.id,
+                            "storage_location": stl.name,
+                        }
 
-                pricing = pricings.get(final_key)
-                if pricing:
-                    pricing_infos = {
-                        "id": pricing.id,
-                        "sell_price": pricing.sell_price,
-                        "buy_price": pricing.buy_price,
+                res_toadd.update(
+                    {
+                        "batch_infos": batch_infos,
+                        "serialno_infos": serialno_infos,
+                        "stock_infos": stock_infos,
+                        "pricing_infos": pricing_infos,
+                        "reorder_point_infos": reorder_point_infos,
+                        "storage_location_infos": storage_location_infos,
                     }
-
-                rop = rops.get(final_key)
-                if rop:
-                    reorder_point_infos = {
-                        "id": rop.id,
-                        "reorder_point": rop.reorder_point,
-                    }
-
-                stl = stls.get(final_key)
-                if stl:
-                    storage_location_infos = {
-                        "id": stl.id,
-                        "storage_location": stl.name,
-                    }
-
-                res_toadd = {
-                    **res_toadd,
-                    "batch_infos": batch_infos,
-                    "serialno_infos": serialno_infos,
-                    "stock_infos": stock_infos,
-                    "pricing_infos": pricing_infos,
-                    "reorder_point_infos": reorder_point_infos,
-                    "storage_location_infos": storage_location_infos,
-                }
+                )
 
             final_res.append(res_toadd)
-                
+
         return final_res
     
 
@@ -545,12 +579,12 @@ class ProductRepo:
                 selectinload(Products.serialnos).load_only(*self.serialno_cols)
             )
 
-        res=(await self.session.execute(stmt)).scalars().all()
-        ic(res)
-        final_res=[]
+        res = (await self.session.execute(stmt)).scalars().all()
+        final_res = []
 
+        # 4. Map and Transform Database Rows
         for product in res:
-            res_toadd={
+            res_toadd = {
                 "id": product.id,
                 "shop_id": product.shop_id,
                 "ui_id": product.ui_id,
@@ -565,67 +599,66 @@ class ProductRepo:
                 "created_at": product.created_at,
                 "updated_at": product.updated_at,
                 "type_infos": product.type_infos,
-                "gst":product.gst
+                "gst": product.gst,
             }
 
-            variant={}
-            batches={}
-            serialnos={}
-            stocks={}
-            rops={} 
-            pricings={}
-            stls={}
+            # Build Lookups
+            variant = {var.id: var for var in product.variants}
 
-            for var in product.variants:
-                variant[var['id']]=var
-            
+            # Multi-batch grouped by combined product_id + variant_id
+            batches = defaultdict(list)
             for bat in product.batches:
-                product_id=bat.product_id
-                variant_id=bat.variant_id or ""
-                combined_id=product_id+variant_id
-                batches[combined_id]=bat
+                p_id = bat.product_id
+                v_id = bat.variant_id or ""
+                batches[p_id + v_id].append(bat)
 
+            serialnos = defaultdict(list)
             if data.include_serialno:
                 for serialno in product.serialnos:
-                    product_id=serialno.product_id
-                    variant_id=serialno.variant_id or ""
-                    batch_id=serialno.batch_id or ""
-                    combined_id=product_id+variant_id+batch_id
-                    serialnos[combined_id]=serialno
+                    p_id = serialno.product_id
+                    v_id = serialno.variant_id or ""
+                    b_id = serialno.batch_id or ""
+                    serialnos[p_id + v_id + b_id].append(serialno)
 
+            stocks = {}
             for stock in product.stocks:
-                product_id=stock.product_id
-                variant_id=stock.variant_id or ""
-                batch_id=stock.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                stocks[combined_id]=stock
-            
+                stocks[
+                    (stock.product_id)
+                    + (stock.variant_id or "")
+                    + (stock.batch_id or "")
+                ] = stock
+
+            pricings = {}
             for price in product.pricings:
-                product_id=price.product_id
-                variant_id=price.variant_id or ""
-                batch_id=price.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                pricings[combined_id]=price
-            
+                pricings[
+                    (price.product_id)
+                    + (price.variant_id or "")
+                    + (price.batch_id or "")
+                ] = price
+
+            rops = {}
             for rop in product.reorder_points:
-                product_id=rop.product_id
-                variant_id=rop.variant_id or ""
-                batch_id=rop.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                rops[combined_id]=rop
-            
+                rops[
+                    (rop.product_id)
+                    + (rop.variant_id or "")
+                    + (rop.batch_id or "")
+                ] = rop
+
+            stls = {}
             for stl in product.storage_locations:
-                product_id=stl.product_id
-                variant_id=stl.variant_id or ""
-                batch_id=stl.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                stls[combined_id]=stl
+                stls[
+                    (stl.product_id)
+                    + (stl.variant_id or "")
+                    + (stl.batch_id or "")
+                ] = stl
 
+            # Flags for clean condition evaluations
+            has_variant = product.type_infos.get("has_variant", False)
+            has_batch = product.type_infos.get("has_batch", False)
+            has_serialno = product.type_infos.get("has_serialno", False)
 
-            
-            
-                
-            if product.type_infos['has_variant']:
+            # SITUATION A: Product Has Variants
+            if has_variant:
                 variant_infos = {}
 
                 for key, val in variant.items():
@@ -634,82 +667,95 @@ class ProductRepo:
                     combined_id = product_id + variant_id
 
                     variant_infos[variant_id] = {
-                        "name": val.name
+                        "name": val.name,
+                        "batch_infos": [],
+                        "serialno_infos": [],
+                        "stock_infos": {},
+                        "pricing_infos": {},
+                        "reorder_point_infos": {},
+                        "storage_location_infos": {},
                     }
 
-                    batch_id = ""
+                    # Resolve Batches if tracking exists
+                    if has_batch:
+                        product_batches = batches.get(combined_id, [])
+                        for batch in product_batches:
+                            final_key = combined_id + batch.id
+                            
+                            stock = stocks.get(final_key)
+                            pricing = pricings.get(final_key)
+                            rop = rops.get(final_key)
+                            stl = stls.get(final_key)
+                            sn_list = [
+                                {"id": sn.id, "name": sn.name,"status":sn.status}
+                                for sn in serialnos.get(final_key, [])
+                            ]
 
-                    if product.type_infos["has_batch"]:
-                        batch = batches[combined_id]
-
-                        variant_infos[variant_id]["batch_infos"] = {
-                            "id": batch.id,
-                            "name": batch.name,
-                            "expiry_date": batch.expiry_date,
-                            "manufacturing_date": batch.manufacturing_date,
-                        }
-
-                        batch_id = batch.id
-
-                    final_key = combined_id + batch_id
-
-                    if product.type_infos["has_serialno"] and serialnos:
-                        ic(serialnos)
-                        variant_infos[variant_id]["serialno_infos"] = [
-                            {
-                                "id": sn.id,
-                                "name": sn.name,
+                            b_info = {
+                                "id": batch.id,
+                                "name": batch.name,
+                                "expiry_date": batch.expiration_infos.get("expiry_date") if batch.expiration_infos else None,
+                                "manufacturing_date": batch.expiration_infos.get("manufacturing_date") if batch.expiration_infos else None,
+                                "stock_infos": {
+                                    "id": stock.id,
+                                    "physical_stocks": stock.physical_stocks,
+                                    "available_stocks": stock.available_stocks,
+                                    "reserved_stocks": stock.reserved_stocks,
+                                } if stock else {},
+                                "storage_location_infos": {"id": stl.id, "storage_location": stl.name} if stl else {},
+                                "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point} if rop else {},
+                                "pricing_infos": {
+                                    "id": pricing.id,
+                                    "sell_price": pricing.sell_price,
+                                    "buy_price": pricing.buy_price,
+                                } if pricing else {},
+                                "serialno_infos": sn_list
                             }
+                            variant_infos[variant_id]["batch_infos"].append(b_info)
+                    
+                    # Resolve No-Batch Variant Metrics
+                    else:
+                        final_key = combined_id + ""
+                        stock = stocks.get(final_key)
+                        pricing = pricings.get(final_key)
+                        rop = rops.get(final_key)
+                        stl = stls.get(final_key)
+                        sn_list = [
+                            {"id": sn.id, "name": sn.name,"status":sn.status}
                             for sn in serialnos.get(final_key, [])
                         ]
 
-                    stock = stocks.get(final_key)
-                    variant_infos[variant_id]["stock_infos"] = (
-                        {
-                            "id": stock.id,
-                            "physical_stocks": stock.physical_stocks,
-                            "available_stocks": stock.available_stocks,
-                            "reserved_stocks": stock.reserved_stocks,
-                        }
-                        if stock
-                        else {}
-                    )
-
-                    pricing = pricings.get(final_key)
-                    variant_infos[variant_id]["pricing_infos"] = (
-                        {
-                            "id": pricing.id,
-                            "sell_price": pricing.sell_price,
-                            "buy_price": pricing.buy_price,
-                        }
-                        if pricing
-                        else {}
-                    )
-
-                    rop = rops.get(final_key)
-                    variant_infos[variant_id]["reorder_point_infos"] = (
-                        {
-                            "id": rop.id,
-                            "reorder_point": rop.reorder_point,
-                        }
-                        if rop
-                        else {}
-                    )
-
-                    stl = stls.get(final_key)
-                    variant_infos[variant_id]["storage_location_infos"] = (
-                        {
-                            "id": stl.id,
-                            "storage_location": stl.name,
-                        }
-                        if stl
-                        else {}
-                    )
+                        if has_serialno:
+                            variant_infos[variant_id]["serialno_infos"] = sn_list
+                        if stock:
+                            variant_infos[variant_id]["stock_infos"] = {
+                                "id": stock.id,
+                                "physical_stocks": stock.physical_stocks,
+                                "available_stocks": stock.available_stocks,
+                                "reserved_stocks": stock.reserved_stocks
+                            }
+                        if pricing:
+                            variant_infos[variant_id]["pricing_infos"] = {
+                                "id": pricing.id,
+                                "sell_price": pricing.sell_price,
+                                "buy_price": pricing.buy_price,
+                            }
+                        if rop:
+                            variant_infos[variant_id]["reorder_point_infos"] = {
+                                "id": rop.id,
+                                "reorder_point": rop.reorder_point,
+                            }
+                        if stl:
+                            variant_infos[variant_id]["storage_location_infos"] = {
+                                "id": stl.id,
+                                "storage_location": stl.name,
+                            }
 
                 res_toadd["variants"] = variant_infos
 
+            # SITUATION B: Standard Product (No Variants)
             else:
-                batch_infos = {}
+                batch_infos = []
                 serialno_infos = []
                 stock_infos = {}
                 pricing_infos = {}
@@ -720,74 +766,91 @@ class ProductRepo:
                 product_id = product.id
                 combined_id = product_id + variant_id
 
-                batch_id = ""
+                if has_batch:
+                    product_batches = batches.get(combined_id, [])
+                    for batch in product_batches:
+                        final_key = combined_id + batch.id
+                        
+                        stock = stocks.get(final_key)
+                        pricing = pricings.get(final_key)
+                        rop = rops.get(final_key)
+                        stl = stls.get(final_key)
+                        sn_list = [
+                            {"id": sn.id, "name": sn.name,"status":sn.status}
+                            for sn in serialnos.get(final_key, [])
+                        ]
 
-                if product.type_infos["has_batch"]:
-                    batch = batches[combined_id]
-
-                    batch_infos = {
-                        "id": batch.id,
-                        "name": batch.name,
-                        "expiry_date": batch.expiry_date,
-                        "manufacturing_date": batch.manufacturing_date,
-                    }
-
-                    batch_id = batch.id
-
-                final_key = combined_id + batch_id
-
-                if product.type_infos["has_serialno"] and serialnos:
-                    serialno_infos = [
-                        {
-                            "id": sn.id,
-                            "name": sn.name,
+                        b_info = {
+                            "id": batch.id,
+                            "name": batch.name,
+                            "expiry_date": batch.expiration_infos.get("expiry_date") if batch.expiration_infos else None,
+                            "manufacturing_date": batch.expiration_infos.get("manufacturing_date") if batch.expiration_infos else None,
+                            "stock_infos": {
+                                "id": stock.id,
+                                "physical_stocks": stock.physical_stocks,
+                                "available_stocks": stock.available_stocks,
+                                "reserved_stocks": stock.reserved_stocks,
+                            } if stock else {},
+                            "storage_location_infos": {"id": stl.id, "storage_location": stl.name} if stl else {},
+                            "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point} if rop else {},
+                            "pricing_infos": {
+                                "id": pricing.id,
+                                "sell_price": pricing.sell_price,
+                                "buy_price": pricing.buy_price,
+                            } if pricing else {},
+                            "serialno_infos": sn_list
                         }
+                        batch_infos.append(b_info)
+                else:
+                    final_key = combined_id + ""
+                    stock = stocks.get(final_key)
+                    pricing = pricings.get(final_key)
+                    rop = rops.get(final_key)
+                    stl = stls.get(final_key)
+                    sn_list = [
+                        {"id": sn.id, "name": sn.name,"status":sn.status}
                         for sn in serialnos.get(final_key, [])
                     ]
 
-                stock = stocks.get(final_key)
-                if stock:
-                    stock_infos = {
-                        "id": stock.id,
-                        "physical_stocks": stock.physical_stocks,
-                        "available_stocks": stock.available_stocks,
-                        "reserved_stocks": stock.reserved_stocks,
-                    }
+                    if has_serialno:
+                        serialno_infos = sn_list
+                    if stock:
+                        stock_infos = {
+                            "id": stock.id,
+                            "physical_stocks": stock.physical_stocks,
+                            "available_stocks": stock.available_stocks,
+                            "reserved_stocks": stock.reserved_stocks,
+                        }
+                    if pricing:
+                        pricing_infos = {
+                            "id": pricing.id,
+                            "sell_price": pricing.sell_price,
+                            "buy_price": pricing.buy_price,
+                        }
+                    if rop:
+                        reorder_point_infos = {
+                            "id": rop.id,
+                            "reorder_point": rop.reorder_point,
+                        }
+                    if stl:
+                        storage_location_infos = {
+                            "id": stl.id,
+                            "storage_location": stl.name,
+                        }
 
-                pricing = pricings.get(final_key)
-                if pricing:
-                    pricing_infos = {
-                        "id": pricing.id,
-                        "sell_price": pricing.sell_price,
-                        "buy_price": pricing.buy_price,
+                res_toadd.update(
+                    {
+                        "batch_infos": batch_infos,
+                        "serialno_infos": serialno_infos,
+                        "stock_infos": stock_infos,
+                        "pricing_infos": pricing_infos,
+                        "reorder_point_infos": reorder_point_infos,
+                        "storage_location_infos": storage_location_infos,
                     }
-
-                rop = rops.get(final_key)
-                if rop:
-                    reorder_point_infos = {
-                        "id": rop.id,
-                        "reorder_point": rop.reorder_point,
-                    }
-
-                stl = stls.get(final_key)
-                if stl:
-                    storage_location_infos = {
-                        "id": stl.id,
-                        "storage_location": stl.name,
-                    }
-
-                res_toadd = {
-                    **res_toadd,
-                    "batch_infos": batch_infos,
-                    "serialno_infos": serialno_infos,
-                    "stock_infos": stock_infos,
-                    "pricing_infos": pricing_infos,
-                    "reorder_point_infos": reorder_point_infos,
-                    "storage_location_infos": storage_location_infos,
-                }
+                )
 
             final_res.append(res_toadd)
-                
+
         return final_res
     
 
@@ -813,38 +876,278 @@ class ProductRepo:
         if data.include_serialno:
             stmt=stmt.options(selectinload(Products.serialnos).load_only(*self.serialno_cols))
 
-        res=(await self.session.execute(stmt)).scalars().one_or_none()
-        ic(res)
-        if not res:
-            return None
-            
-        final_res=[]
+        # 3. Execute Query
+        res = (await self.session.execute(stmt)).scalars().one_or_none()
+        final_res = []
 
+        # 4. Map and Transform Database Rows
         for product in [res]:
-            final_res.append(
-                {
-                    "id": product.id,
-                    "shop_id": product.shop_id,
-                    "ui_id": product.ui_id,
-                    "name": product.name,
-                    "sku": product.sku,
-                    "gst":product.gst,
-                    "barcode": product.barcode,
-                    "description": product.description,
-                    "category_id": product.category_id,
-                    "unit_id": product.unit_id,
-                    "gst":product.gst,
-                    "is_active": product.is_active,
-                    "have_tracking": product.have_tracking,
-                    "created_at": product.created_at,
-                    "updated_at": product.updated_at,
-                    "type_infos": product.type_infos,
-                    "inventory_units": build_inventory_units(
-                        product,
-                        include_serialno=data.include_serialno
-                    ),
-                }
-            )
+            res_toadd = {
+                "id": product.id,
+                "shop_id": product.shop_id,
+                "ui_id": product.ui_id,
+                "name": product.name,
+                "sku": product.sku,
+                "barcode": product.barcode,
+                "description": product.description,
+                "category_id": product.category_id,
+                "unit_id": product.unit_id,
+                "is_active": product.is_active,
+                "have_tracking": product.have_tracking,
+                "created_at": product.created_at,
+                "updated_at": product.updated_at,
+                "type_infos": product.type_infos,
+                "gst": product.gst,
+            }
+
+            # Build Lookups
+            variant = {var.id: var for var in product.variants}
+
+            # Multi-batch grouped by combined product_id + variant_id
+            batches = defaultdict(list)
+            for bat in product.batches:
+                p_id = bat.product_id
+                v_id = bat.variant_id or ""
+                batches[p_id + v_id].append(bat)
+
+            serialnos = defaultdict(list)
+            if data.include_serialno:
+                for serialno in product.serialnos:
+                    p_id = serialno.product_id
+                    v_id = serialno.variant_id or ""
+                    b_id = serialno.batch_id or ""
+                    serialnos[p_id + v_id + b_id].append(serialno)
+
+            stocks = {}
+            for stock in product.stocks:
+                stocks[
+                    (stock.product_id)
+                    + (stock.variant_id or "")
+                    + (stock.batch_id or "")
+                ] = stock
+
+            pricings = {}
+            for price in product.pricings:
+                pricings[
+                    (price.product_id)
+                    + (price.variant_id or "")
+                    + (price.batch_id or "")
+                ] = price
+
+            rops = {}
+            for rop in product.reorder_points:
+                rops[
+                    (rop.product_id)
+                    + (rop.variant_id or "")
+                    + (rop.batch_id or "")
+                ] = rop
+
+            stls = {}
+            for stl in product.storage_locations:
+                stls[
+                    (stl.product_id)
+                    + (stl.variant_id or "")
+                    + (stl.batch_id or "")
+                ] = stl
+
+            # Flags for clean condition evaluations
+            has_variant = product.type_infos.get("has_variant", False)
+            has_batch = product.type_infos.get("has_batch", False)
+            has_serialno = product.type_infos.get("has_serialno", False)
+
+            # SITUATION A: Product Has Variants
+            if has_variant:
+                variant_infos = {}
+
+                for key, val in variant.items():
+                    variant_id = key
+                    product_id = val.product_id
+                    combined_id = product_id + variant_id
+
+                    variant_infos[variant_id] = {
+                        "name": val.name,
+                        "batch_infos": [],
+                        "serialno_infos": [],
+                        "stock_infos": {},
+                        "pricing_infos": {},
+                        "reorder_point_infos": {},
+                        "storage_location_infos": {},
+                    }
+
+                    # Resolve Batches if tracking exists
+                    if has_batch:
+                        product_batches = batches.get(combined_id, [])
+                        for batch in product_batches:
+                            final_key = combined_id + batch.id
+                            
+                            stock = stocks.get(final_key)
+                            pricing = pricings.get(final_key)
+                            rop = rops.get(final_key)
+                            stl = stls.get(final_key)
+                            sn_list = [
+                                {"id": sn.id, "name": sn.name,"status":sn.status}
+                                for sn in serialnos.get(final_key, [])
+                            ]
+
+                            b_info = {
+                                "id": batch.id,
+                                "name": batch.name,
+                                "expiry_date": batch.expiration_infos.get("expiry_date") if batch.expiration_infos else None,
+                                "manufacturing_date": batch.expiration_infos.get("manufacturing_date") if batch.expiration_infos else None,
+                                "stock_infos": {
+                                    "id": stock.id,
+                                    "physical_stocks": stock.physical_stocks,
+                                    "available_stocks": stock.available_stocks,
+                                    "reserved_stocks": stock.reserved_stocks,
+                                } if stock else {},
+                                "storage_location_infos": {"id": stl.id, "storage_location": stl.name} if stl else {},
+                                "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point} if rop else {},
+                                "pricing_infos": {
+                                    "id": pricing.id,
+                                    "sell_price": pricing.sell_price,
+                                    "buy_price": pricing.buy_price,
+                                } if pricing else {},
+                                "serialno_infos": sn_list
+                            }
+                            variant_infos[variant_id]["batch_infos"].append(b_info)
+                    
+                    # Resolve No-Batch Variant Metrics
+                    else:
+                        final_key = combined_id + ""
+                        stock = stocks.get(final_key)
+                        pricing = pricings.get(final_key)
+                        rop = rops.get(final_key)
+                        stl = stls.get(final_key)
+                        sn_list = [
+                            {"id": sn.id, "name": sn.name,"status":sn.status}
+                            for sn in serialnos.get(final_key, [])
+                        ]
+
+                        if has_serialno:
+                            variant_infos[variant_id]["serialno_infos"] = sn_list
+                        if stock:
+                            variant_infos[variant_id]["stock_infos"] = {
+                                "id": stock.id,
+                                "physical_stocks": stock.physical_stocks,
+                                "available_stocks": stock.available_stocks,
+                                "reserved_stocks": stock.reserved_stocks,
+                            }
+                        if pricing:
+                            variant_infos[variant_id]["pricing_infos"] = {
+                                "id": pricing.id,
+                                "sell_price": pricing.sell_price,
+                                "buy_price": pricing.buy_price,
+                            }
+                        if rop:
+                            variant_infos[variant_id]["reorder_point_infos"] = {
+                                "id": rop.id,
+                                "reorder_point": rop.reorder_point,
+                            }
+                        if stl:
+                            variant_infos[variant_id]["storage_location_infos"] = {
+                                "id": stl.id,
+                                "storage_location": stl.name,
+                            }
+
+                res_toadd["variants"] = variant_infos
+
+            # SITUATION B: Standard Product (No Variants)
+            else:
+                batch_infos = []
+                serialno_infos = []
+                stock_infos = {}
+                pricing_infos = {}
+                reorder_point_infos = {}
+                storage_location_infos = {}
+
+                variant_id = ""
+                product_id = product.id
+                combined_id = product_id + variant_id
+
+                if has_batch:
+                    product_batches = batches.get(combined_id, [])
+                    for batch in product_batches:
+                        final_key = combined_id + batch.id
+                        
+                        stock = stocks.get(final_key)
+                        pricing = pricings.get(final_key)
+                        rop = rops.get(final_key)
+                        stl = stls.get(final_key)
+                        sn_list = [
+                            {"id": sn.id, "name": sn.name,"status":sn.status}
+                            for sn in serialnos.get(final_key, [])
+                        ]
+
+                        b_info = {
+                            "id": batch.id,
+                            "name": batch.name,
+                            "expiry_date": batch.expiration_infos.get("expiry_date") if batch.expiration_infos else None,
+                            "manufacturing_date": batch.expiration_infos.get("manufacturing_date") if batch.expiration_infos else None,
+                            "stock_infos": {
+                                "id": stock.id,
+                                "physical_stocks": stock.physical_stocks,
+                                "available_stocks": stock.available_stocks,
+                                "reserved_stocks": stock.reserved_stocks,
+                            } if stock else {},
+                            "storage_location_infos": {"id": stl.id, "storage_location": stl.name} if stl else {},
+                            "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point} if rop else {},
+                            "pricing_infos": {
+                                "id": pricing.id,
+                                "sell_price": pricing.sell_price,
+                                "buy_price": pricing.buy_price,
+                            } if pricing else {},
+                            "serialno_infos": sn_list
+                        }
+                        batch_infos.append(b_info)
+                else:
+                    final_key = combined_id + ""
+                    stock = stocks.get(final_key)
+                    pricing = pricings.get(final_key)
+                    rop = rops.get(final_key)
+                    stl = stls.get(final_key)
+                    sn_list = [
+                        {"id": sn.id, "name": sn.name,"status":sn.status}
+                        for sn in serialnos.get(final_key, [])
+                    ]
+
+                    if has_serialno:
+                        serialno_infos = sn_list
+                    if stock:
+                        stock_infos = {
+                            "id": stock.id,
+                            "physical_stocks": stock.physical_stocks,
+                            "available_stocks": stock.available_stocks,
+                            "reserved_stocks": stock.reserved_stocks,
+                        }
+                    if pricing:
+                        pricing_infos = {
+                            "id": pricing.id,
+                            "sell_price": pricing.sell_price,
+                            "buy_price": pricing.buy_price,
+                        }
+                    if rop:
+                        reorder_point_infos = {
+                            "id": rop.id,
+                            "reorder_point": rop.reorder_point,
+                        }
+                    if stl:
+                        storage_location_infos = {
+                            "id": stl.id,
+                            "storage_location": stl.name,
+                        }
+
+                res_toadd.update(
+                    {
+                        "batch_infos": batch_infos,
+                        "serialno_infos": serialno_infos,
+                        "stock_infos": stock_infos,
+                        "pricing_infos": pricing_infos,
+                        "reorder_point_infos": reorder_point_infos,
+                        "storage_location_infos": storage_location_infos,
+                    }
+                )
+
+            final_res.append(res_toadd)
 
         return final_res[0]
 
@@ -871,12 +1174,13 @@ class ProductRepo:
         if data.include_serialno:
             stmt=stmt.options(selectinload(Products.serialnos).load_only(*self.serialno_cols))
 
-        res=(await self.session.execute(stmt)).scalars().all()
-        ic(res)
-        final_res=[]
+        # 3. Execute Query
+        res = (await self.session.execute(stmt)).scalars().all()
+        final_res = []
 
+        # 4. Map and Transform Database Rows
         for product in res:
-            res_toadd={
+            res_toadd = {
                 "id": product.id,
                 "shop_id": product.shop_id,
                 "ui_id": product.ui_id,
@@ -891,67 +1195,66 @@ class ProductRepo:
                 "created_at": product.created_at,
                 "updated_at": product.updated_at,
                 "type_infos": product.type_infos,
-                "gst":product.gst
+                "gst": product.gst,
             }
 
-            variant={}
-            batches={}
-            serialnos={}
-            stocks={}
-            rops={} 
-            pricings={}
-            stls={}
+            # Build Lookups
+            variant = {var.id: var for var in product.variants}
 
-            for var in product.variants:
-                variant[var['id']]=var
-            
+            # Multi-batch grouped by combined product_id + variant_id
+            batches = defaultdict(list)
             for bat in product.batches:
-                product_id=bat.product_id
-                variant_id=bat.variant_id or ""
-                combined_id=product_id+variant_id
-                batches[combined_id]=bat
+                p_id = bat.product_id
+                v_id = bat.variant_id or ""
+                batches[p_id + v_id].append(bat)
 
+            serialnos = defaultdict(list)
             if data.include_serialno:
                 for serialno in product.serialnos:
-                    product_id=serialno.product_id
-                    variant_id=serialno.variant_id or ""
-                    batch_id=serialno.batch_id or ""
-                    combined_id=product_id+variant_id+batch_id
-                    serialnos[combined_id]=serialno
+                    p_id = serialno.product_id
+                    v_id = serialno.variant_id or ""
+                    b_id = serialno.batch_id or ""
+                    serialnos[p_id + v_id + b_id].append(serialno)
 
+            stocks = {}
             for stock in product.stocks:
-                product_id=stock.product_id
-                variant_id=stock.variant_id or ""
-                batch_id=stock.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                stocks[combined_id]=stock
-            
+                stocks[
+                    (stock.product_id)
+                    + (stock.variant_id or "")
+                    + (stock.batch_id or "")
+                ] = stock
+
+            pricings = {}
             for price in product.pricings:
-                product_id=price.product_id
-                variant_id=price.variant_id or ""
-                batch_id=price.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                pricings[combined_id]=price
-            
+                pricings[
+                    (price.product_id)
+                    + (price.variant_id or "")
+                    + (price.batch_id or "")
+                ] = price
+
+            rops = {}
             for rop in product.reorder_points:
-                product_id=rop.product_id
-                variant_id=rop.variant_id or ""
-                batch_id=rop.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                rops[combined_id]=rop
-            
+                rops[
+                    (rop.product_id)
+                    + (rop.variant_id or "")
+                    + (rop.batch_id or "")
+                ] = rop
+
+            stls = {}
             for stl in product.storage_locations:
-                product_id=stl.product_id
-                variant_id=stl.variant_id or ""
-                batch_id=stl.batch_id or ""
-                combined_id=product_id+variant_id+batch_id
-                stls[combined_id]=stl
+                stls[
+                    (stl.product_id)
+                    + (stl.variant_id or "")
+                    + (stl.batch_id or "")
+                ] = stl
 
+            # Flags for clean condition evaluations
+            has_variant = product.type_infos.get("has_variant", False)
+            has_batch = product.type_infos.get("has_batch", False)
+            has_serialno = product.type_infos.get("has_serialno", False)
 
-            
-            
-                
-            if product.type_infos['has_variant']:
+            # SITUATION A: Product Has Variants
+            if has_variant:
                 variant_infos = {}
 
                 for key, val in variant.items():
@@ -960,111 +1263,95 @@ class ProductRepo:
                     combined_id = product_id + variant_id
 
                     variant_infos[variant_id] = {
-                        "name": val.name
+                        "name": val.name,
+                        "batch_infos": [],
+                        "serialno_infos": [],
+                        "stock_infos": {},
+                        "pricing_infos": {},
+                        "reorder_point_infos": {},
+                        "storage_location_infos": {},
                     }
 
-                    batch_id = ""
+                    # Resolve Batches if tracking exists
+                    if has_batch:
+                        product_batches = batches.get(combined_id, [])
+                        for batch in product_batches:
+                            final_key = combined_id + batch.id
+                            
+                            stock = stocks.get(final_key)
+                            pricing = pricings.get(final_key)
+                            rop = rops.get(final_key)
+                            stl = stls.get(final_key)
+                            sn_list = [
+                                {"id": sn.id, "name": sn.name,"status":sn.status}
+                                for sn in serialnos.get(final_key, [])
+                            ]
 
-                    if product.type_infos['has_batch'] and product.type_infos['has_serialno']:
-                        batch = batches[combined_id]
-                        batch_id = batch.id
-                        final_key = combined_id + batch_id
-                        variant_infos[variant_id]["batch_infos"] = {
-                            "id": batch.id,
-                            "name": batch.name,
-                            "expiry_date": batch.expiry_date,
-                            "manufacturing_date": batch.manufacturing_date,
-                        }
-
-                        serialno_infos = [
-                            {
-                                "id": sn.id,
-                                "name": sn.name,
+                            b_info = {
+                                "id": batch.id,
+                                "name": batch.name,
+                                "expiry_date": batch.expiration_infos.get("expiry_date") if batch.expiration_infos else None,
+                                "manufacturing_date": batch.expiration_infos.get("manufacturing_date") if batch.expiration_infos else None,
+                                "stock_infos": {
+                                    "id": stock.id,
+                                    "physical_stocks": stock.physical_stocks,
+                                    "available_stocks": stock.available_stocks,
+                                    "reserved_stocks": stock.reserved_stocks,
+                                } if stock else {},
+                                "storage_location_infos": {"id": stl.id, "storage_location": stl.name} if stl else {},
+                                "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point} if rop else {},
+                                "pricing_infos": {
+                                    "id": pricing.id,
+                                    "sell_price": pricing.sell_price,
+                                    "buy_price": pricing.buy_price,
+                                } if pricing else {},
+                                "serialno_infos": sn_list
                             }
+                            variant_infos[variant_id]["batch_infos"].append(b_info)
+                    
+                    # Resolve No-Batch Variant Metrics
+                    else:
+                        final_key = combined_id + ""
+                        stock = stocks.get(final_key)
+                        pricing = pricings.get(final_key)
+                        rop = rops.get(final_key)
+                        stl = stls.get(final_key)
+                        sn_list = [
+                            {"id": sn.id, "name": sn.name,"status":sn.status}
                             for sn in serialnos.get(final_key, [])
                         ]
 
-                        variant_infos[variant_id]["batch_infos"]['serialno_infos']=serialno_infos
-
-                    if product.type_infos["has_batch"] and not product.type_infos['has_serialno']:
-                        batch = batches[combined_id]
-
-                        variant_infos[variant_id]["batch_infos"] = {
-                            "id": batch.id,
-                            "name": batch.name,
-                            "expiry_date": batch.expiry_date,
-                            "manufacturing_date": batch.manufacturing_date,
-                        }
-
-                        batch_id = batch.id
-
-                    final_key = combined_id + batch_id
-
-                    if product.type_infos["has_serialno"] and serialnos and not product.type_infos["has_batch"]:
-                        ic(serialnos)
-                        variant_infos[variant_id]["serialno_infos"] = [
-                            {
-                                "id": sn.id,
-                                "name": sn.name,
-                            }
-                            for sn in serialnos.get(final_key, [])
-                        ]
-
-                    stock = stocks.get(final_key)
-                    if stock and product.type_infos["has_batch"]:
-                        variant_infos[variant_id]['batch_infos'] = {
-                            "id": stock.id,
-                            "physical_stocks": stock.physical_stocks,
-                            "available_stocks": stock.available_stocks,
-                            "reserved_stocks": stock.reserved_stocks,
-                        }
-                        batch_infos['stock_infos']=stock_infos
-
-                    if stock and not product.type_infos["has_batch"]:  
-                        variant_infos[variant_id]["stock_infos"] = (
-                            {
+                        if has_serialno:
+                            variant_infos[variant_id]["serialno_infos"] = sn_list
+                        if stock:
+                            variant_infos[variant_id]["stock_infos"] = {
                                 "id": stock.id,
                                 "physical_stocks": stock.physical_stocks,
                                 "available_stocks": stock.available_stocks,
-                                "reserved_stocks": stock.reserved_stocks,
+                                "reserved_stocks": stock.reserved_stocks
                             }
-                        )
-
-                    pricing = pricings.get(final_key)
-                    variant_infos[variant_id]["pricing_infos"] = (
-                        {
-                            "id": pricing.id,
-                            "sell_price": pricing.sell_price,
-                            "buy_price": pricing.buy_price,
-                        }
-                        if pricing
-                        else {}
-                    )
-
-                    rop = rops.get(final_key)
-                    variant_infos[variant_id]["reorder_point_infos"] = (
-                        {
-                            "id": rop.id,
-                            "reorder_point": rop.reorder_point,
-                        }
-                        if rop
-                        else {}
-                    )
-
-                    stl = stls.get(final_key)
-                    variant_infos[variant_id]["storage_location_infos"] = (
-                        {
-                            "id": stl.id,
-                            "storage_location": stl.name,
-                        }
-                        if stl
-                        else {}
-                    )
+                        if pricing:
+                            variant_infos[variant_id]["pricing_infos"] = {
+                                "id": pricing.id,
+                                "sell_price": pricing.sell_price,
+                                "buy_price": pricing.buy_price,
+                            }
+                        if rop:
+                            variant_infos[variant_id]["reorder_point_infos"] = {
+                                "id": rop.id,
+                                "reorder_point": rop.reorder_point,
+                            }
+                        if stl:
+                            variant_infos[variant_id]["storage_location_infos"] = {
+                                "id": stl.id,
+                                "storage_location": stl.name,
+                            }
 
                 res_toadd["variants"] = variant_infos
 
+            # SITUATION B: Standard Product (No Variants)
             else:
-                batch_infos = {}
+                batch_infos = []
                 serialno_infos = []
                 stock_infos = {}
                 pricing_infos = {}
@@ -1075,107 +1362,91 @@ class ProductRepo:
                 product_id = product.id
                 combined_id = product_id + variant_id
 
-                batch_id = ""
+                if has_batch:
+                    product_batches = batches.get(combined_id, [])
+                    for batch in product_batches:
+                        final_key = combined_id + batch.id
+                        
+                        stock = stocks.get(final_key)
+                        pricing = pricings.get(final_key)
+                        rop = rops.get(final_key)
+                        stl = stls.get(final_key)
+                        sn_list = [
+                            {"id": sn.id, "name": sn.name,"status":sn.status}
+                            for sn in serialnos.get(final_key, [])
+                        ]
 
-                if product.type_infos['has_batch'] and product.type_infos['has_serialno']:
-                    batch = batches[combined_id]
-                    batch_id = batch.id
-                    final_key = combined_id + batch_id
-                    batch_infos = {
-                        "id": batch.id,
-                        "name": batch.name,
-                        "expiry_date": batch.expiry_date,
-                        "manufacturing_date": batch.manufacturing_date,
-                    }
-
-                    serialno_infos = [
-                        {
-                            "id": sn.id,
-                            "name": sn.name,
+                        b_info = {
+                            "id": batch.id,
+                            "name": batch.name,
+                            "expiry_date": batch.expiration_infos.get("expiry_date") if batch.expiration_infos else None,
+                            "manufacturing_date": batch.expiration_infos.get("manufacturing_date") if batch.expiration_infos else None,
+                            "stock_infos": {
+                                "id": stock.id,
+                                "physical_stocks": stock.physical_stocks,
+                                "available_stocks": stock.available_stocks,
+                                "reserved_stocks": stock.reserved_stocks,
+                            } if stock else {},
+                            "storage_location_infos": {"id": stl.id, "storage_location": stl.name} if stl else {},
+                            "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point} if rop else {},
+                            "pricing_infos": {
+                                "id": pricing.id,
+                                "sell_price": pricing.sell_price,
+                                "buy_price": pricing.buy_price,
+                            } if pricing else {},
+                            "serialno_infos": sn_list
                         }
+                        batch_infos.append(b_info)
+                else:
+                    final_key = combined_id + ""
+                    stock = stocks.get(final_key)
+                    pricing = pricings.get(final_key)
+                    rop = rops.get(final_key)
+                    stl = stls.get(final_key)
+                    sn_list = [
+                        {"id": sn.id, "name": sn.name,"status":sn.status}
                         for sn in serialnos.get(final_key, [])
                     ]
 
-                    batch_infos['serialno_infos']=serialno_infos
-
-                    
-                    
-
-                if product.type_infos["has_batch"] and not product.type_infos['has_serialno']:
-                    batch = batches[combined_id]
-
-                    batch_infos = {
-                        "id": batch.id,
-                        "name": batch.name,
-                        "expiry_date": batch.expiry_date,
-                        "manufacturing_date": batch.manufacturing_date,
-                    }
-
-                    batch_id = batch.id
-
-                final_key = combined_id + batch_id
-
-                if product.type_infos["has_serialno"] and serialnos and not product.type_infos["has_batch"]:
-                    serialno_infos = [
-                        {
-                            "id": sn.id,
-                            "name": sn.name,
+                    if has_serialno:
+                        serialno_infos = sn_list
+                    if stock:
+                        stock_infos = {
+                            "id": stock.id,
+                            "physical_stocks": stock.physical_stocks,
+                            "available_stocks": stock.available_stocks,
+                            "reserved_stocks": stock.reserved_stocks,
                         }
-                        for sn in serialnos.get(final_key, [])
-                    ]
+                    if pricing:
+                        pricing_infos = {
+                            "id": pricing.id,
+                            "sell_price": pricing.sell_price,
+                            "buy_price": pricing.buy_price,
+                        }
+                    if rop:
+                        reorder_point_infos = {
+                            "id": rop.id,
+                            "reorder_point": rop.reorder_point,
+                        }
+                    if stl:
+                        storage_location_infos = {
+                            "id": stl.id,
+                            "storage_location": stl.name,
+                        }
 
-                stock = stocks.get(final_key)
-                if stock and product.type_infos["has_batch"]:
-                    stock_infos = {
-                        "id": stock.id,
-                        "physical_stocks": stock.physical_stocks,
-                        "available_stocks": stock.available_stocks,
-                        "reserved_stocks": stock.reserved_stocks,
+                res_toadd.update(
+                    {
+                        "batch_infos": batch_infos,
+                        "serialno_infos": serialno_infos,
+                        "stock_infos": stock_infos,
+                        "pricing_infos": pricing_infos,
+                        "reorder_point_infos": reorder_point_infos,
+                        "storage_location_infos": storage_location_infos,
                     }
-                    batch_infos['stock_infos']=stock_infos
-
-                if stock and not product.type_infos["has_batch"]:
-                    stock_infos = {
-                        "id": stock.id,
-                        "physical_stocks": stock.physical_stocks,
-                        "available_stocks": stock.available_stocks,
-                        "reserved_stocks": stock.reserved_stocks,
-                    }
-
-                pricing = pricings.get(final_key)
-                if pricing:
-                    pricing_infos = {
-                        "id": pricing.id,
-                        "sell_price": pricing.sell_price,
-                        "buy_price": pricing.buy_price,
-                    }
-
-                rop = rops.get(final_key)
-                if rop:
-                    reorder_point_infos = {
-                        "id": rop.id,
-                        "reorder_point": rop.reorder_point,
-                    }
-
-                stl = stls.get(final_key)
-                if stl:
-                    storage_location_infos = {
-                        "id": stl.id,
-                        "storage_location": stl.name,
-                    }
-
-                res_toadd = {
-                    **res_toadd,
-                    "batch_infos": batch_infos,
-                    "serialno_infos": serialno_infos,
-                    "stock_infos": stock_infos,
-                    "pricing_infos": pricing_infos,
-                    "reorder_point_infos": reorder_point_infos,
-                    "storage_location_infos": storage_location_infos,
-                }
+                )
 
             final_res.append(res_toadd)
-                
+
         return final_res
     
 
@@ -1201,14 +1472,14 @@ class ProductRepo:
     async def verify_bulk_variant(self,data: List[str]):
         stmt=(
             select(
-                ProductVariants.id
+                *self.variant_cols
             )
             .where(
                 ProductVariants.id.in_(data)
             )
         )
 
-        res=(await self.session.execute(stmt)).scalars().all()
+        res=(await self.session.execute(stmt)).mappings().all()
         ic(res)
         return res
     
@@ -1216,28 +1487,28 @@ class ProductRepo:
     async def verify_bulk_batch(self,data: List[str]):
         stmt=(
             select(
-                ProductBatches.id
+                *self.batch_cols
             )
             .where(
                 ProductBatches.id.in_(data)
             )
         )
 
-        res=(await self.session.execute(stmt)).scalars().all()
+        res=(await self.session.execute(stmt)).mappings().all()
         ic(res)
         return res
     
     async def verify_bulk_serialno(self,data: List[str]):
         stmt=(
             select(
-                ProductSerialNumbers.id
+                *self.serialno_cols
             )
             .where(
                 ProductSerialNumbers.id.in_(data)
             )
         )
 
-        res=(await self.session.execute(stmt)).scalars().all()
+        res=(await self.session.execute(stmt)).mappings().all()
         ic(res)
         return res
     
@@ -1264,13 +1535,44 @@ class ProductRepo:
                         'shop_id':d['shop_id'],
                         'product_id':d['product_id'],
                         'variant_id':d['variant_id'],
-                        'batch_id':d['batch_name'],
+                        'batch_id':d['batch_id'],
                         'names':d['names']
                     }
                     for d in data
                 ]
             )
+        ).mappings().all()
+        ic(res)
+        return res
+    
+
+    async def verify_bulk_batch_name(self,data: List[dict]):
+        stmt=(
+            select(
+                ProductBatches.id
+            )
+            .where(
+                ProductBatches.shop_id==bindparam("shop_id"),
+                ProductBatches.product_id==bindparam("product_id"),
+                ProductBatches.variant_id.is_not_distinct_from(bindparam("variant_id")),
+                ProductBatches.name.in_(bindparam("names",expanding=True))
+            )
         )
+
+        res=(
+            await self.session.execute(
+                stmt,
+                [
+                    {
+                        'shop_id':d['shop_id'],
+                        'product_id':d['product_id'],
+                        'variant_id':d['variant_id'],
+                        'names':d['names']
+                    }
+                    for d in data
+                ]
+            )
+        ).mappings().all()
         ic(res)
         return res
     
@@ -1308,7 +1610,7 @@ class ProductRepo:
             "variants":variants,
             "batches":batches,
             "serialnos":serialnos
-        } 
+        }
     
     
         

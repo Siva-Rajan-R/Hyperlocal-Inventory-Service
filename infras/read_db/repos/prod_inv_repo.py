@@ -1,11 +1,14 @@
-from typing import List
+from pydoc import doc
+from typing import List,Optional
+from annotated_types import doc
 from sqlalchemy.ext.asyncio import AsyncSession
 from pymongo import UpdateOne
 from icecream import ic
 from ..main import PROD_INV_COLLECTION
-from schemas.v1.product_schemas.request_schemas import GetBulkProductsById
+from schemas.v1.product_schemas.request_schemas import GetBulkProductsById,GetAllProductSchema,GetProductsByShopId,GetProductsById
 from integrations.utility_service import get_shop_category, get_shop_unit
 from infras.primary_db.repos.product_repo import ProductRepo
+from infras.primary_db.main import AsyncInventoryLocalSession
 
 class ProdInvReadDbRepo:
 
@@ -76,6 +79,16 @@ class ProdInvReadDbRepo:
                     "name": unit_name
                 }
                 
+                # Fetch Custom Fields
+                from infras.primary_db.services.customfield_service import CustomFieldsService
+                cf_service = CustomFieldsService(session=session)
+                try:
+                    cf_values = await cf_service.get_values_by_product(product_id=prod_id, shop_id=shop_id)
+                    p_data["custom_fields"] = {v["field_name"]: v["value"] for v in cf_values} if cf_values else {}
+                except Exception as e:
+                    ic(f"Error fetching custom fields for read db: {e}")
+                    p_data["custom_fields"] = {}
+                
                 # Prepare bulk operation
                 bulk_ops.append(
                     UpdateOne(
@@ -96,3 +109,106 @@ class ProdInvReadDbRepo:
         except Exception as e:
             ic(f"Error in add_updatereaddb: {e}")
             return False
+
+    
+
+    @classmethod
+    async def get_all(
+        cls,
+        data:GetAllProductSchema
+    ) -> List[dict]:
+        try:
+            query = {}
+
+            if data.active is not None:
+                query["is_active"] = data.active
+
+            cursor = PROD_INV_COLLECTION.find(query)
+            
+            data = await cursor.to_list(length=None)
+            for d in data:
+                d["_id"] = str(d["_id"])
+            
+            return data
+
+        except Exception as e:
+            ic(f"Error in get_all: {e}")
+            return []
+
+    @classmethod
+    async def get_by_shop_id(
+        cls,
+        data:GetProductsByShopId
+    ) -> List[dict]:
+        try:
+            query = {
+                "shop_id": data.shop_id
+            }
+
+            if data.active is not None:
+                query["is_active"] = data.active
+
+            cursor = PROD_INV_COLLECTION.find(query)
+
+            data = await cursor.to_list(length=None)
+            for d in data:
+                d["_id"] = str(d["_id"])
+            
+            return data
+
+        except Exception as e:
+            ic(f"Error in get_by_shop_id: {e}")
+            return []
+
+    @classmethod
+    async def get_by_id(
+        cls,
+        data:GetProductsById,
+    ) -> Optional[dict]:
+        try:
+            query = {
+                "shop_id": data.shop_id,
+                "id": data.id
+            }
+
+            if data.active is not None:
+                query["is_active"] = data.active
+
+            data = await PROD_INV_COLLECTION.find_one(query)
+            if data:
+                data["_id"] = str(data["_id"])
+
+            return data
+
+        except Exception as e:
+            ic(f"Error in get_by_id: {e}")
+            return None
+
+
+    @classmethod   
+    async def get_bulk_by_id(
+        cls,
+        data:GetBulkProductsById,
+    ) -> List[dict]:
+        try:
+            query = {
+                "shop_id": data.shop_id,
+                "id": {"$in": data.id},
+            }
+
+            if data.active is not None:
+                query["is_active"] = data.active
+
+            cursor = PROD_INV_COLLECTION.find(
+                query,
+                {"_id": 0},  # Exclude MongoDB ObjectId
+            )
+
+            return await cursor.to_list(length=len(data.id))
+
+        except Exception as e:
+            ic(f"Error in get_bulk_by_id: {e}")
+            return []
+        
+
+

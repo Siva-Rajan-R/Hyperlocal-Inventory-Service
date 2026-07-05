@@ -88,6 +88,7 @@ class GetAllProductSchema(BaseModel):
     query:Optional[str]=None
     limit:Optional[int]=10
     offset:Optional[int]=1
+    active:Optional[bool]=None
     include_serialno:Optional[bool]=False
 
 class GetProductsByShopId(BaseModel):
@@ -95,17 +96,20 @@ class GetProductsByShopId(BaseModel):
     limit:Optional[int]=10
     offset:Optional[int]=1
     include_serialno:Optional[bool]=False
+    active:Optional[bool]=None
     shop_id:str
 
 class GetProductsById(BaseModel):
     shop_id:str
     id:str
     include_serialno:Optional[bool]=False
+    active:Optional[bool]=None
 
 
 class GetBulkProductsById(BaseModel):
     shop_id:str
     include_serialno:Optional[bool]=False
+    active:Optional[bool]=None
     id:List[str]
 
 

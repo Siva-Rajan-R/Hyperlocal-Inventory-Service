@@ -157,6 +157,7 @@ def map_to_inventory_read_model(product_dict: Dict[str, Any]) -> ProdInvReadMode
         is_active=bool(product_dict.get("is_active", False)),
         have_tracking=bool(product_dict.get("have_tracking", False)),
         gst=str(product_dict.get("gst", "0%")),
+        custom_fields=product_dict.get("custom_fields", {}),
         created_at=datetime.fromisoformat(str(created_raw)) if created_raw else datetime.now(),
         updated_at=datetime.fromisoformat(str(updated_raw)) if updated_raw else datetime.now()
     )

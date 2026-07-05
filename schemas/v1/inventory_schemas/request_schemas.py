@@ -114,6 +114,7 @@ class ReleaseInventorySchema(BaseModel):
 class CommitInventorySchema(BaseModel):
     session_id: str
     entity_name:str
+    record_stock:bool=False
 
 class ReleaseItemInventorySchema(BaseModel):
     session_id: str

@@ -391,6 +391,7 @@ class InventoryRepo:
             "reorder_points": reorder_points
         }
         
+    
     @start_db_transaction
     async def reserve_stock(self, data: ReserveInventorySchema):
         # data format: {"session_id", "product_id", "variant_id", "batch_id", "shop_id", "qty", "expires_at"}
@@ -401,7 +402,7 @@ class InventoryRepo:
         shop_id = data.shop_id
         new_qty = float(data.qty)
         expires_at = data.expires_at
-        serialno_infos=data.serialno_infos or []
+        serialno_infos=[sn.model_dump() for sn in data.serialno_infos or []]
 
         # Find existing active reservation
         stmt_res = select(InventoryReservation).where(
@@ -419,6 +420,7 @@ class InventoryRepo:
         new_serialno_infos=serialno_infos
         serialno_toverify=[]
 
+        ic(new_serialno_infos,prev_serialno_infos)
 
         if prev_serialno_infos:
             reformed_serialno_infos={}
@@ -474,13 +476,15 @@ class InventoryRepo:
         
         stock_record = (await self.session.execute(stmt_stock)).scalars().first()
         
+        
         if not stock_record:
             ic("Stock record not found for reservation")
             raise ValueError("Stock record not found")
             
         if delta > stock_record.available_stocks:
             raise ValueError(f"Insufficient stock for reservation. Available: {stock_record.available_stocks}, Requested: {delta}")
-            
+
+        ic(stock_record.available_stocks)
         stock_record.reserved_stocks = (stock_record.reserved_stocks or 0) + delta
         stock_record.available_stocks = stock_record.physical_stocks - stock_record.reserved_stocks
 
@@ -488,7 +492,7 @@ class InventoryRepo:
             await ProductRepo(session=self.session).update_bulk_serialno(
                 data=[
                     UpdateProductSerialnoDbSchema(
-                        id=d.id,
+                        id=d['id'],
                         shop_id=shop_id,
                         status=ProductSerialnoStatusEnums.RESERVED
                     )
@@ -500,8 +504,8 @@ class InventoryRepo:
             reservation.serialno_infos=prev_serialno_infos
 
         ic(stock_record.physical_stocks,stock_record.reserved_stocks)
-        # await self.session.commit()
         readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=[product_id])
+        await self.session.commit()
         ic(readdb_res)
         
         return True
@@ -653,10 +657,12 @@ class InventoryRepo:
                 stock_record.reserved_stocks = max(0, (stock_record.reserved_stocks or 0) - abs(res.qty))
                 stock_record.available_stocks = stock_record.physical_stocks - stock_record.reserved_stocks
                 ic(stock_adj_mov_data)
-                stock_mov_adj_res=await emit_stock_mov_adj(session=self.session,data=stock_adj_mov_data)
-                ic(stock_mov_adj_res)
+                if data.record_stock:
+                    stock_mov_adj_res=await emit_stock_mov_adj(session=self.session,data=stock_adj_mov_data)
+                    ic(stock_mov_adj_res)
 
             product_ids.append(res.product_id) 
+            ic(res.shop_id)
             shop_id=res.shop_id  
             res.status = "COMPLETED"
         

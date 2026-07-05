@@ -9,8 +9,8 @@ class CreateProdInvVariantType(BaseModel):
     name:str
     storage_location:Optional[str]=None
     reorder_point:Optional[float]=5
-    buy_price:float
-    sell_price:float
+    buy_price:Optional[float]=None
+    sell_price:Optional[float]=None
 
 class UpdateProdInvVariantType(BaseModel):
     id:Optional[str]=None
@@ -46,6 +46,7 @@ class CreateProdInvSchema(BaseModel):
     gst:Optional[str]="0%"
     sell_price:Optional[float]=None
     reorder_point:Optional[float]=5
+    custom_fields:Optional[dict]={}
 
 
 
@@ -66,6 +67,7 @@ class UpdateProdInvSchema(BaseModel):
     storage_location_id:Optional[str]=None
     reorder_point_id:Optional[str]=None
     reorder_point:Optional[float]=5
+    custom_fields:Optional[dict]={}
 
 
 class DeleteProdInvSchema(BaseModel):

@@ -16,6 +16,7 @@ from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
 from typing import Optional,Union,List,Dict
 from icecream import ic
+from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
 
 class MessagingQueueProductInvService:
   
@@ -219,9 +220,10 @@ class MessagingQueueProductInvService:
             data = GetBulkProductsById(**data)
 
         async with AsyncInventoryLocalSession() as session:
-            repo_obj = ProductRepo(session=session)
+            # repo_obj = ProductRepo(session=session)
 
-            res = await repo_obj.get_bulk_products_by_id(data=data)
+            # res = await repo_obj.get_bulk_products_by_id(data=data)
+            res = await ProdInvReadDbRepo.get_bulk_by_id(data=data)
             ic(res)
             if not res:
                 return res
