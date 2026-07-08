@@ -223,6 +223,56 @@ class ProductInventoryService:
                 ic(read_db_res)
             except Exception as e:
                 ic(f"Error syncing to read DB on create: {e}")
+                
+            try:
+                from messaging.main import RabbitMQMessagingConfig
+                rabbitmq_msg_obj = RabbitMQMessagingConfig()
+                
+                analytics_payload = {
+                    "shop_id": data.shop_id,
+                    "datas": [
+                        {
+                            "product_id": product_id,
+                            "variant_id": None,
+                            "batch_id": None,
+                            "is_active": False,
+                            "stocks": 0,
+                            "low_stocks": 0,
+                            "no_stocks": 1
+                        }
+                    ]
+                }
+                
+                if data.type_infos.has_variant and variants_toadd:
+                    analytics_payload["datas"] = [
+                        {
+                            "product_id": product_id,
+                            "variant_id": str(v.id),
+                            "batch_id": None,
+                            "is_active": False,
+                            "stocks": 0,
+                            "low_stocks": 0,
+                            "no_stocks": 1
+                        }
+                        for v in variants_toadd
+                    ]
+
+                await rabbitmq_msg_obj.publish_event(
+                    routing_key="analytics.service.routing.key",
+                    exchange_name="analytics.service.exchange",
+                    payload=analytics_payload,
+                    headers={
+                        "entity_name": "prodinv_event",
+                        "service_name": "ANALYTICS",
+                        "saga_id": "none",
+                        "reply_key": "none",
+                        "reply_exchange": "none",
+                        "reply_entity_name": "none",
+                        "body": analytics_payload
+                    }
+                )
+            except Exception as e:
+                ic(f"Failed to publish analytics event: {e}")
         
 
         return product_add_res
