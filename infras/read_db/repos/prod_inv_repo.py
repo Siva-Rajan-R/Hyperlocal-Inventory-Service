@@ -123,6 +123,9 @@ class ProdInvReadDbRepo:
             if data.active is not None:
                 query["is_active"] = data.active
 
+            if data.visible_online is not None:
+                query["visible_online"] = data.visible_online
+
             cursor = PROD_INV_COLLECTION.find(query)
             
             data = await cursor.to_list(length=None)
@@ -147,6 +150,9 @@ class ProdInvReadDbRepo:
 
             if data.active is not None:
                 query["is_active"] = data.active
+
+            if data.visible_online is not None:
+                query["visible_online"] = data.visible_online
 
             cursor = PROD_INV_COLLECTION.find(query)
 
@@ -174,6 +180,9 @@ class ProdInvReadDbRepo:
             if data.active is not None:
                 query["is_active"] = data.active
 
+            if data.visible_online is not None:
+                query["visible_online"] = data.visible_online
+
             data = await PROD_INV_COLLECTION.find_one(query)
             if data:
                 data["_id"] = str(data["_id"])
@@ -199,6 +208,9 @@ class ProdInvReadDbRepo:
             if data.active is not None:
                 query["is_active"] = data.active
 
+            if data.visible_online is not None:
+                query["visible_online"] = data.visible_online
+
             cursor = PROD_INV_COLLECTION.find(
                 query,
                 {"_id": 0},  # Exclude MongoDB ObjectId
@@ -209,6 +221,7 @@ class ProdInvReadDbRepo:
         except Exception as e:
             ic(f"Error in get_bulk_by_id: {e}")
             return []
+
         
 
 

@@ -11,6 +11,7 @@ class CreateProdInvVariantType(BaseModel):
     reorder_point:Optional[float]=5
     buy_price:Optional[float]=None
     sell_price:Optional[float]=None
+    visible_online:Optional[bool]=False
 
 class UpdateProdInvVariantType(BaseModel):
     id:Optional[str]=None
@@ -22,12 +23,14 @@ class UpdateProdInvVariantType(BaseModel):
     reorder_point:Optional[float]=5
     buy_price:float
     sell_price:float
+    visible_online:Optional[bool]=False
 
 
 class CreateProdInvBatchType(BaseModel):
     name:str
     expiry_date:date
     manufacturing_date:date
+    visible_online:Optional[bool]=False
 
 
 
@@ -47,6 +50,7 @@ class CreateProdInvSchema(BaseModel):
     sell_price:Optional[float]=None
     reorder_point:Optional[float]=5
     custom_fields:Optional[dict]={}
+    visible_online:Optional[bool]=False
 
 
 
@@ -68,6 +72,7 @@ class UpdateProdInvSchema(BaseModel):
     reorder_point_id:Optional[str]=None
     reorder_point:Optional[float]=5
     custom_fields:Optional[dict]={}
+    visible_online:Optional[bool]=False
 
 
 class DeleteProdInvSchema(BaseModel):
@@ -78,6 +83,7 @@ class DeleteProdInvSchema(BaseModel):
 class CreateProdInvBatchSerialnoBatchInfosType(BaseModel):
     name:str
     expiration_infos:ProductBatchExpirationInfosType
+    visible_online:Optional[bool]=False
 
 
 class CreateProdInvBatchSerialnoSchema(BaseModel):

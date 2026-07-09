@@ -21,7 +21,7 @@ class Products(BASE):
     have_tracking=Column(Boolean,nullable=False)
     additional_infos=Column(JSONB,nullable=True)
     gst=Column(String,nullable=False)
-
+    visible_online=Column(Boolean,nullable=False,default=False)
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
     updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
 
@@ -64,6 +64,7 @@ class ProductVariants(BASE):
     barcode=Column(String,nullable=True)
     product_id=Column(String,ForeignKey("products.id",ondelete="CASCADE"),nullable=False)
     name=Column(String,nullable=False)
+    visible_online=Column(Boolean,nullable=False,default=False)
     additional_infos=Column(JSONB,nullable=True)
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
@@ -80,6 +81,7 @@ class ProductBatches(BASE):
     name=Column(String,nullable=False)
     expiration_infos=Column(JSONB,nullable=False)
     additional_infos=Column(JSONB,nullable=True)
+    visible_online=Column(Boolean,nullable=False,default=False)
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
     updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())
@@ -96,6 +98,7 @@ class ProductSerialNumbers(BASE):
     name=Column(String,nullable=False)
     status=Column(String,nullable=False)
     additional_infos=Column(JSONB,nullable=True)
+    visible_online=Column(Boolean,nullable=False,default=False)
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
     updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())

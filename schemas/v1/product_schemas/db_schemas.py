@@ -21,6 +21,7 @@ class CreateProductDbSchema(BaseModel):
     type_infos:ProductTypeInfosType
     have_tracking:bool
     is_active:bool
+    visible_online:bool = False
 
 
 class UpdateProductDbSchema(BaseModel):
@@ -36,6 +37,7 @@ class UpdateProductDbSchema(BaseModel):
     have_tracking:Optional[bool]=None
     is_active:Optional[bool]=None
     gst:Optional[str]="0%"
+    visible_online:Optional[bool]=None
 
 
 class DeleteProductDbSchema(BaseModel):
@@ -48,11 +50,13 @@ class CreateProductVariantDbSchema(BaseModel):
     product_id:str
     shop_id:str
     name:str
+    visible_online:bool = False
 
 class UpdateProductVariantDbSchema(BaseModel):
     id:str
     shop_id:str
     name:Optional[str]=None
+    visible_online:Optional[bool]=None
 
 # BATCH
 class CreateProductBatchDbSchema(BaseModel):
@@ -62,6 +66,7 @@ class CreateProductBatchDbSchema(BaseModel):
     variant_id:Optional[str]=None
     name:str
     expiration_infos:ProductBatchExpirationInfosType
+    visible_online:bool = False
 
 class UpdateProductBatchDbSchema(BaseModel):
     id:str
@@ -69,6 +74,7 @@ class UpdateProductBatchDbSchema(BaseModel):
     variant_id:Optional[str]=None
     name:Optional[str]=None
     expiration_infos:Optional[ProductBatchExpirationInfosType]=None
+    visible_online:Optional[bool]=None
 
 
 # SERIAL NUMBERS
@@ -80,6 +86,7 @@ class CreateProductSerialnoDbSchema(BaseModel):
     batch_id:Optional[str]=None
     name:str
     status:Optional[ProductSerialnoStatusEnums]=ProductSerialnoStatusEnums.AVAILABLE
+    visible_online:bool = False
 
 class UpdateProductSerialnoDbSchema(BaseModel):
     id:str
@@ -88,6 +95,8 @@ class UpdateProductSerialnoDbSchema(BaseModel):
     batch_id:Optional[str]=None
     name:Optional[str]=None
     status:Optional[ProductSerialnoStatusEnums]=ProductSerialnoStatusEnums.AVAILABLE
+    visible_online:Optional[bool]=None
+
 
 
 

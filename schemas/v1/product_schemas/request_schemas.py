@@ -18,6 +18,7 @@ class CreateProductSchema(BaseModel):
     type_infos:ProductTypeInfosType
     have_tracking:bool
     reorder_point:Optional[float]=0
+    visible_online:Optional[bool]=False
 
 
 class UpdateProductSchema(BaseModel):
@@ -32,6 +33,7 @@ class UpdateProductSchema(BaseModel):
     have_tracking:Optional[bool]=None
     reorder_point:Optional[float]=0
     gst:Optional[str]="0%"
+    visible_online:Optional[bool]=None
 
 
 class DeleteProductSchema(BaseModel):
@@ -43,11 +45,13 @@ class CreateProductVariantSchema(BaseModel):
     product_id:str
     shop_id:str
     name:str
+    visible_online:Optional[bool]=False
 
 class UpdateProductVariantSchema(BaseModel):
     id:str
     shop_id:str
     name:Optional[str]=None
+    visible_online:Optional[bool]=None
 
 # BATCH
 class CreateProductBatchSchema(BaseModel):
@@ -56,6 +60,7 @@ class CreateProductBatchSchema(BaseModel):
     variant_id:Optional[str]=None
     name:str
     expiration_infos:ProductBatchExpirationInfosType
+    visible_online:Optional[bool]=False
 
 class UpdateProductBatchSchema(BaseModel):
     id:str
@@ -63,6 +68,7 @@ class UpdateProductBatchSchema(BaseModel):
     variant_id:Optional[str]=None
     name:Optional[str]=None
     expiration_infos:Optional[ProductBatchExpirationInfosType]=None
+    visible_online:Optional[bool]=None
 
 
 # SERIAL NUMBERS
@@ -73,6 +79,7 @@ class CreateProductSerialnoSchema(BaseModel):
     batch_id:Optional[str]=None
     name:str
     status:Optional[ProductSerialnoStatusEnums]=ProductSerialnoStatusEnums.AVAILABLE
+    visible_online:Optional[bool]=False
 
 class UpdateProductSerialnoSchema(BaseModel):
     id:str
@@ -81,6 +88,7 @@ class UpdateProductSerialnoSchema(BaseModel):
     batch_id:Optional[str]=None
     name:Optional[str]=None
     status:Optional[ProductSerialnoStatusEnums]=ProductSerialnoStatusEnums.AVAILABLE
+    visible_online:Optional[bool]=None
 
 
 
@@ -90,6 +98,7 @@ class GetAllProductSchema(BaseModel):
     offset:Optional[int]=1
     active:Optional[bool]=None
     include_serialno:Optional[bool]=False
+    visible_online:Optional[bool]=None
 
 class GetProductsByShopId(BaseModel):
     query:Optional[str]=None
@@ -98,12 +107,14 @@ class GetProductsByShopId(BaseModel):
     include_serialno:Optional[bool]=False
     active:Optional[bool]=None
     shop_id:str
+    visible_online:Optional[bool]=None
 
 class GetProductsById(BaseModel):
     shop_id:str
     id:str
     include_serialno:Optional[bool]=False
     active:Optional[bool]=None
+    visible_online:Optional[bool]=None
 
 
 class GetBulkProductsById(BaseModel):
@@ -111,6 +122,8 @@ class GetBulkProductsById(BaseModel):
     include_serialno:Optional[bool]=False
     active:Optional[bool]=None
     id:List[str]
+    visible_online:Optional[bool]=None
+
 
 
 
