@@ -85,11 +85,11 @@ class HandleProdInvRequest:
         )
     
     async def update(self,data:UpdateProdInvSchema):
-        if data.type_infos.has_variant and not data.variant_infos:
+        if data.type_infos and data.type_infos.has_variant and not data.variant_infos:
             raise HTTPException(
                 status_code=400,
                 detail=ErrorResponseTypDict(
-                    msg="Error => Creating Inventory",
+                    msg="Error => Updating Inventory",
                     description="Please provide atleast one variant when it was enabled",
                     success=False,
                     status_code=400
@@ -120,7 +120,7 @@ class HandleProdInvRequest:
                   )
              )
         
-        return HTTPException(
+        raise HTTPException(
              status_code=400,
              detail=ErrorResponseTypDict(
                   msg="Error => Updating Inventory",
@@ -128,7 +128,6 @@ class HandleProdInvRequest:
                   success=False,
                   status_code=400
              ),
-             
         )
     
     async def delete(self,data:DeleteProdInvSchema):

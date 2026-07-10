@@ -278,250 +278,275 @@ class ProductInventoryService:
         return product_add_res
     
 
-    async def update(self,data:UpdateProdInvSchema):
-        product_repo_obj=ProductRepo(session=self.session)
-        variants_toadd=[]
-        variants_toupdate=[]
-        storage_location_toupdate=[]
-        storage_location_toadd=[]
-        pricing_toupdate=[]
-        pricing_toadd=[]
-        rop_toadd=[]
-        rop_toupdate=[]
+    async def update(self, data: UpdateProdInvSchema):
+        product_repo_obj = ProductRepo(session=self.session)
+        variants_toadd = []
+        variants_toupdate = []
+        storage_location_toupdate = []
+        storage_location_toadd = []
+        pricing_toupdate = []
+        pricing_toadd = []
+        rop_toadd = []
+        rop_toupdate = []
 
-        prod_get_res=await product_repo_obj.get_products_by_id(data=GetProductsById(shop_id=data.shop_id,id=data.id))
+        prod_get_res = await product_repo_obj.get_products_by_id(data=GetProductsById(shop_id=data.shop_id, id=data.id))
         if not prod_get_res:
-            ic("The give product doesn't exists")
+            ic("The given product doesn't exist")
             return False
+            
+        # Standardize dictionary access (handles list wrapped or plain dict returns safely)
+        if isinstance(prod_get_res, list):
+            prod_get_res = prod_get_res[0] if prod_get_res else {}
+
+        # Check structural parameters from payload or fall back to DB
+        have_tracking = data.have_tracking if data.have_tracking is not None else prod_get_res.get('have_tracking')
         
-        if prod_get_res['is_active'] and not prod_get_res['have_tracking'] and data.have_tracking:
-            ic("This product have a purchase, so you can't be able to make it as a normal one")
+        type_infos = data.type_infos if data.type_infos is not None else prod_get_res.get('type_infos')
+        if isinstance(type_infos, dict):
+            has_variant = type_infos.get('has_variant', False)
+            has_batch = type_infos.get('has_batch', False)
+            has_serialno = type_infos.get('has_serialno', False)
+        else:
+            has_variant = getattr(type_infos, 'has_variant', False) if type_infos else False
+            has_batch = getattr(type_infos, 'has_batch', False) if type_infos else False
+            has_serialno = getattr(type_infos, 'has_serialno', False) if type_infos else False
+
+        if prod_get_res.get('is_active') and not prod_get_res.get('have_tracking') and data.have_tracking is True:
+            ic("This product has a purchase, so you can't make it a normal one")
             return False
 
-        if prod_get_res['is_active'] and not prod_get_res['type_infos']['has_variant'] and data.type_infos.has_variant:
-            ic("This product have a purchase, so you can't be able to make create a variant")
+        if prod_get_res.get('is_active') and not prod_get_res.get('type_infos', {}).get('has_variant') and has_variant:
+            ic("This product has a purchase, so you can't create a variant")
 
-        if prod_get_res['is_active'] and not prod_get_res['type_infos']['has_batch'] and data.type_infos.has_variant:
-            ic("This product have a purchase, so you can't be able to make create a batch")
+        if prod_get_res.get('is_active') and not prod_get_res.get('type_infos', {}).get('has_batch') and has_variant:
+            ic("This product has a purchase, so you can't create a batch")
         
-        if prod_get_res['is_active'] and not prod_get_res['type_infos']['has_serialno'] and data.type_infos.has_variant:
-            ic("This product have a purchase, so you can't be able to make create a serialno")
+        if prod_get_res.get('is_active') and not prod_get_res.get('type_infos', {}).get('has_serialno') and has_variant:
+            ic("This product has a purchase, so you can't create a serialno")
         
-        if data.type_infos.has_variant:
-            for variant in data.variant_infos:
-                if not variant.id:
-                    variant_id=generate_uuid()
-                    variants_toadd.append(
-                        ProductVariants(
-                            id=variant_id,
-                            product_id=data.id,
-                            shop_id=data.shop_id,
-                            name=variant.name
-                        )
-                    )
+        # Track fields explicitly provided in the payload path
+        sent_fields = data.model_dump(exclude_unset=True)
 
-                    if data.have_tracking:
-                        inv_pricing_id=generate_uuid()
-                        pricing_toadd.append(
-                            InventoryPricings(
-                                id=inv_pricing_id,
+        if has_variant:
+            if data.variant_infos:
+                for variant in data.variant_infos:
+                    if not variant.id:
+                        variant_id = generate_uuid()
+                        variants_toadd.append(
+                            ProductVariants(
+                                id=variant_id,
                                 product_id=data.id,
                                 shop_id=data.shop_id,
-                                variant_id=variant_id,
-                                buy_price=variant.buy_price,
-                                sell_price=variant.sell_price
+                                name=variant.name
                             )
                         )
 
-                    if variant.storage_location:
-                        inv_stl_id=generate_uuid()
-                        storage_location_toadd.append(
-                            InventoryStoragelocations(
-                                id=inv_stl_id,
-                                product_id=data.id,
-                                shop_id=data.shop_id,
-                                variant_id=variant_id,
-                                name=variant.storage_location
+                        if have_tracking and variant.buy_price is not None:
+                            pricing_toadd.append(
+                                InventoryPricings(
+                                    id=generate_uuid(),
+                                    product_id=data.id,
+                                    shop_id=data.shop_id,
+                                    variant_id=variant_id,
+                                    buy_price=variant.buy_price,
+                                    sell_price=variant.sell_price
+                                )
                             )
-                        )
-                    
-                    if variant.reorder_point:
-                        rop_id=generate_uuid()
-                        rop_toadd.append(
-                            InventoryReorderPoint(
-                                id=rop_id,
-                                product_id=data.id,
-                                shop_id=data.shop_id,
-                                variant_id=variant_id,
-                                reorder_point=variant.reorder_point
-                            )
-                        )
-                else:
-                    variant_id=variant.id
-                    variants_toupdate.append(
-                        ProductVariants(
-                            id=variant_id,
-                            product_id=data.id,
-                            shop_id=data.shop_id,
-                            name=variant.name
-                        )
-                    )
 
-                    if data.have_tracking:
-                        inv_pricing_id=variant.pricing_id
-                        pricing_toupdate.append(
-                            InventoryPricings(
-                                id=inv_pricing_id,
-                                product_id=data.id,
-                                shop_id=data.shop_id,
-                                variant_id=variant_id,
-                                buy_price=variant.buy_price,
-                                sell_price=variant.sell_price
-                            )
-                        )
-
-                    if variant.storage_location:
-                        inv_stl_id=variant.storage_location_id
-                        if not inv_stl_id:
-                            inv_stl_id=generate_uuid()
+                        if variant.storage_location:
                             storage_location_toadd.append(
                                 InventoryStoragelocations(
-                                    id=inv_stl_id,
+                                    id=generate_uuid(),
                                     product_id=data.id,
                                     shop_id=data.shop_id,
                                     variant_id=variant_id,
                                     name=variant.storage_location
                                 )
                             )
-                        else:
-                            storage_location_toupdate.append(
-                                UpdateInventoryStorageLocationDbSchema(
-                                    id=inv_stl_id,
+                        
+                        if variant.reorder_point:
+                            rop_toadd.append(
+                                InventoryReorderPoint(
+                                    id=generate_uuid(),
                                     product_id=data.id,
                                     shop_id=data.shop_id,
-                                    name=variant.storage_location
+                                    variant_id=variant_id,
+                                    reorder_point=variant.reorder_point
+                                )
+                            )
+                    else:
+                        variant_id = variant.id
+                        variants_toupdate.append(
+                            ProductVariants(
+                                id=variant_id,
+                                product_id=data.id,
+                                shop_id=data.shop_id,
+                                name=variant.name
+                            )
+                        )
+
+                        if have_tracking:
+                            pricing_toupdate.append(
+                                InventoryPricings(
+                                    id=variant.pricing_id,
+                                    product_id=data.id,
+                                    shop_id=data.shop_id,
+                                    variant_id=variant_id,
+                                    buy_price=variant.buy_price,
+                                    sell_price=variant.sell_price
                                 )
                             )
 
-                    if variant.reorder_point:
-                        rop_id=variant.reorder_point_id
-                        if not rop_id:
-                            rop_id=generate_uuid()
-                            rop_toadd.append(
-                                InventoryReorderPoint(
-                                    id=rop_id,
-                                    product_id=data.id,
-                                    shop_id=data.shop_id,
-                                    variant_id=variant_id,
-                                    reorder_point=variant.reorder_point
+                        if variant.storage_location:
+                            inv_stl_id = variant.storage_location_id
+                            if not inv_stl_id:
+                                storage_location_toadd.append(
+                                    InventoryStoragelocations(
+                                        id=generate_uuid(),
+                                        product_id=data.id,
+                                        shop_id=data.shop_id,
+                                        variant_id=variant_id,
+                                        name=variant.storage_location
+                                    )
                                 )
-                            )
-                        else:
-                            rop_toupdate.append(
-                                UpdateInventoryReorderPointDbSchema(
-                                    id=rop_id,
-                                    product_id=data.id,
-                                    shop_id=data.shop_id,
-                                    reorder_point=variant.reorder_point
+                            else:
+                                storage_location_toupdate.append(
+                                    UpdateInventoryStorageLocationDbSchema(
+                                        id=inv_stl_id,
+                                        product_id=data.id,
+                                        shop_id=data.shop_id,
+                                        name=variant.storage_location
+                                    )
                                 )
-                            )
-            
+
+                        if variant.reorder_point:
+                            rop_id = variant.reorder_point_id
+                            if not rop_id:
+                                rop_toadd.append(
+                                    InventoryReorderPoint(
+                                        id=generate_uuid(),
+                                        product_id=data.id,
+                                        shop_id=data.shop_id,
+                                        variant_id=variant_id,
+                                        reorder_point=variant.reorder_point
+                                    )
+                                )
+                            else:
+                                rop_toupdate.append(
+                                    UpdateInventoryReorderPointDbSchema(
+                                        id=rop_id,
+                                        product_id=data.id,
+                                        shop_id=data.shop_id,
+                                        reorder_point=variant.reorder_point
+                                    )
+                                )
+                
         else:
-            if data.have_tracking:
-                inv_pricing_id=data.pricing_id
-                if not inv_pricing_id:
-                    inv_pricing_id=generate_uuid()
-                    pricing_toadd.append(
-                        InventoryPricings(
-                            id=inv_pricing_id,
-                            product_id=data.id,
-                            shop_id=data.shop_id,
-                            buy_price=data.buy_price,
-                            sell_price=data.sell_price
+            # Pull values out with explicit check across inbound payload vs database fields
+            buy_price = data.buy_price if "buy_price" in sent_fields else prod_get_res.get('buy_price')
+            sell_price = data.sell_price if "sell_price" in sent_fields else prod_get_res.get('sell_price')
+            storage_location = data.storage_location if "storage_location" in sent_fields else prod_get_res.get('storage_location')
+            reorder_point = data.reorder_point if "reorder_point" in sent_fields else prod_get_res.get('reorder_point')
+            
+            pricing_id = data.pricing_id or prod_get_res.get('pricing_id')
+            storage_location_id = data.storage_location_id or prod_get_res.get('storage_location_id')
+            reorder_point_id = data.reorder_point_id or prod_get_res.get('reorder_point_id')
+
+            if have_tracking:
+                if not pricing_id:
+                    # CRITICAL GUARD: Only create a brand new pricing row if we actually have prices to put in it!
+                    if buy_price is not None:
+                        pricing_toadd.append(
+                            InventoryPricings(
+                                id=generate_uuid(),
+                                product_id=data.id,
+                                shop_id=data.shop_id,
+                                buy_price=buy_price,
+                                sell_price=sell_price
+                            )
                         )
-                    )
                 else:
                     pricing_toupdate.append(
                         UpdateInventoryPricingDbSchema(
-                            id=inv_pricing_id,
+                            id=pricing_id,
                             product_id=data.id,
                             shop_id=data.shop_id,
-                            buy_price=data.buy_price,
-                            sell_price=data.sell_price
+                            buy_price=buy_price,
+                            sell_price=sell_price
                         )
                     )
 
-            if data.storage_location:
-                inv_stl_id=data.storage_location_id
-                if not inv_stl_id:
-                    inv_stl_id=generate_uuid()
+            if storage_location:
+                if not storage_location_id:
                     storage_location_toadd.append(
                         InventoryStoragelocations(
-                            id=inv_stl_id,
+                            id=generate_uuid(),
                             product_id=data.id,
                             shop_id=data.shop_id,
-                            name=data.storage_location
+                            name=storage_location
                         )
                     )
                 else:
                     storage_location_toupdate.append(
                         UpdateInventoryStorageLocationDbSchema(
-                            id=inv_stl_id,
+                            id=storage_location_id,
                             product_id=data.id,
                             shop_id=data.shop_id,
-                            name=data.storage_location
+                            name=storage_location
                         )
                     ) 
 
-            if data.reorder_point:
-                rop_id=data.reorder_point_id
-                if not rop_id:
-                    rop_id=generate_uuid()
+            if reorder_point:
+                if not reorder_point_id:
                     rop_toadd.append(
                         InventoryReorderPoint(
-                            id=rop_id,
+                            id=generate_uuid(),
                             product_id=data.id,
                             shop_id=data.shop_id,
-                            reorder_point=data.reorder_point
+                            reorder_point=reorder_point
                         )
                     )
                 else:
                     rop_toupdate.append(
                         UpdateInventoryReorderPointDbSchema(
-                            id=rop_id,
+                            id=reorder_point_id,
                             product_id=data.id,
                             shop_id=data.shop_id,
-                            reorder_point=data.reorder_point
+                            reorder_point=reorder_point
                         )
                     )
 
-        
-        product_toadd=UpdateProductDbSchema(
+        product_toadd = UpdateProductDbSchema(
             id=data.id,
-            **data.model_dump(exclude=["stocks","variant_infos","storage_location","buy_price","sell_price","id"])
+            **data.model_dump(
+                exclude={"stocks", "variant_infos", "storage_location", "buy_price", "sell_price", "id",
+                        "pricing_id", "storage_location_id", "reorder_point_id", "reorder_point",
+                        "custom_fields"},
+                exclude_none=True,
+                exclude_unset=True
+            )
         )
 
-        ic(product_toadd,variants_toadd,variants_toupdate,pricing_toadd,pricing_toupdate,storage_location_toadd,storage_location_toupdate)
+        ic(product_toadd, variants_toadd, variants_toupdate, pricing_toadd, pricing_toupdate, storage_location_toadd, storage_location_toupdate)
         
-        product_add_res=await product_repo_obj.update_bulk_product(data=[product_toadd])
+        product_add_res = await product_repo_obj.update_bulk_product(data=[product_toadd])
         ic(product_add_res)
-        if product_add_res and data.type_infos.has_variant:
+        if product_add_res and has_variant:
             if variants_toadd:
-                variant_res=await product_repo_obj.create_bulk_variant(data=variants_toadd)
-            else:
-                variant_res=await product_repo_obj.update_bulk_variant(data=variants_toupdate)
-            ic(variant_res)
+                variant_res = await product_repo_obj.create_bulk_variant(data=variants_toadd)
+            elif variants_toupdate:
+                variant_res = await product_repo_obj.update_bulk_variant(data=variants_toupdate)
         
         if product_add_res:
-            inv_repo_obj=InventoryRepo(session=self.session)
+            inv_repo_obj = InventoryRepo(session=self.session)
 
-            await inv_repo_obj.create_bulk_pricing(data=pricing_toadd)
-            await inv_repo_obj.create_bulk_storage_location(data=storage_location_toadd)
-            await inv_repo_obj.create_bulk_reorder_point(data=rop_toadd)
+            if pricing_toadd: await inv_repo_obj.create_bulk_pricing(data=pricing_toadd)
+            if storage_location_toadd: await inv_repo_obj.create_bulk_storage_location(data=storage_location_toadd)
+            if rop_toadd: await inv_repo_obj.create_bulk_reorder_point(data=rop_toadd)
 
-            await inv_repo_obj.update_bulk_pricing(data=pricing_toupdate)
-            await inv_repo_obj.update_bulk_storage_location(data=storage_location_toupdate)
-            await inv_repo_obj.update_bulk_reorder_point(data=rop_toupdate)
+            if pricing_toupdate: await inv_repo_obj.update_bulk_pricing(data=pricing_toupdate)
+            if storage_location_toupdate: await inv_repo_obj.update_bulk_storage_location(data=storage_location_toupdate)
+            if rop_toupdate: await inv_repo_obj.update_bulk_reorder_point(data=rop_toupdate)
             
             if data.custom_fields and data.custom_fields.get("values"):
                 cust_field_obj = CustomFieldsService(session=self.session)
@@ -533,48 +558,46 @@ class ProductInventoryService:
                     )
                 )
             
-            changes_list = ActivityLogger.compute_changes(prod_get_res, data.model_dump(mode='json', exclude_none=True, exclude_unset=True))
-            if changes_list:
-                desc_changes = [f"{c['field']} prv({c['before']}) after ({c['after']})" for c in changes_list]
-                desc = f"updated product {', '.join(desc_changes)}"
-                try:
-                    from messaging.main import RabbitMQMessagingConfig
-                    rabbitmq_msg_obj = RabbitMQMessagingConfig()
-                    await rabbitmq_msg_obj.publish_event(
-                        routing_key="activity_logs.routing.key",
-                        exchange_name="activity_logs.exchange",
-                        payload={
-                            "shop_id": data.shop_id,
-                            "user_name": "siva",
-                            "service": "Inventory",
-                            "action": "UPDATE",
-                            "entity_type": "ProductInventory",
-                            "entity_id": data.id,
-                            "description": desc,
-                            "changes": changes_list
-                        },
-                        headers={}
-                    )
-                except Exception as e:
-                    ic(f"Failed to publish activity log: {e}")
+            # changes_list = ActivityLogger.compute_changes(prod_get_res, data.model_dump(mode='json', exclude_none=True, exclude_unset=True))
+            # if changes_list:
+            #     desc_changes = [f"{c['field']} prv({c['before']}) after ({c['after']})" for c in changes_list]
+            #     desc = f"updated product {', '.join(desc_changes)}"
+            #     try:
+            #         from messaging.main import RabbitMQMessagingConfig
+            #         rabbitmq_msg_obj = RabbitMQMessagingConfig()
+            #         await rabbitmq_msg_obj.publish_event(
+            #             routing_key="activity_logs.routing.key",
+            #             exchange_name="activity_logs.exchange",
+            #             payload={
+            #                 "shop_id": data.shop_id,
+            #                 "user_name": "siva",
+            #                 "service": "Inventory",
+            #                 "action": "UPDATE",
+            #                 "entity_type": "ProductInventory",
+            #                 "entity_id": data.id,
+            #                 "description": desc,
+            #                 "changes": changes_list
+            #             },
+            #             headers={}
+            #         )
+            #     except Exception as e:
+            #         ic(f"Failed to publish activity log: {e}")
 
-            # Sync to Read DB
+            # Sync to Read DB Pipeline
             try:
-                from schemas.v1.product_schemas.request_schemas import GetProductsById
                 prod_get_res_updated = await product_repo_obj.get_products_by_id(data=GetProductsById(id=data.id, shop_id=data.shop_id, include_serialno=True))
                 if prod_get_res_updated:
                     prod_dict = prod_get_res_updated[0] if isinstance(prod_get_res_updated, list) else prod_get_res_updated
+                    prod_dict.update(data.model_dump(exclude_none=True, exclude_unset=True))
                     
                     from integrations.utility_service import get_shop_category, get_shop_unit
                     
-                    # Fetch category
                     cat_id = prod_dict.get("category_id")
                     if cat_id:
                         cat_data = await get_shop_category(shop_id=data.shop_id, category_id=cat_id)
                         if cat_data:
                             prod_dict["category_infos"] = cat_data
                             
-                    # Fetch unit
                     unit_id = prod_dict.get("unit_id")
                     if unit_id:
                         unit_data = await get_shop_unit(shop_id=data.shop_id, unit_id=unit_id)
@@ -584,7 +607,6 @@ class ProductInventoryService:
                     from core.utils.read_db_mapper import map_to_inventory_read_model
                     from infras.read_db.repos.inventory_repo import InventoryReadDbRepo
                     
-                    # Fetch Custom Fields
                     from infras.primary_db.services.customfield_service import CustomFieldsService
                     cf_service = CustomFieldsService(session=self.session)
                     try:
@@ -600,7 +622,7 @@ class ProductInventoryService:
                 ic(f"Error syncing to read DB on update: {e}")
         
         return True
-    
+        
 
     async def create_bulk_batch(self,data:List[CreateProductBatchSchema]):
         batch_toadd=[]

@@ -548,8 +548,9 @@ class InventoryRepo:
             shop_id=res.shop_id  
             res.status = "RELEASED"
         
-        readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
-        ic(readdb_res)
+        if product_ids and shop_id:
+            readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
+            ic(readdb_res)
             
         return True
 
@@ -613,6 +614,7 @@ class InventoryRepo:
         
         product_ids=[]
         shop_id=None
+        stock_adj_mov_data=[]
         for res in reservations:
             # Update InventoryStocks with lock
 
@@ -633,40 +635,37 @@ class InventoryRepo:
                 )
             
             stock_record = (await self.session.execute(stmt_stock)).scalars().first()
-            stock_adj_mov_data=[]
             if stock_record:
-                for resv in reservations:
-                    ic(resv,data.model_dump())
-                    stock_adj_mov_data.append(
-                        {
-                            "shop_id":resv.shop_id,
-                            "product_id":resv.product_id,
-                            "variant_id":resv.variant_id,
-                            "batch_id":resv.batch_id,
-                            "seriano_numbers":resv.serialno_infos,
-                            "type":"DECREMENT",
-                            "stocks":resv.qty,
-                            "entity_name":data.entity_name
-                        }
-                    )
+                stock_adj_mov_data.append(
+                    {
+                        "shop_id":res.shop_id,
+                        "product_id":res.product_id,
+                        "variant_id":res.variant_id,
+                        "batch_id":res.batch_id,
+                        "seriano_numbers":res.serialno_infos,
+                        "type":"DECREMENT",
+                        "stocks":res.qty,
+                        "entity_name":data.entity_name
+                    }
+                )
 
-                
                 # Apply delta to physical stocks (subtract because items are bought)
                 stock_record.physical_stocks -= res.qty
                 # Release reserved stock lock
                 stock_record.reserved_stocks = max(0, (stock_record.reserved_stocks or 0) - abs(res.qty))
                 stock_record.available_stocks = stock_record.physical_stocks - stock_record.reserved_stocks
-                ic(stock_adj_mov_data)
-                if data.record_stock:
-                    stock_mov_adj_res=await emit_stock_mov_adj(session=self.session,data=stock_adj_mov_data)
-                    ic(stock_mov_adj_res)
 
             product_ids.append(res.product_id) 
             ic(res.shop_id)
             shop_id=res.shop_id  
             res.status = "COMPLETED"
         
-        readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
-        ic(readdb_res)
+        if product_ids and shop_id:
+            readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
+            ic(readdb_res)
+
+        if data.record_stock and stock_adj_mov_data:
+            stock_mov_adj_res=await emit_stock_mov_adj(session=self.session,data=stock_adj_mov_data)
+            ic(stock_mov_adj_res)
             
         return True

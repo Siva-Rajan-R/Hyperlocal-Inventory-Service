@@ -36,7 +36,7 @@ class UpdateProductDbSchema(BaseModel):
     type_infos:Optional[ProductTypeInfosType]=None
     have_tracking:Optional[bool]=None
     is_active:Optional[bool]=None
-    gst:Optional[str]="0%"
+    gst:Optional[str]=None
     visible_online:Optional[bool]=None
 
 

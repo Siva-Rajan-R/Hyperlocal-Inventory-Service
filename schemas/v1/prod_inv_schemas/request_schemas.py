@@ -14,16 +14,15 @@ class CreateProdInvVariantType(BaseModel):
     visible_online:Optional[bool]=False
 
 class UpdateProdInvVariantType(BaseModel):
-    id:Optional[str]=None
-    pricing_id:Optional[str]=None
-    storage_location_id:Optional[str]=None
-    reorder_point_id:Optional[str]=None
-    name:str
-    storage_location:Optional[str]=None
-    reorder_point:Optional[float]=5
-    buy_price:float
-    sell_price:float
-    visible_online:Optional[bool]=False
+    id: Optional[str] = None
+    pricing_id: Optional[str] = None
+    storage_location_id: Optional[str] = None
+    reorder_point_id: Optional[str] = None
+    name: Optional[str] = None
+    buy_price: Optional[float] = None
+    sell_price: Optional[float] = None
+    storage_location: Optional[str] = None
+    reorder_point: Optional[float] = None
 
 
 class CreateProdInvBatchType(BaseModel):
@@ -55,24 +54,24 @@ class CreateProdInvSchema(BaseModel):
 
 
 class UpdateProdInvSchema(BaseModel):
-    id:str
-    shop_id:str
-    category_id:Optional[str]=None
-    unit_id:Optional[str]=None
-    name:Optional[str]=None
-    description:Optional[str]=None
-    type_infos:Optional[ProductTypeInfosType]=None
-    have_tracking:Optional[bool]=None
-    variant_infos:Optional[List[UpdateProdInvVariantType]]=None
-    storage_location:Optional[str]=None
-    buy_price:Optional[float]=None
-    sell_price:Optional[float]=None
-    pricing_id:Optional[str]=None
-    storage_location_id:Optional[str]=None
-    reorder_point_id:Optional[str]=None
-    reorder_point:Optional[float]=5
-    custom_fields:Optional[dict]={}
-    visible_online:Optional[bool]=False
+    id: str
+    shop_id: str
+    category_id: Optional[str] = None
+    unit_id: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    type_infos: Optional[ProductTypeInfosType] = None
+    have_tracking: Optional[bool] = None
+    variant_infos: Optional[List[UpdateProdInvVariantType]] = None
+    storage_location: Optional[str] = None
+    buy_price: Optional[float] = None
+    sell_price: Optional[float] = None
+    pricing_id: Optional[str] = None
+    storage_location_id: Optional[str] = None
+    reorder_point_id: Optional[str] = None
+    reorder_point: Optional[float] = 5
+    custom_fields: Optional[dict] = {}
+    visible_online: Optional[bool] = None
 
 
 class DeleteProdInvSchema(BaseModel):
