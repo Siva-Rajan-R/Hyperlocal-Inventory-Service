@@ -24,7 +24,7 @@ from integrations.utility_service import get_ui_id,get_shop_unit,get_shop_catego
 from ...read_db.repos.prod_inv_repo import ProdInvReadDbRepo
 from helpers.emit_stock_mov_adj import emit_stock_mov_adj
 from ..services.customfield_service import CustomFieldsService
-from schemas.v1.request_schemas.customfield_schema import CreateCustomFieldSchema,UpdateCustomFieldSchema,UpdateCustomFieldValueSchema,CreateCustomFieldValueSchema,BulkCreateCustomFieldValuesSchema,GetvaluesByCustomerId
+from schemas.v1.request_schemas.customfield_schema import CreateCustomFieldSchema,UpdateCustomFieldSchema,UpdateCustomFieldValueSchema,CreateCustomFieldValueSchema,BulkCreateCustomFieldValuesSchema,GetvaluesByProductId
 
 class ProductInventoryService:
     def __init__(self,session:AsyncSession):

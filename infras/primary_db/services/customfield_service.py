@@ -4,7 +4,7 @@ from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
 from schemas.v1.request_schemas.customfield_schema import (
     CreateCustomFieldSchema, UpdateCustomFieldSchema,
     CreateCustomFieldValueSchema, UpdateCustomFieldValueSchema,
-    BulkCreateCustomFieldValuesSchema,DeleteCustomFieldSchema,GetFieldById,GetFieldByName,GetFieldByShopIdSchema,GetValueByIdName,GetvaluesByCustomerId
+    BulkCreateCustomFieldValuesSchema,DeleteCustomFieldSchema,GetFieldById,GetFieldByName,GetFieldByShopIdSchema,GetValueByIdName,GetvaluesByProductId
 )
 from schemas.v1.db_schemas.customfield_schema import CreateCustomFieldDbSchema, CreateCustomFieldValueDbSchema,DeleteCustomFieldDbSchema,UpdateCustomFieldDbSchema
 from ..repos.customfield_repo import CustomFieldsRepo
@@ -101,10 +101,10 @@ class CustomFieldsService:
         await self.repo.upsert_field_value(data=data_toadd)
         return {"success": True}
 
-    async def get_values_by_purchase(self,data:GetvaluesByCustomerId) -> list:
+    async def get_values_by_purchase(self,data:GetvaluesByProductId) -> list:
         return await self.repo.get_values_by_purchase_id(data=data)
 
     async def get_values_by_product(self, product_id: str, shop_id: str) -> list:
-        return await self.repo.get_values_by_purchase_id(
-            data=GetvaluesByCustomerId(id=product_id, shop_id=shop_id)
+        return await self.repo.get_values_by_product_id(
+            data=GetvaluesByProductId(id=product_id, shop_id=shop_id)
         )

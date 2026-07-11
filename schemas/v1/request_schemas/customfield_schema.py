@@ -60,7 +60,7 @@ class GetValueByIdName(BaseModel):
     name:Optional[str]=None
     shop_id:str
 
-class GetvaluesByCustomerId(BaseModel):
+class GetvaluesByProductId(BaseModel):
     id:str
     shop_id:str
 

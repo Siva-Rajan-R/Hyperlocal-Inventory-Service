@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from hyperlocal_platform.core.decorators.db_session_handler_dec import start_db_transaction
 from ..models.customfield_model import ProductCustomFields,ProductCustomFieldsValues
 from schemas.v1.db_schemas.customfield_schema import CreateCustomFieldDbSchema, CreateCustomFieldValueDbSchema,UpdateCustomFieldDbSchema,DeleteCustomFieldDbSchema
-from schemas.v1.request_schemas.customfield_schema import GetFieldById,GetFieldByShopIdSchema,GetFieldByName,GetValueByIdName,GetvaluesByCustomerId
+from schemas.v1.request_schemas.customfield_schema import GetFieldById,GetFieldByShopIdSchema,GetFieldByName,GetValueByIdName,GetvaluesByProductId
 
 class CustomFieldsRepo:
     def __init__(self, session: AsyncSession):
@@ -118,7 +118,7 @@ class CustomFieldsRepo:
         return True
 
         
-    async def get_values_by_purchase_id(self, data:GetvaluesByCustomerId) -> List[dict]:
+    async def get_values_by_product_id(self, data:GetvaluesByProductId) -> List[dict]:
         stmt = (
             select(
                 ProductCustomFieldsValues.id,

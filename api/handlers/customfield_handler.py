@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infras.primary_db.services.customfield_service import CustomFieldsService
 from schemas.v1.request_schemas.customfield_schema import (
     CreateCustomFieldSchema, UpdateCustomFieldSchema,
-    CreateCustomFieldValueSchema, BulkCreateCustomFieldValuesSchema,DeleteCustomFieldSchema,GetFieldById,GetFieldByName,GetFieldByShopIdSchema,GetValueByIdName,GetvaluesByCustomerId
+    CreateCustomFieldValueSchema, BulkCreateCustomFieldValuesSchema,DeleteCustomFieldSchema,GetFieldById,GetFieldByName,GetFieldByShopIdSchema,GetValueByIdName,GetvaluesByProductId
 )
 from hyperlocal_platform.core.models.req_res_models import SuccessResponseTypDict,ErrorResponseTypDict,BaseResponseTypDict
 from typing import Optional,List
@@ -103,9 +103,9 @@ class CustomFieldsHandler:
 
 
     @staticmethod
-    async def get_values_by_purchase(data:GetvaluesByCustomerId,session: AsyncSession):
+    async def get_values_by_product(data:GetvaluesByProductId,session: AsyncSession):
         service = CustomFieldsService(session)
-        res = await service.get_values_by_purchase(data=data)
+        res = await service.get_values_by_product(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 status_code=200,
