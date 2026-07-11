@@ -13,4 +13,5 @@ aio-pika
 motor
 pymongo
 httpx
+python-multipart
 git+https://github.com/Siva-Rajan-R/hyperlocal_platform

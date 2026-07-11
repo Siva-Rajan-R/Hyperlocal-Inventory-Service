@@ -1,6 +1,7 @@
 import httpx
 from icecream import ic
 from typing import Dict, Any
+from fastapi import UploadFile
 
 BASE_URL = "http://127.0.0.1:8000/utilities"
 
@@ -48,3 +49,61 @@ async def get_ui_id(shop_id:str,entity_name:str="PRODUCT"):
     except Exception as e:
         ic(f"Error fetching product ui id: {e}")
     return {}
+
+
+
+async def upload_assets(files:list[UploadFile]):
+    try:
+        multipart_files = []
+
+        for file in files:
+            content = await file.read()
+
+            multipart_files.append(
+                (
+                    "files",
+                    (
+                        file.filename,
+                        content,
+                        file.content_type,
+                    ),
+                )
+            )
+
+        async with httpx.AsyncClient(timeout=90) as client:
+            response = await client.post(
+                f"{BASE_URL}/upload/assets",
+                files=multipart_files,
+            )
+        ic(response.text)
+        return response.json()
+    except Exception as e:
+        ic(f"Error uploading images: {e}")
+    return {}
+
+
+async def delete_assets(urls:list[str]):
+    try:
+        async with httpx.AsyncClient(timeout=90) as request:
+            url_tosend=f"{BASE_URL}/upload/assets"
+            prefix="?"
+            for url in urls:
+                if "?" in url_tosend:
+                    prefix="&"
+                
+                url_tosend+=f"{prefix}urls={url}"
+            
+            ic(url_tosend)
+
+            response=await request.delete(url_tosend)
+            ic("product ui id => ",response)
+            if response.status_code == 200:
+                data = response.json()
+                if data and "data" in data:
+                    return data["data"]
+
+            return False
+    except Exception as e:
+        ic(f"Error fetching product ui id: {e}")
+    return {}
+

@@ -1,4 +1,4 @@
-from sqlalchemy import String,Column,Float,Boolean,TIMESTAMP,func,ForeignKey
+from sqlalchemy import String,Column,Float,Boolean,TIMESTAMP,func,ForeignKey,ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from ..main import BASE
@@ -21,6 +21,7 @@ class Products(BASE):
     have_tracking=Column(Boolean,nullable=False)
     additional_infos=Column(JSONB,nullable=True)
     gst=Column(String,nullable=False)
+    image_url=Column(ARRAY(String))
     visible_online=Column(Boolean,nullable=False,default=False)
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
     updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())

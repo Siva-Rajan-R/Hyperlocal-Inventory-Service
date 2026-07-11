@@ -37,10 +37,6 @@ async def delete_field(field_id: str, shop_id: str, session:PG_ASYNC_SESSION):
 async def upsert_value(data: CreateCustomFieldValueSchema, session:PG_ASYNC_SESSION):
     return await CustomFieldsHandler.upsert_value(data=data, session=session)
 
-@router.post("/values/bulk")
-async def bulk_upsert_values(data: BulkCreateCustomFieldValuesSchema, session:PG_ASYNC_SESSION):
-    return await CustomFieldsHandler.bulk_upsert_values(data=data, session=session)
-
 @router.get("/values/{shop_id}/{product_id}")
 async def get_values_by_product(product_id: str, shop_id: str, session:PG_ASYNC_SESSION):
     return await CustomFieldsHandler.get_values_by_product(product_id=product_id, shop_id=shop_id, session=session)

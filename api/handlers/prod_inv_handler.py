@@ -19,7 +19,7 @@ from core.utils.calculate_offer import calculate_offer
 from core.utils.validate_offer import validate_offer_input
 from icecream import ic
 from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
-from infras.primary_db.services.customfield_service import CustomFieldsService
+from infras.primary_db.services.customfield_service import CustomFieldsService,GetFieldByShopIdSchema
 from schemas.v1.prod_inv_schemas.request_schemas import CreateProdInvSchema,UpdateProdInvSchema,DeleteProdInvSchema
 from schemas.v1.inventory_schemas.request_schemas import ReserveInventorySchema,ReleaseInventorySchema,CommitInventorySchema,ReleaseItemInventorySchema
 from core.utils.validate_custom_fields import validate_and_filter_custom_fields
@@ -47,19 +47,11 @@ class HandleProdInvRequest:
             )
         
         cust_field_obj=CustomFieldsService(session=self.session)
-        fields=await cust_field_obj.get_all_fields(shop_id=data.shop_id)
+        fields=await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
         
         valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
         
-        defined_fields_map = {f['field_name']: f['id'] for f in fields}
-        cf_values = []
-        for key, val in valid_custom_fields.items():
-            if key in defined_fields_map:
-                cf_values.append({"field_id": defined_fields_map[key], "value": str(val), "field_name": key})
-                
-        data.custom_fields = {"values": cf_values} if cf_values else {}
-        
-        res=await ProductInventoryService(session=self.session).create(data=data)
+        res=await ProductInventoryService(session=self.session).create(data=CreateProdInvSchema(custom_fields=valid_custom_fields,**data.model_dump(exclude=['custom_fields'])))
         ic(res)
         
         if res:
@@ -96,22 +88,14 @@ class HandleProdInvRequest:
                 ),
             )
         cust_field_obj=CustomFieldsService(session=self.session)
-        fields=await cust_field_obj.get_all_fields(shop_id=data.shop_id)
+        fields=await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
         
         valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
         
-        defined_fields_map = {f['field_name']: f['id'] for f in fields}
-        cf_values = []
-        for key, val in valid_custom_fields.items():
-            if key in defined_fields_map:
-                cf_values.append({"field_id": defined_fields_map[key], "value": str(val), "field_name": key})
-                
-        data.custom_fields = {"values": cf_values} if cf_values else {}
-        
-        res=await ProductInventoryService(session=self.session).update(data=data)
+        res=await ProductInventoryService(session=self.session).update(data=UpdateProdInvSchema(custom_fields=valid_custom_fields,**data.model_dump(exclude=['custom_fields'])))
         ic(res)
         if res:
-
+             await self.session.commit()
              return SuccessResponseTypDict(
                   detail=BaseResponseTypDict(
                        status_code=200,

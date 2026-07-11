@@ -1,15 +1,42 @@
-from fastapi import APIRouter,Depends,Query,HTTPException
+from fastapi import APIRouter,Depends,Query,HTTPException,UploadFile,File,Form
 from schemas.v1.prod_inv_schemas.request_schemas import CreateProdInvSchema,UpdateProdInvSchema,DeleteProdInvSchema
 from schemas.v1.inventory_schemas.request_schemas import ReserveInventorySchema,ReleaseInventorySchema,CommitInventorySchema,ReleaseItemInventorySchema
 from infras.primary_db.repos.inventory_repo import InventoryRepo
 from infras.primary_db.repos.product_repo import ProductRepo
 from hyperlocal_platform.core.models.req_res_models import SuccessResponseTypDict,BaseResponseTypDict
 from ...handlers.prod_inv_handler import HandleProdInvRequest
-from typing import Annotated,Optional
+from typing import Annotated,Optional,List
 from infras.primary_db.main import get_pg_async_session,AsyncSession
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from schemas.v1.product_schemas.request_schemas import GetAllProductSchema,GetProductsById,GetProductsByShopId,DeleteProductSchema
 from icecream import ic
+from pydantic import BaseModel
+from integrations.utility_service import upload_assets,delete_assets
+from sqlalchemy import select
+from infras.primary_db.models.product_model import Products
+
+
+class UploadImagesSchema(BaseModel):
+    shop_id:str
+    product_id:str
+
+    @classmethod
+    def as_form(
+        cls,
+        shop_id:str=Form(...),
+        product_id:str=Form(...)
+    ):
+        return cls(
+            shop_id=shop_id,
+            product_id=product_id
+        )
+
+
+class DeleteImagesSchema(BaseModel):
+    shop_id:str
+    product_id:str
+    urls:List[str]
+
 
 router=APIRouter(
     tags=["Inventory CRUD's"],
@@ -21,6 +48,79 @@ PG_ASYNC_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 @router.post('')
 async def create(data:CreateProdInvSchema,session:PG_ASYNC_SESSION):
     return await HandleProdInvRequest(session=session).create(data=data)
+
+
+@router.post('/upload/images')
+async def upload_images(session:PG_ASYNC_SESSION,data:Annotated[UploadImagesSchema,Depends(UploadImagesSchema.as_form)],files:List[UploadFile]=File(...)):
+    stmt_res=(await session.execute(
+        select(Products)
+        .where(Products.id==data.product_id,Products.shop_id==data.shop_id)
+    )).scalar_one_or_none()
+
+    if not stmt_res:
+        raise HTTPException(
+            status_code=400,
+            detail="Product not found"
+        )
+    
+    image_urls = list(stmt_res.image_url) if stmt_res.image_url else []
+    if len(image_urls) + len(files) > 3:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot add more than 3 images in total"
+        )
+    
+    res=await upload_assets(files=files)
+    ic(res,data.shop_id,data.product_id)
+    
+    urls = res.get("data", []) if isinstance(res, dict) else []
+    image_urls.extend(urls)
+    stmt_res.image_url = image_urls
+
+    await session.commit()
+
+    from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
+    await ProdInvReadDbRepo.add_updatereaddb(shop_id=data.shop_id, product_ids=[data.product_id], session=session)
+    return True
+
+
+@router.delete('/upload/images')
+async def delete_images(session:PG_ASYNC_SESSION,data:DeleteImagesSchema):
+    stmt_res=(await session.execute(
+        select(Products)
+        .where(Products.id==data.product_id,Products.shop_id==data.shop_id)
+    )).scalar_one_or_none()
+
+    if not stmt_res:
+        raise HTTPException(
+            status_code=400,
+            detail="Product not found"
+        )
+    
+    image_urls = list(stmt_res.image_url) if stmt_res.image_url else []
+    FOUND_COUNT=0
+
+    for url in data.urls:
+        if url in image_urls:
+            FOUND_COUNT+=1
+    if len(data.urls)!=FOUND_COUNT:
+        raise HTTPException(
+            status_code=400,
+            detail="Images not Found"
+        )
+    
+    deleted=await delete_assets(urls=data.urls)
+    ic(deleted,data.urls,data.shop_id,data.product_id)
+    
+    final_image_url = [url for url in image_urls if url not in data.urls]
+    stmt_res.image_url = final_image_url
+
+    await session.commit()
+
+    from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
+    await ProdInvReadDbRepo.add_updatereaddb(shop_id=data.shop_id, product_ids=[data.product_id], session=session)
+    return True
+
 
 @router.put('')
 async def update(data:UpdateProdInvSchema,session:PG_ASYNC_SESSION):

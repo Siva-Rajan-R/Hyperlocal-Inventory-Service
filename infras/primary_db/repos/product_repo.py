@@ -29,7 +29,7 @@ class ProductRepo:
             Products.id,Products.name,Products.category_id,Products.ui_id,Products.shop_id,
             Products.unit_id,Products.description,Products.type_infos,Products.is_active,Products.gst,
             Products.have_tracking,Products.created_at,Products.updated_at,Products.additional_infos,
-            Products.visible_online
+            Products.visible_online,Products.image_url
         )
         self.variant_cols = (
             ProductVariants.id,
@@ -268,6 +268,7 @@ class ProductRepo:
             "type_infos": product.type_infos,
             "gst": product.gst,
             "visible_online": product.visible_online,
+            "image_url": product.image_url,
         }
 
         # Build Lookups

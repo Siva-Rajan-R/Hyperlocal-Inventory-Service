@@ -66,12 +66,10 @@ class UpdateProdInvSchema(BaseModel):
     storage_location: Optional[str] = None
     buy_price: Optional[float] = None
     sell_price: Optional[float] = None
-    pricing_id: Optional[str] = None
-    storage_location_id: Optional[str] = None
-    reorder_point_id: Optional[str] = None
     reorder_point: Optional[float] = 5
     custom_fields: Optional[dict] = {}
     visible_online: Optional[bool] = None
+    gst:Optional[str]="0%"
 
 
 class DeleteProdInvSchema(BaseModel):

@@ -171,7 +171,7 @@ async def service_main_controller(msg:AbstractIncomingMessage):
         finally:
             ic("Finally publishing the event to reply exchange")
             
-            if reply_exchange and reply_exchange != "none":
+            if reply_exchange!="None" and reply_key != "None":
                 await RabbitMQMessagingConfig().publish_event(
                     routing_key=reply_key,
                     payload=payload,
