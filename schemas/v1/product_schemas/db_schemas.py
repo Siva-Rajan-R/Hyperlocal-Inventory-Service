@@ -51,12 +51,16 @@ class CreateProductVariantDbSchema(BaseModel):
     shop_id:str
     name:str
     visible_online:bool = False
+    sku: str
+    barcode: Optional[str] = None
 
 class UpdateProductVariantDbSchema(BaseModel):
     id:str
     shop_id:str
     name:Optional[str]=None
     visible_online:Optional[bool]=None
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
 
 # BATCH
 class CreateProductBatchDbSchema(BaseModel):

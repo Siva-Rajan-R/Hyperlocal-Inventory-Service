@@ -12,6 +12,8 @@ class CreateProdInvVariantType(BaseModel):
     buy_price:Optional[float]=None
     sell_price:Optional[float]=None
     visible_online:Optional[bool]=False
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
 
 class UpdateProdInvVariantType(BaseModel):
     id: Optional[str] = None
@@ -23,6 +25,8 @@ class UpdateProdInvVariantType(BaseModel):
     sell_price: Optional[float] = None
     storage_location: Optional[str] = None
     reorder_point: Optional[float] = None
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
 
 
 class CreateProdInvBatchType(BaseModel):
@@ -50,6 +54,7 @@ class CreateProdInvSchema(BaseModel):
     reorder_point:Optional[float]=5
     custom_fields:Optional[dict]={}
     visible_online:Optional[bool]=False
+    sku: Optional[str] = None
 
 
 
@@ -70,6 +75,7 @@ class UpdateProdInvSchema(BaseModel):
     custom_fields: Optional[dict] = {}
     visible_online: Optional[bool] = None
     gst:Optional[str]="0%"
+    sku: Optional[str] = None
 
 
 class DeleteProdInvSchema(BaseModel):

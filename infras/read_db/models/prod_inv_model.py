@@ -6,9 +6,14 @@ class ProdInvReadModelCategoryInfosType(BaseModel):
     id:str
     name:str
 
+class SubUnitReadModelType(BaseModel):
+    name:str
+    factor:float
+
 class ProdInvReadModelUnitInfosType(BaseModel):
     id:str
     name:str
+    sub_units:Optional[List[SubUnitReadModelType]]=[]
 
 class ProdInvReadModelVariantInfosType(BaseModel):
     id:str

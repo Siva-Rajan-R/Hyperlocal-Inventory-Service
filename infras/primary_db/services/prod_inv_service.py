@@ -23,6 +23,10 @@ from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
 from integrations.utility_service import get_ui_id,get_shop_unit,get_shop_category
 from ...read_db.repos.prod_inv_repo import ProdInvReadDbRepo
 from helpers.emit_stock_mov_adj import emit_stock_mov_adj
+from helpers.sku_generator import (
+    generate_product_sku, validate_sku_uniqueness,
+    generate_product_barcode, validate_barcode_uniqueness
+)
 from ..services.customfield_service import CustomFieldsService
 from schemas.v1.request_schemas.customfield_schema import CreateCustomFieldSchema,UpdateCustomFieldSchema,UpdateCustomFieldValueSchema,CreateCustomFieldValueSchema,BulkCreateCustomFieldValuesSchema,GetvaluesByProductId
 
@@ -37,13 +41,46 @@ class ProductInventoryService:
         rop_toadd=[]
 
         product_id=generate_uuid()
+        
+        # Product SKU & Barcode Resolution
+        if data.sku:
+            if not await validate_sku_uniqueness(self.session, data.shop_id, data.sku):
+                raise ValueError(f"Product SKU '{data.sku}' already exists.")
+            product_sku = data.sku
+        else:
+            product_sku = await generate_product_sku(self.session, data.shop_id, data.category_id, data.name)
+
+        if data.barcode:
+            if not await validate_barcode_uniqueness(self.session, data.shop_id, data.barcode):
+                raise ValueError(f"Product Barcode '{data.barcode}' already exists.")
+            product_barcode = data.barcode
+        else:
+            product_barcode = await generate_product_barcode(self.session, data.shop_id)
+
         if data.type_infos.has_variant:
             for variant in data.variant_infos:
                 variant_id=generate_uuid()
+                
+                # Variant SKU & Barcode Resolution
+                if variant.sku:
+                    if not await validate_sku_uniqueness(self.session, data.shop_id, variant.sku):
+                        raise ValueError(f"Variant SKU '{variant.sku}' already exists.")
+                    variant_sku = variant.sku
+                else:
+                    variant_sku = await generate_product_sku(self.session, data.shop_id, data.category_id, data.name, variant.name)
+
+                if variant.barcode:
+                    if not await validate_barcode_uniqueness(self.session, data.shop_id, variant.barcode):
+                        raise ValueError(f"Variant Barcode '{variant.barcode}' already exists.")
+                    variant_barcode = variant.barcode
+                else:
+                    variant_barcode = await generate_product_barcode(self.session, data.shop_id)
+
                 variants_toadd.append(
                     ProductVariants(
                         id=variant_id,
-                        sku=generate_uuid(),
+                        sku=variant_sku,
+                        barcode=variant_barcode,
                         product_id=product_id,
                         shop_id=data.shop_id,
                         name=variant.name
@@ -157,8 +194,9 @@ class ProductInventoryService:
             id=product_id,
             ui_id=ui_id,
             is_active=False,
-            sku=generate_uuid(),
-            **data.model_dump(exclude=["stocks","variant_infos","storage_location","buy_price","sell_price"])
+            sku=product_sku,
+            barcode=product_barcode,
+            **data.model_dump(exclude=["stocks","variant_infos","storage_location","buy_price","sell_price","sku","barcode"])
         )
 
         product_repo_obj=ProductRepo(session=self.session)
@@ -290,10 +328,16 @@ class ProductInventoryService:
         update_fields = {}
         sent_fields = data.model_dump(exclude_unset=True)
         
-        for field in ["name", "description", "category_id", "unit_id", "gst"]:
+        for field in ["name", "description", "category_id", "unit_id", "gst", "sku", "barcode"]:
             if field in sent_fields:
+                if field == "sku":
+                    if not await validate_sku_uniqueness(self.session, data.shop_id, sent_fields["sku"], exclude_product_id=data.id):
+                        raise ValueError(f"Product SKU '{sent_fields['sku']}' already exists.")
+                if field == "barcode":
+                    if not await validate_barcode_uniqueness(self.session, data.shop_id, sent_fields["barcode"], exclude_product_id=data.id):
+                        raise ValueError(f"Product Barcode '{sent_fields['barcode']}' already exists.")
                 update_fields[field] = sent_fields[field]
-                
+
         if update_fields:
             product_toadd = UpdateProductDbSchema(
                 id=data.id,

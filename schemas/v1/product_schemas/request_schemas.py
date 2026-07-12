@@ -19,6 +19,7 @@ class CreateProductSchema(BaseModel):
     have_tracking:bool
     reorder_point:Optional[float]=0
     visible_online:Optional[bool]=False
+    sku: Optional[str] = None
 
 
 class UpdateProductSchema(BaseModel):
@@ -34,6 +35,7 @@ class UpdateProductSchema(BaseModel):
     reorder_point:Optional[float]=0
     gst:Optional[str]="0%"
     visible_online:Optional[bool]=None
+    sku: Optional[str] = None
 
 
 class DeleteProductSchema(BaseModel):
@@ -46,12 +48,16 @@ class CreateProductVariantSchema(BaseModel):
     shop_id:str
     name:str
     visible_online:Optional[bool]=False
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
 
 class UpdateProductVariantSchema(BaseModel):
     id:str
     shop_id:str
     name:Optional[str]=None
     visible_online:Optional[bool]=None
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
 
 # BATCH
 class CreateProductBatchSchema(BaseModel):

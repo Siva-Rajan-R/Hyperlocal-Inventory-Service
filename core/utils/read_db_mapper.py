@@ -134,7 +134,8 @@ def map_to_inventory_read_model(product_dict: Dict[str, Any]) -> ProdInvReadMode
     unit_infos_raw = product_dict.get("unit_infos")
     unit_infos = ProdInvReadModelUnitInfosType(
         id=str(get_field(unit_infos_raw, "id", product_dict.get("unit_id", ""))),
-        name=str(get_field(unit_infos_raw, "name", "Unknown"))
+        name=str(get_field(unit_infos_raw, "name", "Unknown")),
+        sub_units=get_field(unit_infos_raw, "sub_units", [])
     )
     
     created_raw = product_dict.get("created_at")

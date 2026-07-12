@@ -55,8 +55,12 @@ class ProdInvReadDbRepo:
                     if ext_cat and ext_cat.get("id") == category_id:
                         category_name = ext_cat.get("name", "")
                     
+                sub_units = []
+                if existing_prod:
+                    ext_unit = existing_prod.get("unit_infos", {})
                     if ext_unit and ext_unit.get("id") == unit_id:
                         unit_name = ext_unit.get("name", "")
+                        sub_units = ext_unit.get("sub_units") or []
 
                 # Fetch from Utility Service if not matched/found
                 if not category_name and category_id:
@@ -64,10 +68,11 @@ class ProdInvReadDbRepo:
                     if isinstance(cat_res, dict):
                         category_name = cat_res.get("name", "")
                     
-                if not unit_name and unit_id:
+                if (not unit_name or not sub_units) and unit_id:
                     unit_res = await get_shop_unit(shop_id=shop_id, unit_id=unit_id)
                     if isinstance(unit_res, dict):
                         unit_name = unit_res.get("name", "")
+                        sub_units = unit_res.get("sub_units") or []
 
                 # Add infos to the primary DB structure
                 p_data["category_infos"] = {
@@ -76,7 +81,8 @@ class ProdInvReadDbRepo:
                 }
                 p_data["unit_infos"] = {
                     "id": unit_id,
-                    "name": unit_name
+                    "name": unit_name,
+                    "sub_units": sub_units
                 }
                 
                 # Fetch Custom Fields
