@@ -25,14 +25,24 @@ async def inventory_service_lifespan(app:FastAPI):
         await init_inventory_pg_db()
         await check_redis_health()
         # await redis_client.flushdb()
-        asyncio.create_task(worker())
-        asyncio.create_task(cleanup_expired_reservations())
+        # asyncio.create_task(worker())
+        # asyncio.create_task(cleanup_expired_reservations())
+        app.state.worker_task = asyncio.create_task(worker())
+        app.state.cleanup_task = asyncio.create_task(cleanup_expired_reservations())
         yield
 
     except Exception as e:
         ic(f"Error : Starting inventory service => {e}")
 
     finally:
+        app.state.worker_task.cancel()
+        app.state.cleanup_task.cancel()
+
+        await asyncio.gather(
+            app.state.worker_task,
+            app.state.cleanup_task,
+            return_exceptions=True,
+        )
         ic("...Stoping inventory Servcie...")
 
 debug=False
