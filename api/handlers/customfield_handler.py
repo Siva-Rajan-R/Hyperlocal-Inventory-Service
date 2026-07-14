@@ -105,7 +105,7 @@ class CustomFieldsHandler:
     @staticmethod
     async def get_values_by_product(data:GetvaluesByProductId,session: AsyncSession):
         service = CustomFieldsService(session)
-        res = await service.get_values_by_product(data=data)
+        res = await service.get_values_by_product(product_id=data.id, shop_id=data.shop_id)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 status_code=200,
