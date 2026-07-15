@@ -430,35 +430,55 @@ class ProductInventoryService:
         product_del_data=DeleteProductDbSchema(id=data.id,shop_id=data.shop_id)
         res=await ProductRepo(session=self.session).delete_product(data=product_del_data)
         ic(res)
-        if res:
-            try:
-                from messaging.main import RabbitMQMessagingConfig
-                rabbitmq_msg_obj = RabbitMQMessagingConfig()
-                await rabbitmq_msg_obj.publish_event(
-                    routing_key="activity_logs.routing.key",
-                    exchange_name="activity_logs.exchange",
-                    payload={
-                        "shop_id": data.shop_id,
-                        "user_name": "siva",
-                        "service": "Inventory",
-                        "action": "DELETED",
-                        "entity_type": "ProductInventory",
-                        "entity_id": data.id,
-                        "description": f"Deleted product {data.id}",
-                        "changes": [{"field": "id", "before": str(data.id), "after": "DELETED"}]
-                    },
-                    headers={}
-                )
-            except Exception as e:
-                ic(f"Failed to publish activity log: {e}")
-                
-            # Sync to Read DB
-            try:
-                from infras.read_db.repos.inventory_repo import InventoryReadDbRepo
-                await InventoryReadDbRepo.delete_inventory(inventory_id=data.id, shop_id=data.shop_id)
-            except Exception as e:
-                ic(f"Error syncing to read DB on delete: {e}")
-                
+
+        # repo returns None if product not found OR if is_active=False
+        if not res:
+            ic("Product not found or is_active=False — deletion skipped")
+            return False
+
+        # --- 1. Delete images from object storage via Utility Service ---
+        try:
+            image_urls = res.image_url or []
+            if image_urls:
+                from integrations.utility_service import delete_assets
+                ic(f"Deleting {len(image_urls)} image(s) for product {data.id}")
+                deleted = await delete_assets(urls=image_urls)
+                ic(f"Image deletion result: {deleted}")
+            else:
+                ic("No images to delete for this product")
+        except Exception as e:
+            ic(f"Failed to delete product images: {e}")
+
+        # --- 2. Sync deletion to Read DB ---
+        try:
+            from infras.read_db.repos.inventory_repo import InventoryReadDbRepo
+            await InventoryReadDbRepo.delete_inventory(inventory_id=data.id, shop_id=data.shop_id)
+            ic(f"Read DB sync: product {data.id} deleted from read DB")
+        except Exception as e:
+            ic(f"Error syncing to read DB on delete: {e}")
+
+        # --- 3. Publish activity log ---
+        try:
+            from messaging.main import RabbitMQMessagingConfig
+            rabbitmq_msg_obj = RabbitMQMessagingConfig()
+            await rabbitmq_msg_obj.publish_event(
+                routing_key="activity_logs.routing.key",
+                exchange_name="activity_logs.exchange",
+                payload={
+                    "shop_id": data.shop_id,
+                    "user_name": "siva",
+                    "service": "Inventory",
+                    "action": "DELETED",
+                    "entity_type": "ProductInventory",
+                    "entity_id": data.id,
+                    "description": f"Deleted product {data.id}",
+                    "changes": [{"field": "id", "before": str(data.id), "after": "DELETED"}]
+                },
+                headers={}
+            )
+        except Exception as e:
+            ic(f"Failed to publish activity log: {e}")
+
         return res
     
 

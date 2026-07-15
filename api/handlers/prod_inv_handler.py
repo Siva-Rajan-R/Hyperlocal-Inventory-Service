@@ -121,7 +121,7 @@ class HandleProdInvRequest:
              return SuccessResponseTypDict(
                   detail=BaseResponseTypDict(
                        status_code=200,
-                       success=False,
+                       success=True,
                        msg="Inventory Deleted Successfully"
                   )
              )

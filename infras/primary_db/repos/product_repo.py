@@ -225,7 +225,8 @@ class ProductRepo:
             )
             .where(
                 Products.id==data.id,
-                Products.shop_id==data.shop_id
+                Products.shop_id==data.shop_id,
+                Products.is_active==True
             )
             .returning(*self.product_cols)
         )
