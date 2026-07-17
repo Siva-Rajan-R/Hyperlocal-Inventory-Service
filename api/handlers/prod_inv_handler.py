@@ -30,7 +30,7 @@ class HandleProdInvRequest:
     def __init__(self,session:AsyncSession):
         self.session=session
     
-    async def create(self,data:CreateProdInvSchema):
+    async def create(self,data:CreateProdInvSchema, executing_user_id: Optional[str] = None):
         """
         Instead of creation, we need to trigger the event that event will handle the adding
         """ 
@@ -51,7 +51,7 @@ class HandleProdInvRequest:
         
         valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
         
-        res=await ProductInventoryService(session=self.session).create(data=CreateProdInvSchema(custom_fields=valid_custom_fields,**data.model_dump(exclude=['custom_fields'])))
+        res=await ProductInventoryService(session=self.session).create(data=CreateProdInvSchema(custom_fields=valid_custom_fields,**data.model_dump(exclude=['custom_fields'])), executing_user_id=executing_user_id)
         ic(res)
         
         if res:
@@ -76,7 +76,7 @@ class HandleProdInvRequest:
              
         )
     
-    async def update(self,data:UpdateProdInvSchema):
+    async def update(self,data:UpdateProdInvSchema, executing_user_id: Optional[str] = None):
         if data.type_infos and data.type_infos.has_variant and not data.variant_infos:
             raise HTTPException(
                 status_code=400,
@@ -92,7 +92,7 @@ class HandleProdInvRequest:
         
         valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
         
-        res=await ProductInventoryService(session=self.session).update(data=UpdateProdInvSchema(custom_fields=valid_custom_fields,**data.model_dump(exclude=['custom_fields'])))
+        res=await ProductInventoryService(session=self.session).update(data=UpdateProdInvSchema(custom_fields=valid_custom_fields,**data.model_dump(exclude=['custom_fields'])), executing_user_id=executing_user_id)
         ic(res)
         if res:
              await self.session.commit()
@@ -112,10 +112,10 @@ class HandleProdInvRequest:
                   success=False,
                   status_code=400
              ),
-        )
+         )
     
-    async def delete(self,data:DeleteProdInvSchema):
-        res=await ProductInventoryService(session=self.session).delete(data=data)
+    async def delete(self,data:DeleteProdInvSchema, executing_user_id: Optional[str] = None):
+        res=await ProductInventoryService(session=self.session).delete(data=data, executing_user_id=executing_user_id)
         ic(res)
         if res:
              return SuccessResponseTypDict(

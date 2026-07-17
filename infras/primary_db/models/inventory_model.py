@@ -44,6 +44,7 @@ class InventoryPricings(BASE):
     batch_id=Column(String,nullable=True)
     buy_price=Column(Float,nullable=False)
     sell_price=Column(Float,nullable=False)
+    online_sell_price=Column(Float,nullable=False)
     additional_infos=Column(JSONB,nullable=True)
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
@@ -58,6 +59,7 @@ class InventoryReorderPoint(BASE):
     variant_id=Column(String,nullable=True)
     batch_id=Column(String,nullable=True)
     reorder_point=Column(Float)
+    online_reorder_point=Column(Float,default=0)
     additional_infos=Column(JSONB,nullable=True)
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())

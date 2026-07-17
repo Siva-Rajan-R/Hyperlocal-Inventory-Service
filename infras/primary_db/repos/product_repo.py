@@ -29,7 +29,7 @@ class ProductRepo:
             Products.id,Products.name,Products.category_id,Products.ui_id,Products.shop_id,
             Products.unit_id,Products.description,Products.type_infos,Products.is_active,Products.gst,
             Products.have_tracking,Products.created_at,Products.updated_at,Products.additional_infos,
-            Products.visible_online,Products.image_url
+            Products.visible_online,Products.image_url,Products.brand
         )
         self.variant_cols = (
             ProductVariants.id,
@@ -73,6 +73,7 @@ class ProductRepo:
             InventoryPricings.batch_id,
             InventoryPricings.buy_price,
             InventoryPricings.sell_price,
+            InventoryPricings.online_sell_price,
             InventoryPricings.additional_infos,
             InventoryPricings.created_at,
             InventoryPricings.updated_at,
@@ -105,6 +106,7 @@ class ProductRepo:
             InventoryReorderPoint.variant_id,
             InventoryReorderPoint.batch_id,
             InventoryReorderPoint.reorder_point,
+            InventoryReorderPoint.online_reorder_point,
             InventoryReorderPoint.additional_infos,
             InventoryReorderPoint.created_at,
             InventoryReorderPoint.updated_at,
@@ -226,12 +228,12 @@ class ProductRepo:
             .where(
                 Products.id==data.id,
                 Products.shop_id==data.shop_id,
-                Products.is_active==True
+                Products.is_active==False
             )
             .returning(*self.product_cols)
         )
 
-        res=(await self.session.execute(stmt)).scalar_one_or_none()
+        res=(await self.session.execute(stmt)).one_or_none()
         ic(res)
         return res
     
@@ -259,6 +261,7 @@ class ProductRepo:
             "shop_id": product.shop_id,
             "ui_id": product.ui_id,
             "name": product.name,
+            "brand": product.brand,
             "sku": product.sku,
             "barcode": product.barcode,
             "description": product.description,
@@ -380,11 +383,12 @@ class ProductRepo:
                                 "reserved_stocks": stock.reserved_stocks,
                             } if stock else {},
                             "storage_location_infos": {"id": stl.id, "storage_location": stl.name} if stl else {},
-                            "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point} if rop else {},
+                            "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point, "online_reorder_point": rop.online_reorder_point} if rop else {},
                             "pricing_infos": {
                                 "id": pricing.id,
                                 "sell_price": pricing.sell_price,
                                 "buy_price": pricing.buy_price,
+                                "online_sell_price": pricing.online_sell_price,
                             } if pricing else {},
                             "serialno_infos": sn_list
                         }
@@ -416,11 +420,13 @@ class ProductRepo:
                             "id": pricing.id,
                             "sell_price": pricing.sell_price,
                             "buy_price": pricing.buy_price,
+                            "online_sell_price": pricing.online_sell_price,
                         }
                     if rop:
                         variant_infos[variant_id]["reorder_point_infos"] = {
                             "id": rop.id,
                             "reorder_point": rop.reorder_point,
+                            "online_reorder_point": rop.online_reorder_point,
                         }
                     if stl:
                         variant_infos[variant_id]["storage_location_infos"] = {
@@ -470,11 +476,12 @@ class ProductRepo:
                             "reserved_stocks": stock.reserved_stocks,
                         } if stock else {},
                         "storage_location_infos": {"id": stl.id, "storage_location": stl.name} if stl else {},
-                        "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point} if rop else {},
+                        "reorder_point_infos": {"id": rop.id, "reorder_point": rop.reorder_point, "online_reorder_point": rop.online_reorder_point} if rop else {},
                         "pricing_infos": {
                             "id": pricing.id,
                             "sell_price": pricing.sell_price,
                             "buy_price": pricing.buy_price,
+                            "online_sell_price": pricing.online_sell_price,
                         } if pricing else {},
                         "serialno_infos": sn_list
                     }
@@ -504,11 +511,13 @@ class ProductRepo:
                         "id": pricing.id,
                         "sell_price": pricing.sell_price,
                         "buy_price": pricing.buy_price,
+                        "online_sell_price": pricing.online_sell_price,
                     }
                 if rop:
                     reorder_point_infos = {
                         "id": rop.id,
                         "reorder_point": rop.reorder_point,
+                        "online_reorder_point": rop.online_reorder_point,
                     }
                 if stl:
                     storage_location_infos = {
@@ -533,8 +542,15 @@ class ProductRepo:
         offset = data.offset if data.offset > 0 else 1
         cursor = (offset - 1) * data.limit
 
+        stmt = select(Products)
+        
+        if data.active is not None:
+            stmt = stmt.where(Products.is_active == data.active)
+        if data.visible_online is not None:
+            stmt = stmt.where(Products.visible_online == data.visible_online)
+
         stmt = (
-            select(Products)
+            stmt
             .options(
                 selectinload(Products.variants).load_only(*self.variant_cols),
                 selectinload(Products.batches).load_only(*self.batch_cols),
@@ -559,9 +575,15 @@ class ProductRepo:
         offset = data.offset if data.offset > 0 else 1
         cursor = (offset - 1) * data.limit
 
+        stmt = select(Products).where(Products.shop_id == data.shop_id)
+
+        if data.active is not None:
+            stmt = stmt.where(Products.is_active == data.active)
+        if data.visible_online is not None:
+            stmt = stmt.where(Products.visible_online == data.visible_online)
+
         stmt = (
-            select(Products)
-            .where(Products.shop_id == data.shop_id)
+            stmt
             .options(
                 selectinload(Products.variants).load_only(*self.variant_cols),
                 selectinload(Products.batches).load_only(*self.batch_cols),
@@ -583,9 +605,15 @@ class ProductRepo:
         return [self._map_product(product, data.include_serialno) for product in res]
 
     async def get_products_by_id(self, data: GetProductsById):
+        stmt = select(Products).where(Products.shop_id == data.shop_id, Products.id == data.id)
+        
+        if data.active is not None:
+            stmt = stmt.where(Products.is_active == data.active)
+        if data.visible_online is not None:
+            stmt = stmt.where(Products.visible_online == data.visible_online)
+
         stmt = (
-            select(Products)
-            .where(Products.shop_id == data.shop_id, Products.id == data.id)
+            stmt
             .options(
                 selectinload(Products.variants).load_only(*self.variant_cols),
                 selectinload(Products.batches).load_only(*self.batch_cols),
@@ -690,67 +718,46 @@ class ProductRepo:
     
 
     async def verify_bulk_serialno_name(self,data: List[dict]):
-        stmt=(
-            select(
-                ProductSerialNumbers.id
+        results = []
+        for d in data:
+            if not d.get('names'):
+                continue
+            stmt = (
+                select(ProductSerialNumbers.id)
+                .where(
+                    ProductSerialNumbers.shop_id == d['shop_id'],
+                    ProductSerialNumbers.product_id == d['product_id'],
+                    ProductSerialNumbers.variant_id.is_not_distinct_from(d['variant_id']),
+                    ProductSerialNumbers.batch_id.is_not_distinct_from(d['batch_id']),
+                    ProductSerialNumbers.name.in_(d['names'])
+                )
             )
-            .where(
-                ProductSerialNumbers.shop_id==bindparam("shop_id"),
-                ProductSerialNumbers.product_id==bindparam("product_id"),
-                ProductSerialNumbers.variant_id.is_not_distinct_from(bindparam("variant_id")),
-                ProductSerialNumbers.batch_id.is_not_distinct_from(bindparam("batch_id")),
-                ProductSerialNumbers.name.in_(bindparam("names",expanding=True))
-            )
-        )
-
-        res=(
-            await self.session.execute(
-                stmt,
-                [
-                    {
-                        'shop_id':d['shop_id'],
-                        'product_id':d['product_id'],
-                        'variant_id':d['variant_id'],
-                        'batch_id':d['batch_id'],
-                        'names':d['names']
-                    }
-                    for d in data
-                ]
-            )
-        ).mappings().all()
-        ic(res)
-        return res
+            res_item = (await self.session.execute(stmt)).scalars().all()
+            for row_id in res_item:
+                results.append({"id": row_id})
+        ic(results)
+        return results
     
 
     async def verify_bulk_batch_name(self,data: List[dict]):
-        stmt=(
-            select(
-                ProductBatches.id
+        results = []
+        for d in data:
+            if not d.get('names'):
+                continue
+            stmt = (
+                select(ProductBatches.id)
+                .where(
+                    ProductBatches.shop_id == d['shop_id'],
+                    ProductBatches.product_id == d['product_id'],
+                    ProductBatches.variant_id.is_not_distinct_from(d['variant_id']),
+                    ProductBatches.name.in_(d['names'])
+                )
             )
-            .where(
-                ProductBatches.shop_id==bindparam("shop_id"),
-                ProductBatches.product_id==bindparam("product_id"),
-                ProductBatches.variant_id.is_not_distinct_from(bindparam("variant_id")),
-                ProductBatches.name.in_(bindparam("names",expanding=True))
-            )
-        )
-
-        res=(
-            await self.session.execute(
-                stmt,
-                [
-                    {
-                        'shop_id':d['shop_id'],
-                        'product_id':d['product_id'],
-                        'variant_id':d['variant_id'],
-                        'names':d['names']
-                    }
-                    for d in data
-                ]
-            )
-        ).mappings().all()
-        ic(res)
-        return res
+            res_item = (await self.session.execute(stmt)).scalars().all()
+            for row_id in res_item:
+                results.append({"id": row_id})
+        ic(results)
+        return results
     
 
     async def verify_combined(self,data:VerifyCombinedSchema):

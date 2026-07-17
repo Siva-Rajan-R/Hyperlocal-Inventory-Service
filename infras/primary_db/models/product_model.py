@@ -15,6 +15,7 @@ class Products(BASE):
     category_id=Column(String)
     unit_id=Column(String)
     name=Column(String)
+    brand=Column(String)
     description=Column(String)
     type_infos=Column(JSONB)
     is_active=Column(Boolean,nullable=False)

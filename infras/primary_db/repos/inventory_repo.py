@@ -30,7 +30,7 @@ class InventoryRepo:
     def __init__(self,session:AsyncSession):
         self.session=session
         self.invetory_pricing_cols=(
-            InventoryPricings.id,InventoryPricings.buy_price,InventoryPricings.sell_price,InventoryPricings.additional_infos,
+            InventoryPricings.id,InventoryPricings.buy_price,InventoryPricings.sell_price,InventoryPricings.online_sell_price,InventoryPricings.additional_infos,
             InventoryPricings.created_at,InventoryPricings.updated_at
         )
         self.inventory_stl_cols=(
@@ -42,7 +42,7 @@ class InventoryRepo:
             InventoryStocks.created_at,InventoryStocks.updated_at,InventoryStocks.additional_infos
         )
         self.inventory_rop_cols=(
-            InventoryReorderPoint.id,InventoryReorderPoint.reorder_point,InventoryReorderPoint.additional_infos
+            InventoryReorderPoint.id,InventoryReorderPoint.reorder_point,InventoryReorderPoint.online_reorder_point,InventoryReorderPoint.additional_infos
         )
 
     @start_db_transaction
@@ -191,7 +191,8 @@ class InventoryRepo:
             )
             .values(
                 buy_price=bindparam("buy_price"),
-                sell_price=bindparam("sell_price")
+                sell_price=bindparam("sell_price"),
+                online_sell_price=bindparam("online_sell_price")
             )
             .execution_options(synchronize_session=False)
         )
@@ -207,6 +208,7 @@ class InventoryRepo:
                         "b_batch_id":d.batch_id,
                         "buy_price":d.buy_price,
                         "sell_price":d.sell_price,
+                        "online_sell_price":d.online_sell_price,
                     }
                     for d in data
                 ]
@@ -272,6 +274,7 @@ class InventoryRepo:
             )
             .values(
                 reorder_point=bindparam("reorder_point"),
+                online_reorder_point=bindparam("online_reorder_point"),
             )
             .execution_options(synchronize_session=False)
         )
@@ -286,6 +289,7 @@ class InventoryRepo:
                         "b_variant_id":d.variant_id,
                         "b_batch_id":d.batch_id,
                         "reorder_point":d.reorder_point,
+                        "online_reorder_point":d.online_reorder_point,
                     }
                     for d in data
                 ]

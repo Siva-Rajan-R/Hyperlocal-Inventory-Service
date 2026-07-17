@@ -45,9 +45,11 @@ router=APIRouter(
 
 PG_ASYNC_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 
+from core.utils.user_info import get_current_user_id
+
 @router.post('')
-async def create(data:CreateProdInvSchema,session:PG_ASYNC_SESSION):
-    return await HandleProdInvRequest(session=session).create(data=data)
+async def create(data:CreateProdInvSchema,session:PG_ASYNC_SESSION,user_id: Optional[str] = Depends(get_current_user_id)):
+    return await HandleProdInvRequest(session=session).create(data=data, executing_user_id=user_id)
 
 
 @router.post('/upload/images')
@@ -59,26 +61,22 @@ async def upload_images(session:PG_ASYNC_SESSION,data:Annotated[UploadImagesSche
 
     if not stmt_res:
         raise HTTPException(
-            status_code=400,
-            detail="Product not found"
+            status_code=404,
+            detail="Product not Found"
         )
     
+    urls=await upload_assets(files=files,shop_id=data.shop_id)
     image_urls = list(stmt_res.image_url) if stmt_res.image_url else []
     if len(image_urls) + len(files) > 3:
         raise HTTPException(
             status_code=400,
             detail="Cannot add more than 3 images in total"
         )
-    
-    res=await upload_assets(files=files)
-    ic(res,data.shop_id,data.product_id)
-    
-    urls = res.get("data", []) if isinstance(res, dict) else []
+        
     image_urls.extend(urls)
     stmt_res.image_url = image_urls
 
     await session.commit()
-
     from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
     await ProdInvReadDbRepo.add_updatereaddb(shop_id=data.shop_id, product_ids=[data.product_id], session=session)
     return True
@@ -123,12 +121,12 @@ async def delete_images(session:PG_ASYNC_SESSION,data:DeleteImagesSchema):
 
 
 @router.put('')
-async def update(data:UpdateProdInvSchema,session:PG_ASYNC_SESSION):
-    return await HandleProdInvRequest(session=session).update(data=data)
+async def update(data:UpdateProdInvSchema,session:PG_ASYNC_SESSION,user_id: Optional[str] = Depends(get_current_user_id)):
+    return await HandleProdInvRequest(session=session).update(data=data, executing_user_id=user_id)
 
 @router.delete('/{shop_id}/{id}')
-async def delete(session:PG_ASYNC_SESSION,data:DeleteProductSchema=Depends()):
-    return await HandleProdInvRequest(session=session).delete(data=data)
+async def delete(session:PG_ASYNC_SESSION,data:DeleteProductSchema=Depends(),user_id: Optional[str] = Depends(get_current_user_id)):
+    return await HandleProdInvRequest(session=session).delete(data=data, executing_user_id=user_id)
 
 @router.get('')
 async def get_all(session:PG_ASYNC_SESSION,data:GetAllProductSchema=Depends()):

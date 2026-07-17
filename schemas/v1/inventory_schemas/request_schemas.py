@@ -33,6 +33,7 @@ class CreateInventoryPricingSchema(BaseModel):
     batch_id:Optional[str]=None
     buy_price:float
     sell_price:float
+    online_sell_price:float = 0.0
 
 class UpdateInventoryPricingSchema(BaseModel):
     id:str
@@ -42,6 +43,7 @@ class UpdateInventoryPricingSchema(BaseModel):
     batch_id:Optional[str]=None
     buy_price:float
     sell_price:float
+    online_sell_price:Optional[float]=None
 
 
 
@@ -70,6 +72,7 @@ class CreateInventoryReorderPointSchema(BaseModel):
     variant_id:Optional[str]=None
     batch_id:Optional[str]=None
     reorder_point:float
+    online_reorder_point:float = 0.0
 
 class UpdateInventoryReorderPointSchema(BaseModel):
     id:str
@@ -78,6 +81,7 @@ class UpdateInventoryReorderPointSchema(BaseModel):
     variant_id:Optional[str]=None
     batch_id:Optional[str]=None
     reorder_point:Optional[float]=None
+    online_reorder_point:Optional[float]=None
 
 
 

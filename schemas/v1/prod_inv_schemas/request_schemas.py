@@ -9,8 +9,10 @@ class CreateProdInvVariantType(BaseModel):
     name:str
     storage_location:Optional[str]=None
     reorder_point:Optional[float]=5
+    online_reorder_point:Optional[float]=0.0
     buy_price:Optional[float]=None
     sell_price:Optional[float]=None
+    online_sell_price:Optional[float]=None
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
     barcode: Optional[str] = None
@@ -23,10 +25,10 @@ class UpdateProdInvVariantType(BaseModel):
     name: Optional[str] = None
     buy_price: Optional[float] = None
     sell_price: Optional[float] = None
+    online_sell_price: Optional[float] = None
     storage_location: Optional[str] = None
     reorder_point: Optional[float] = None
-    sku: Optional[str] = None
-    barcode: Optional[str] = None
+    online_reorder_point: Optional[float] = None
 
 
 class CreateProdInvBatchType(BaseModel):
@@ -42,6 +44,7 @@ class CreateProdInvSchema(BaseModel):
     category_id:str
     unit_id:str
     name:str
+    brand:Optional[str]=None
     description:str
     barcode:Optional[str]=None
     type_infos:ProductTypeInfosType
@@ -51,7 +54,9 @@ class CreateProdInvSchema(BaseModel):
     buy_price:Optional[float]=None
     gst:Optional[str]="0%"
     sell_price:Optional[float]=None
+    online_sell_price:Optional[float]=None
     reorder_point:Optional[float]=5
+    online_reorder_point:Optional[float]=0.0
     custom_fields:Optional[dict]={}
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
@@ -64,6 +69,7 @@ class UpdateProdInvSchema(BaseModel):
     category_id: Optional[str] = None
     unit_id: Optional[str] = None
     name: Optional[str] = None
+    brand: Optional[str] = None
     description: Optional[str] = None
     type_infos: Optional[ProductTypeInfosType] = None
     have_tracking: Optional[bool] = None
@@ -71,11 +77,12 @@ class UpdateProdInvSchema(BaseModel):
     storage_location: Optional[str] = None
     buy_price: Optional[float] = None
     sell_price: Optional[float] = None
+    online_sell_price: Optional[float] = None
     reorder_point: Optional[float] = 5
+    online_reorder_point: Optional[float] = None
     custom_fields: Optional[dict] = {}
     visible_online: Optional[bool] = None
     gst:Optional[str]="0%"
-    sku: Optional[str] = None
 
 
 class DeleteProdInvSchema(BaseModel):
@@ -112,6 +119,7 @@ class CreateInvAllPricingInfosType(BaseModel):
     id:Optional[str]=None
     buy_price:float
     sell_price:float
+    online_sell_price:Optional[float]=0.0
 
 
 class CreateInvAllStlInfosType(BaseModel):
@@ -121,6 +129,7 @@ class CreateInvAllStlInfosType(BaseModel):
 class CreateInvAllRopInfosType(BaseModel):
     id:Optional[str]=None
     reorder_point:float
+    online_reorder_point:Optional[float]=0.0
 
 
 
@@ -174,11 +183,13 @@ class UpdateAllProdInvSchema(BaseModel):
     stocks:float
     storage_location:Optional[str]=None
     reorder_point:Optional[float]=None
+    online_reorder_point:Optional[float]=None
     name:Optional[str]=None
     gst:Optional[str]=None
     description:Optional[str]=None
     buy_price:Optional[float]=None
     sell_price:Optional[float]=None
+    online_sell_price:Optional[float]=None
     type:str
     entity_name:str
     create_stock_mov_adj:bool=False

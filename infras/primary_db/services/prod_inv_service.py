@@ -1,4 +1,5 @@
 from models.repo_models.base_repo_model import BaseRepoModel
+import asyncio
 from models.service_models.base_service_model import BaseServiceModel
 from ..models.inventory_model import InventoryPricings,InventoryStocks,InventoryStoragelocations,InventoryReorderPoint
 from ..models.product_model import ProductBatches,Products,ProductSerialNumbers,ProductVariants
@@ -34,64 +35,126 @@ class ProductInventoryService:
     def __init__(self,session:AsyncSession):
         self.session=session
 
-    async def create(self,data:CreateProdInvSchema):
-        variants_toadd=[]
-        storage_location_toadd=[]
-        pricing_toadd=[]
-        rop_toadd=[]
+    async def create(self,data:CreateProdInvSchema, executing_user_id: Optional[str] = None):
+        try:
+            variants_toadd=[]
+            storage_location_toadd=[]
+            pricing_toadd=[]
+            rop_toadd=[]
 
-        product_id=generate_uuid()
-        
-        # Product SKU & Barcode Resolution
-        if data.sku:
-            if not await validate_sku_uniqueness(self.session, data.shop_id, data.sku):
-                raise ValueError(f"Product SKU '{data.sku}' already exists.")
-            product_sku = data.sku
-        else:
-            product_sku = await generate_product_sku(self.session, data.shop_id, data.category_id, data.name)
+            product_id=generate_uuid()
+            
+            # Product SKU & Barcode Resolution
+            if data.sku:
+                if not await validate_sku_uniqueness(self.session, data.shop_id, data.sku):
+                    raise ValueError(f"Product SKU '{data.sku}' already exists.")
+                product_sku = data.sku
+            else:
+                product_sku = await generate_product_sku(self.session, data.shop_id, data.category_id, data.name)
 
-        if data.barcode:
-            if not await validate_barcode_uniqueness(self.session, data.shop_id, data.barcode):
-                raise ValueError(f"Product Barcode '{data.barcode}' already exists.")
-            product_barcode = data.barcode
-        else:
-            product_barcode = await generate_product_barcode(self.session, data.shop_id)
+            if data.barcode:
+                if not await validate_barcode_uniqueness(self.session, data.shop_id, data.barcode):
+                    raise ValueError(f"Product Barcode '{data.barcode}' already exists.")
+                product_barcode = data.barcode
+            else:
+                product_barcode = await generate_product_barcode(self.session, data.shop_id)
 
-        if data.type_infos.has_variant:
-            for variant in data.variant_infos:
-                variant_id=generate_uuid()
-                
-                # Variant SKU & Barcode Resolution
-                if variant.sku:
-                    if not await validate_sku_uniqueness(self.session, data.shop_id, variant.sku):
-                        raise ValueError(f"Variant SKU '{variant.sku}' already exists.")
-                    variant_sku = variant.sku
-                else:
-                    variant_sku = await generate_product_sku(self.session, data.shop_id, data.category_id, data.name, variant.name)
+            if data.type_infos.has_variant:
+                for variant in data.variant_infos:
+                    variant_id=generate_uuid()
+                    
+                    # Variant SKU & Barcode Resolution
+                    if variant.sku:
+                        if not await validate_sku_uniqueness(self.session, data.shop_id, variant.sku):
+                            raise ValueError(f"Variant SKU '{variant.sku}' already exists.")
+                        variant_sku = variant.sku
+                    else:
+                        variant_sku = await generate_product_sku(self.session, data.shop_id, data.category_id, data.name, variant.name)
 
-                if variant.barcode:
-                    if not await validate_barcode_uniqueness(self.session, data.shop_id, variant.barcode):
-                        raise ValueError(f"Variant Barcode '{variant.barcode}' already exists.")
-                    variant_barcode = variant.barcode
-                else:
-                    variant_barcode = await generate_product_barcode(self.session, data.shop_id)
+                    if variant.barcode:
+                        if not await validate_barcode_uniqueness(self.session, data.shop_id, variant.barcode):
+                            raise ValueError(f"Variant Barcode '{variant.barcode}' already exists.")
+                        variant_barcode = variant.barcode
+                    else:
+                        variant_barcode = await generate_product_barcode(self.session, data.shop_id)
 
-                variants_toadd.append(
-                    ProductVariants(
-                        id=variant_id,
-                        sku=variant_sku,
-                        barcode=variant_barcode,
-                        product_id=product_id,
-                        shop_id=data.shop_id,
-                        name=variant.name
+                    variants_toadd.append(
+                        ProductVariants(
+                            id=variant_id,
+                            sku=variant_sku,
+                            barcode=variant_barcode,
+                            product_id=product_id,
+                            shop_id=data.shop_id,
+                            name=variant.name
+                        )
                     )
-                )
 
+                    buy_price=None
+                    sell_price=None
+                    if not data.have_tracking:
+                        buy_price=variant.buy_price
+                        sell_price=variant.sell_price
+
+                    if buy_price and sell_price:
+                        inv_pricing_id=generate_uuid()
+                        pricing_toadd.append(
+                            InventoryPricings(
+                                id=inv_pricing_id,
+                                product_id=product_id,
+                                shop_id=data.shop_id,
+                                variant_id=variant_id,
+                                buy_price=buy_price,
+                                sell_price=sell_price,
+                                online_sell_price=variant.online_sell_price or 0.0
+                            )
+                        )
+
+                    stl=None
+
+                    if variant.storage_location:
+                        stl=variant.storage_location
+                    
+
+                    if stl:
+                        inv_stl_id=generate_uuid()
+                        storage_location_toadd.append(
+                            InventoryStoragelocations(
+                                id=inv_stl_id,
+                                product_id=product_id,
+                                shop_id=data.shop_id,
+                                variant_id=variant_id,
+                                name=stl
+                            )
+                        )
+                    
+                    rop=5
+                    if variant.reorder_point:
+                        rop=variant.reorder_point
+                    online_rop=0.0
+                    if variant.online_reorder_point:
+                        online_rop=variant.online_reorder_point
+
+                    rop_id=generate_uuid()
+                    rop_toadd.append(
+                        InventoryReorderPoint(
+                            id=rop_id,
+                            product_id=product_id,
+                            shop_id=data.shop_id,
+                            variant_id=variant_id,
+                            reorder_point=rop,
+                            online_reorder_point=online_rop
+                        )
+                    )
+
+                
+            else:
+                
                 buy_price=None
                 sell_price=None
+
                 if not data.have_tracking:
-                    buy_price=variant.buy_price
-                    sell_price=variant.sell_price
+                    buy_price=data.buy_price
+                    sell_price=data.sell_price
 
                 if buy_price and sell_price:
                     inv_pricing_id=generate_uuid()
@@ -100,18 +163,14 @@ class ProductInventoryService:
                             id=inv_pricing_id,
                             product_id=product_id,
                             shop_id=data.shop_id,
-                            variant_id=variant_id,
                             buy_price=buy_price,
-                            sell_price=sell_price
+                            sell_price=sell_price,
+                            online_sell_price=data.online_sell_price or 0.0
                         )
                     )
 
-                stl=None
 
-                if variant.storage_location:
-                    stl=variant.storage_location
-                
-
+                stl=data.storage_location or None
                 if stl:
                     inv_stl_id=generate_uuid()
                     storage_location_toadd.append(
@@ -119,113 +178,350 @@ class ProductInventoryService:
                             id=inv_stl_id,
                             product_id=product_id,
                             shop_id=data.shop_id,
-                            variant_id=variant_id,
                             name=stl
                         )
                     )
                 
-                rop=5
-                if variant.reorder_point:
-                    rop=variant.reorder_point
-
+                rop=data.reorder_point or 5
+                online_rop=data.online_reorder_point or 0.0
                 rop_id=generate_uuid()
                 rop_toadd.append(
                     InventoryReorderPoint(
                         id=rop_id,
                         product_id=product_id,
                         shop_id=data.shop_id,
-                        variant_id=variant_id,
-                        reorder_point=rop
+                        variant_id=None,
+                        reorder_point=rop,
+                        online_reorder_point=online_rop
                     )
                 )
 
-            
-        else:
-            
-            buy_price=None
-            sell_price=None
-
-            if not data.have_tracking:
-                buy_price=data.buy_price
-                sell_price=data.sell_price
-
-            if buy_price and sell_price:
-                inv_pricing_id=generate_uuid()
-                pricing_toadd.append(
-                    InventoryPricings(
-                        id=inv_pricing_id,
-                        product_id=product_id,
-                        shop_id=data.shop_id,
-                        buy_price=buy_price,
-                        sell_price=sell_price
-                    )
-                )
-
-
-            stl=data.storage_location or None
-            if stl:
-                inv_stl_id=generate_uuid()
-                storage_location_toadd.append(
-                    InventoryStoragelocations(
-                        id=inv_stl_id,
-                        product_id=product_id,
-                        shop_id=data.shop_id,
-                        name=stl
-                    )
-                )
-            
-            rop=data.reorder_point or 5
-            rop_id=generate_uuid()
-            rop_toadd.append(
-                InventoryReorderPoint(
-                    id=rop_id,
-                    product_id=product_id,
-                    shop_id=data.shop_id,
-                    variant_id=None,
-                    reorder_point=rop
-                )
+            ui_id_res=await get_ui_id(shop_id=data.shop_id)
+            ic(ui_id_res)
+            ui_id=f"{ui_id_res.get("prefix")}-{ui_id_res.get("current_number")}"
+            ic(ui_id)
+            product_toadd=CreateProductDbSchema(
+                id=product_id,
+                ui_id=ui_id,
+                is_active=False,
+                sku=product_sku,
+                barcode=product_barcode,
+                brand=data.brand or None,
+                **data.model_dump(exclude=["stocks","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand"])
             )
 
-        ui_id_res=await get_ui_id(shop_id=data.shop_id)
-        ic(ui_id_res)
-        ui_id=f"{ui_id_res.get("prefix")}-{ui_id_res.get("current_number")}"
-        ic(ui_id)
-        product_toadd=CreateProductDbSchema(
-            id=product_id,
-            ui_id=ui_id,
-            is_active=False,
-            sku=product_sku,
-            barcode=product_barcode,
-            **data.model_dump(exclude=["stocks","variant_infos","storage_location","buy_price","sell_price","sku","barcode"])
-        )
+            product_repo_obj=ProductRepo(session=self.session)
+            product_add_res=await product_repo_obj.create_product(data=product_toadd)
+            variant_res=None
+            if product_add_res and data.type_infos.has_variant and variants_toadd:
+                variant_res=await product_repo_obj.create_bulk_variant(data=variants_toadd)
+                ic(variant_res)
+            
+            if product_add_res:
+                inv_repo_obj=InventoryRepo(session=self.session)
 
-        product_repo_obj=ProductRepo(session=self.session)
-        product_add_res=await product_repo_obj.create_product(data=product_toadd)
-        variant_res=None
-        if product_add_res and data.type_infos.has_variant and variants_toadd:
-            variant_res=await product_repo_obj.create_bulk_variant(data=variants_toadd)
-            ic(variant_res)
-        
-        if product_add_res:
-            inv_repo_obj=InventoryRepo(session=self.session)
+                await inv_repo_obj.create_bulk_pricing(data=pricing_toadd)
+                await inv_repo_obj.create_bulk_storage_location(data=storage_location_toadd)
+                await inv_repo_obj.create_bulk_reorder_point(data=rop_toadd)
 
-            await inv_repo_obj.create_bulk_pricing(data=pricing_toadd)
-            await inv_repo_obj.create_bulk_storage_location(data=storage_location_toadd)
-            await inv_repo_obj.create_bulk_reorder_point(data=rop_toadd)
+                if data.custom_fields:
+                    cust_obj=await CustomFieldsService(session=self.session).upsert_values(
+                    data=CreateCustomFieldValueSchema(
+                            shop_id=data.shop_id,
+                            product_id=product_id,
+                            value_infos=[
+                                {'field_id':id,"value":value}
+                                for id,value in data.custom_fields.items()
+                            ]
+                        )
+                    )
+                    ic(cust_obj)
+                
+                try:
+                    from messaging.main import RabbitMQMessagingConfig
+                    rabbitmq_msg_obj = RabbitMQMessagingConfig()
+                    await rabbitmq_msg_obj.publish_event(
+                        routing_key="activity_logs.routing.key",
+                        exchange_name="activity_logs.exchange",
+                        payload={
+                            "shop_id": data.shop_id,
+                            "user_name": "Hyperlocal-User",
+                            "service": "Inventory",
+                            "action": "CREATED",
+                            "entity_type": "Product",
+                            "entity_id": product_id,
+                            "description": f"Created product {product_id}",
+                            "changes": [{"field": "id", "before": str(product_id), "after": "CREATED"}]
+                        },
+                        headers={}
+                    )
+                except Exception as e:
+                    ic(f"Failed to publish activity log: {e}")
 
-            if data.custom_fields:
-                cust_obj=await CustomFieldsService(session=self.session).upsert_values(
-                data=CreateCustomFieldValueSchema(
+
+
+                    
+                # Sync to Read DB
+                try:
+                    read_db_res=await ProdInvReadDbRepo.add_updatereaddb(
                         shop_id=data.shop_id,
-                        product_id=product_id,
-                        value_infos=[
-                            {'field_id':id,"value":value}
-                            for id,value in data.custom_fields.items()
+                        product_ids=[product_id],
+                        session=self.session
+                    )
+                    ic(read_db_res)
+                except Exception as e:
+                    ic(f"Error syncing to read DB on create: {e}")
+                    
+                try:
+                    from messaging.main import RabbitMQMessagingConfig
+                    rabbitmq_msg_obj = RabbitMQMessagingConfig()
+                    
+                    analytics_payload = {
+                        "shop_id": data.shop_id,
+                        "datas": [
+                            {
+                                "product_id": product_id,
+                                "variant_id": None,
+                                "batch_id": None,
+                                "is_active": False,
+                                "stocks": 0,
+                                "low_stocks": 0,
+                                "no_stocks": 1
+                            }
                         ]
+                    }
+                    
+                    if data.type_infos.has_variant and variants_toadd:
+                        analytics_payload["datas"] = [
+                            {
+                                "product_id": product_id,
+                                "variant_id": str(v.id),
+                                "batch_id": None,
+                                "is_active": False,
+                                "stocks": 0,
+                                "low_stocks": 0,
+                                "no_stocks": 1
+                            }
+                            for v in variants_toadd
+                        ]
+
+                    await rabbitmq_msg_obj.publish_event(
+                        routing_key="analytics.service.routing.key",
+                        exchange_name="analytics.service.exchange",
+                        payload=analytics_payload,
+                        headers={
+                            "entity_name": "prodinv_event",
+                            "service_name": "ANALYTICS",
+                            "saga_id": "none",
+                            "reply_key": "none",
+                            "reply_exchange": "none",
+                            "reply_entity_name": "none",
+                            "body": analytics_payload
+                        }
+                    )
+                except Exception as e:
+                    ic(f"Failed to publish analytics event: {e}")
+            
+            # Emit Success Notification
+            try:
+                from helpers.emit_notification import emit_notification
+                asyncio.create_task(emit_notification(
+                    title="Product Created",
+                    message=f"Product '{data.name}' has been successfully created.",
+                    type="info",
+                    user_id=executing_user_id or data.shop_id,
+                    additional_metadata={"product_id": product_id}
+                ))
+            except Exception as notification_error:
+                ic(f"Notification error: {notification_error}")
+            
+            return product_add_res
+
+        except Exception as e:
+            # Emit Error Notification
+            try:
+                from helpers.emit_notification import emit_notification
+                asyncio.create_task(emit_notification(
+                    title="Product Creation Failed",
+                    message=f"Failed to create product '{data.name}': {str(e)}",
+                    type="error",
+                    user_id=executing_user_id or data.shop_id
+                ))
+            except Exception as notification_error:
+                ic(f"Notification error: {notification_error}")
+            raise e
+    
+
+    async def update(self, data: UpdateProdInvSchema, executing_user_id: Optional[str] = None):
+        try:
+            product_repo_obj = ProductRepo(session=self.session)
+            prod_get_res = await product_repo_obj.get_products_by_id(data=GetProductsById(shop_id=data.shop_id, id=data.id))
+            if not prod_get_res:
+                ic("The given product doesn't exist")
+                return False
+                
+            if isinstance(prod_get_res, list):
+                prod_get_res = prod_get_res[0] if prod_get_res else {}
+
+            update_fields = {}
+            sent_fields = data.model_dump(exclude_unset=True)
+            
+            for field in ["name", "description", "category_id", "unit_id", "gst", "sku", "barcode", "brand", "visible_online"]:
+                if field in sent_fields:
+                    if field == "sku":
+                        if not await validate_sku_uniqueness(self.session, data.shop_id, sent_fields["sku"], exclude_product_id=data.id):
+                            raise ValueError(f"Product SKU '{sent_fields['sku']}' already exists.")
+                    if field == "barcode":
+                        if not await validate_barcode_uniqueness(self.session, data.shop_id, sent_fields["barcode"], exclude_product_id=data.id):
+                            raise ValueError(f"Product Barcode '{sent_fields['barcode']}' already exists.")
+                    update_fields[field] = sent_fields[field]
+
+            # Process variants logic
+            variants_toadd = []
+            variants_toupdate = []
+            pricing_toupdate = []
+            rop_toupdate = []
+            stl_toupdate = []
+            
+            has_variant = prod_get_res.get("type_infos", {}).get("has_variant")
+            if has_variant and data.variant_infos:
+                from schemas.v1.product_schemas.db_schemas import UpdateProductVariantDbSchema
+                for variant in data.variant_infos:
+                    if variant.id:
+                        variants_toupdate.append(
+                            UpdateProductVariantDbSchema(
+                                id=variant.id,
+                                name=variant.name,
+                                shop_id=data.shop_id
+                            )
+                        )
+                        var_id = variant.id
+                    else:
+                        var_id = generate_uuid()
+                        
+                        # Variant SKU & Barcode Resolution for newly added variant
+                        variant_sku = await generate_product_sku(self.session, data.shop_id, data.category_id or prod_get_res.get("category_id"), data.name or prod_get_res.get("name"), variant.name)
+                        variant_barcode = await generate_product_barcode(self.session, data.shop_id)
+
+                        variants_toadd.append(
+                            ProductVariants(
+                                id=var_id,
+                                sku=variant_sku,
+                                barcode=variant_barcode,
+                                product_id=data.id,
+                                shop_id=data.shop_id,
+                                name=variant.name
+                            )
+                        )
+                        
+                    if variant.buy_price is not None or variant.sell_price is not None or variant.online_sell_price is not None:
+                        pricing_toupdate.append(UpdateInventoryPricingDbSchema(
+                            shop_id=data.shop_id,
+                            product_id=data.id,
+                            variant_id=var_id,
+                            buy_price=variant.buy_price,
+                            sell_price=variant.sell_price,
+                            online_sell_price=variant.online_sell_price,
+                            batch_id=None
+                        ))
+                    
+                    if variant.reorder_point is not None or variant.online_reorder_point is not None:
+                        rop_toupdate.append(UpdateInventoryReorderPointDbSchema(
+                            shop_id=data.shop_id,
+                            product_id=data.id,
+                            variant_id=var_id,
+                            reorder_point=variant.reorder_point,
+                            online_reorder_point=variant.online_reorder_point,
+                            batch_id=None
+                        ))
+
+                    if variant.storage_location is not None:
+                        stl_toupdate.append(UpdateInventoryStorageLocationDbSchema(
+                            shop_id=data.shop_id,
+                            product_id=data.id,
+                            variant_id=var_id,
+                            name=variant.storage_location,
+                            batch_id=None
+                        ))
+                        
+            elif not has_variant:
+                if data.buy_price is not None or data.sell_price is not None or data.online_sell_price is not None:
+                    pricing_toupdate.append(UpdateInventoryPricingDbSchema(
+                        shop_id=data.shop_id,
+                        product_id=data.id,
+                        variant_id=None,
+                        batch_id=None,
+                        buy_price=data.buy_price,
+                        sell_price=data.sell_price,
+                        online_sell_price=data.online_sell_price
+                    ))
+                
+                if data.reorder_point is not None or data.online_reorder_point is not None:
+                    rop_toupdate.append(UpdateInventoryReorderPointDbSchema(
+                        shop_id=data.shop_id,
+                        product_id=data.id,
+                        variant_id=None,
+                        batch_id=None,
+                        reorder_point=data.reorder_point,
+                        online_reorder_point=data.online_reorder_point
+                    ))
+                
+                if data.storage_location is not None:
+                    stl_toupdate.append(UpdateInventoryStorageLocationDbSchema(
+                        shop_id=data.shop_id,
+                        product_id=data.id,
+                        variant_id=None,
+                        batch_id=None,
+                        name=data.storage_location
+                    ))
+
+            # Rest of the updates and syncing
+            if update_fields:
+                product_toadd = UpdateProductDbSchema(
+                    id=data.id,
+                    **update_fields
+                )
+                product_add_res = await product_repo_obj.update_bulk_product(data=[product_toadd])
+                if not product_add_res:
+                    return False
+                    
+            if variants_toadd:
+                await product_repo_obj.create_bulk_variant(data=variants_toadd)
+            if variants_toupdate:
+                await product_repo_obj.update_bulk_variant(data=variants_toupdate)
+                
+            from infras.primary_db.repos.inventory_repo import InventoryRepo
+            inventory_repo_obj = InventoryRepo(session=self.session)
+
+            if pricing_toupdate:
+                await inventory_repo_obj.update_bulk_pricing(data=pricing_toupdate)
+            if rop_toupdate:
+                await inventory_repo_obj.update_bulk_reorder_point(data=rop_toupdate)
+            if stl_toupdate:
+                await inventory_repo_obj.update_bulk_storage_location(data=stl_toupdate)
+
+            if data.custom_fields and data.custom_fields.get("values"):
+                cust_field_obj = CustomFieldsService(session=self.session)
+                await cust_field_obj.bulk_upsert_values(
+                    data=BulkCreateCustomFieldValuesSchema(
+                        shop_id=data.shop_id,
+                        product_id=data.id,
+                        values=data.custom_fields.get("values")
                     )
                 )
-                ic(cust_obj)
-            
+
+            # Sync to Read DB Pipeline
+            try:
+                read_db_res = await ProdInvReadDbRepo.add_updatereaddb(
+                    shop_id=data.shop_id,
+                    product_ids=[data.id],
+                    session=self.session
+                )
+                ic(read_db_res)
+            except Exception as e:
+                ic(f"Error syncing to read DB on update: {e}")
+
+
             try:
                 from messaging.main import RabbitMQMessagingConfig
                 rabbitmq_msg_obj = RabbitMQMessagingConfig()
@@ -234,166 +530,48 @@ class ProductInventoryService:
                     exchange_name="activity_logs.exchange",
                     payload={
                         "shop_id": data.shop_id,
-                        "user_name": "Hyperlocal-User",
+                        "user_name": "Hyperlocal-Inventory",
                         "service": "Inventory",
-                        "action": "CREATED",
+                        "action": "UPDATE",
                         "entity_type": "Product",
-                        "entity_id": product_id,
-                        "description": f"Created product {product_id}",
-                        "changes": [{"field": "id", "before": str(product_id), "after": "CREATED"}]
+                        "entity_id": data.id,
+                        "description": f"Bulk created/updated inventory items",
+                        "changes": [{"field": "id", "before": "None", "after": data.id}]
                     },
                     headers={}
                 )
             except Exception as e:
                 ic(f"Failed to publish activity log: {e}")
 
-
-
-                
-            # Sync to Read DB
+            # Emit Success Notification
             try:
-                read_db_res=await ProdInvReadDbRepo.add_updatereaddb(
-                    shop_id=data.shop_id,
-                    product_ids=[product_id],
-                    session=self.session
-                )
-                ic(read_db_res)
-            except Exception as e:
-                ic(f"Error syncing to read DB on create: {e}")
-                
+                from helpers.emit_notification import emit_notification
+                prod_name = update_fields.get("name") or prod_get_res.get("name") or "Product"
+                asyncio.create_task(emit_notification(
+                    title="Product Updated",
+                    message=f"Product '{prod_name}' has been successfully updated.",
+                    type="info",
+                    user_id=executing_user_id or data.shop_id,
+                    additional_metadata={"product_id": data.id}
+                ))
+            except Exception as notification_error:
+                ic(f"Notification error: {notification_error}")
+
+            return True
+
+        except Exception as e:
+            # Emit Error Notification
             try:
-                from messaging.main import RabbitMQMessagingConfig
-                rabbitmq_msg_obj = RabbitMQMessagingConfig()
-                
-                analytics_payload = {
-                    "shop_id": data.shop_id,
-                    "datas": [
-                        {
-                            "product_id": product_id,
-                            "variant_id": None,
-                            "batch_id": None,
-                            "is_active": False,
-                            "stocks": 0,
-                            "low_stocks": 0,
-                            "no_stocks": 1
-                        }
-                    ]
-                }
-                
-                if data.type_infos.has_variant and variants_toadd:
-                    analytics_payload["datas"] = [
-                        {
-                            "product_id": product_id,
-                            "variant_id": str(v.id),
-                            "batch_id": None,
-                            "is_active": False,
-                            "stocks": 0,
-                            "low_stocks": 0,
-                            "no_stocks": 1
-                        }
-                        for v in variants_toadd
-                    ]
-
-                await rabbitmq_msg_obj.publish_event(
-                    routing_key="analytics.service.routing.key",
-                    exchange_name="analytics.service.exchange",
-                    payload=analytics_payload,
-                    headers={
-                        "entity_name": "prodinv_event",
-                        "service_name": "ANALYTICS",
-                        "saga_id": "none",
-                        "reply_key": "none",
-                        "reply_exchange": "none",
-                        "reply_entity_name": "none",
-                        "body": analytics_payload
-                    }
-                )
-            except Exception as e:
-                ic(f"Failed to publish analytics event: {e}")
-        
-
-        return product_add_res
-    
-
-    async def update(self, data: UpdateProdInvSchema):
-        product_repo_obj = ProductRepo(session=self.session)
-        prod_get_res = await product_repo_obj.get_products_by_id(data=GetProductsById(shop_id=data.shop_id, id=data.id))
-        if not prod_get_res:
-            ic("The given product doesn't exist")
-            return False
-            
-        if isinstance(prod_get_res, list):
-            prod_get_res = prod_get_res[0] if prod_get_res else {}
-
-        update_fields = {}
-        sent_fields = data.model_dump(exclude_unset=True)
-        
-        for field in ["name", "description", "category_id", "unit_id", "gst", "sku", "barcode"]:
-            if field in sent_fields:
-                if field == "sku":
-                    if not await validate_sku_uniqueness(self.session, data.shop_id, sent_fields["sku"], exclude_product_id=data.id):
-                        raise ValueError(f"Product SKU '{sent_fields['sku']}' already exists.")
-                if field == "barcode":
-                    if not await validate_barcode_uniqueness(self.session, data.shop_id, sent_fields["barcode"], exclude_product_id=data.id):
-                        raise ValueError(f"Product Barcode '{sent_fields['barcode']}' already exists.")
-                update_fields[field] = sent_fields[field]
-
-        if update_fields:
-            product_toadd = UpdateProductDbSchema(
-                id=data.id,
-                **update_fields
-            )
-            product_add_res = await product_repo_obj.update_bulk_product(data=[product_toadd])
-            if not product_add_res:
-                return False
-
-        if data.custom_fields and data.custom_fields.get("values"):
-            cust_field_obj = CustomFieldsService(session=self.session)
-            await cust_field_obj.bulk_upsert_values(
-                data=BulkCreateCustomFieldValuesSchema(
-                    shop_id=data.shop_id,
-                    product_id=data.id,
-                    values=data.custom_fields.get("values")
-                )
-            )
-
-        
-        
-
-        # Sync to Read DB Pipeline
-        try:
-            read_db_res = await ProdInvReadDbRepo.add_updatereaddb(
-                shop_id=data.shop_id,
-                product_ids=[data.id],
-                session=self.session
-            )
-            ic(read_db_res)
-        except Exception as e:
-            ic(f"Error syncing to read DB on update: {e}")
-
-
-        try:
-            from messaging.main import RabbitMQMessagingConfig
-            rabbitmq_msg_obj = RabbitMQMessagingConfig()
-            await rabbitmq_msg_obj.publish_event(
-                routing_key="activity_logs.routing.key",
-                exchange_name="activity_logs.exchange",
-                payload={
-                    "shop_id": data.shop_id,
-                    "user_name": "Hyperlocal-Inventory",
-                    "service": "Inventory",
-                    "action": "UPDATE",
-                    "entity_type": "Product",
-                    "entity_id": data.id,
-                    "description": f"Bulk created/updated inventory items",
-                    "changes": [{"field": "id", "before": "None", "after": data.id}]
-                },
-                headers={}
-            )
-        except Exception as e:
-            ic(f"Failed to publish activity log: {e}")
-
-        return True
+                from helpers.emit_notification import emit_notification
+                asyncio.create_task(emit_notification(
+                    title="Product Update Failed",
+                    message=f"Failed to update product '{data.id}': {str(e)}",
+                    type="error",
+                    user_id=executing_user_id or data.shop_id
+                ))
+            except Exception as notification_error:
+                ic(f"Notification error: {notification_error}")
+            raise e
         
 
     async def create_bulk_batch(self,data:List[CreateProductBatchSchema]):
@@ -433,7 +611,7 @@ class ProductInventoryService:
 
         # repo returns None if product not found OR if is_active=False
         if not res:
-            ic("Product not found or is_active=False — deletion skipped")
+            ic("Product not found or is_active=True — deletion skipped")
             return False
 
         # --- 1. Delete images from object storage via Utility Service ---
@@ -452,7 +630,9 @@ class ProductInventoryService:
         # --- 2. Sync deletion to Read DB ---
         try:
             from infras.read_db.repos.inventory_repo import InventoryReadDbRepo
+            from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
             await InventoryReadDbRepo.delete_inventory(inventory_id=data.id, shop_id=data.shop_id)
+            await ProdInvReadDbRepo.delete_product(product_id=data.id, shop_id=data.shop_id)
             ic(f"Read DB sync: product {data.id} deleted from read DB")
         except Exception as e:
             ic(f"Error syncing to read DB on delete: {e}")
@@ -572,7 +752,8 @@ class ProductInventoryService:
                         variant_id=create_data.variant_id,
                         batch_id=create_data.batch_id,
                         buy_price=create_data.pricing_infos.buy_price,
-                        sell_price=create_data.pricing_infos.sell_price
+                        sell_price=create_data.pricing_infos.sell_price,
+                        online_sell_price=create_data.pricing_infos.online_sell_price or 0.0
 
                     )
                 )
@@ -597,7 +778,8 @@ class ProductInventoryService:
                         product_id=create_data.product_id,
                         variant_id=create_data.variant_id,
                         batch_id=create_data.batch_id,
-                        reorder_point=create_data.reorder_point_infos.reorder_point
+                        reorder_point=create_data.reorder_point_infos.reorder_point,
+                        online_reorder_point=create_data.reorder_point_infos.online_reorder_point or 0.0
                     )
                 )
 
@@ -633,7 +815,8 @@ class ProductInventoryService:
                         variant_id=update_data.variant_id,
                         batch_id=update_data.batch_id,
                         buy_price=update_data.pricing_infos.buy_price,
-                        sell_price=update_data.pricing_infos.sell_price
+                        sell_price=update_data.pricing_infos.sell_price,
+                        online_sell_price=update_data.pricing_infos.online_sell_price
 
                     )
                 )
@@ -658,7 +841,8 @@ class ProductInventoryService:
                         product_id=update_data.product_id,
                         variant_id=update_data.variant_id,
                         batch_id=update_data.batch_id,
-                        reorder_point=update_data.reorder_point_infos.reorder_point
+                        reorder_point=update_data.reorder_point_infos.reorder_point,
+                        online_reorder_point=update_data.reorder_point_infos.online_reorder_point
                     )
                 )
 
@@ -750,457 +934,496 @@ class ProductInventoryService:
                 ic(f"Error syncing bulk inventory to read DB: {e}")
 
         return True
-    
-
-
-    async def update_all(self, data: List[UpdateAllProdInvSchema]) -> bool:
-        inv_repo_obj = InventoryRepo(session=self.session)
-        prod_repo_obj = ProductRepo(session=self.session)
         
-        validated_data: Dict[str, List[Dict[str, Any]]] = {}
-        product_serial_numbers: Dict[str, set] = {}
-        
-        product_tocheck = []
-        variant_tocheck = []
-        batch_tocheck = []
-        serialno_tocheck = []
-        
-        create_stock_mov_adj = False
-        shop_id = None
 
-        # STEP-1: DUP VALIDATION & INCOMING DATA PARSING
-        for prod in data:
-            product_id = prod.product_id
-            create_stock_mov_adj = prod.create_stock_mov_adj
-            shop_id = prod.shop_id
+    async def update_all(self, data: List[UpdateAllProdInvSchema], executing_user_id: Optional[str] = None) -> bool:
+        try:
+            inv_repo_obj = InventoryRepo(session=self.session)
+            prod_repo_obj = ProductRepo(session=self.session)
             
-            # Initialize containers if not present
-            if product_id not in validated_data:
-                validated_data[product_id] = []
-            if product_id not in product_serial_numbers:
-                product_serial_numbers[product_id] = set()
-
-            # Check for identical product + variant + batch in the payload
-            inc_variant_id = prod.variant_id
-            inc_batch_id = prod.batch_infos.id if prod.batch_infos else None
+            validated_data: Dict[str, List[Dict[str, Any]]] = {}
+            product_serial_numbers: Dict[str, set] = {}
             
-            for inside_data in validated_data[product_id]:
-                v_variant_id = inside_data.get("variant_id")
-                v_batch_infos = inside_data.get("batch_infos")
-                v_batch_id = v_batch_infos.get("id") if v_batch_infos else None
-
-                if v_variant_id == inc_variant_id and v_batch_id == inc_batch_id:
-                    ic("A duplicate combination of product, variant, and batch found in payload.")
-                    return False
-
-            # Validate duplicate serial numbers inside the payload for this product
-            if prod.serialno_infos:
-                for sn_info in prod.serialno_infos:
-                    if sn_info.name:
-                        if sn_info.name in product_serial_numbers[product_id]:
-                            ic(f"Duplicate serial number '{sn_info.name}' for the same product found.")
-                            return False
-                        product_serial_numbers[product_id].add(sn_info.name)
-                        if sn_info.id:
-                            serialno_tocheck.append(sn_info.id)
-
-            # Append data and track uniquely required database entities
-            validated_data[product_id].append(prod.model_dump())
+            product_tocheck = []
+            variant_tocheck = []
+            batch_tocheck = []
+            serialno_tocheck = []
             
-            if product_id and product_id not in product_tocheck:
-                product_tocheck.append(product_id)
-            if prod.variant_id and prod.variant_id not in variant_tocheck:
-                variant_tocheck.append(prod.variant_id)
-            if prod.batch_infos and prod.batch_infos.id and (prod.batch_infos.id not in batch_tocheck):
-                batch_tocheck.append(prod.batch_infos.id)
+            create_stock_mov_adj = False
+            shop_id = None
 
-        ic(product_tocheck, variant_tocheck, batch_tocheck, serialno_tocheck)
+            # STEP-1: DUP VALIDATION & INCOMING DATA PARSING
+            for prod in data:
+                product_id = prod.product_id
+                create_stock_mov_adj = prod.create_stock_mov_adj
+                shop_id = prod.shop_id
+                
+                # Initialize containers if not present
+                if product_id not in validated_data:
+                    validated_data[product_id] = []
+                if product_id not in product_serial_numbers:
+                    product_serial_numbers[product_id] = set()
 
-        # STEP-2: DATABASE VERIFICATION
-        prod_checked_results = await prod_repo_obj.get_bulk_products_by_id(
-            data=GetBulkProductsById(id=product_tocheck, shop_id=shop_id, include_serialno=True)
-        )
-        ic(prod_checked_results)
-        ic(product_tocheck)
+                # Check for identical product + variant + batch in the payload
+                inc_variant_id = prod.variant_id
+                inc_batch_id = prod.batch_infos.id if prod.batch_infos else None
+                
+                for inside_data in validated_data[product_id]:
+                    v_variant_id = inside_data.get("variant_id")
+                    v_batch_infos = inside_data.get("batch_infos")
+                    v_batch_id = v_batch_infos.get("id") if v_batch_infos else None
 
-        if len(product_tocheck) != len(prod_checked_results):
-            ic("Mismatched product count from DB verification.")
-            return False
+                    if v_variant_id == inc_variant_id and v_batch_id == inc_batch_id:
+                        ic("A duplicate combination of product, variant, and batch found in payload.")
+                        raise ValueError("A duplicate combination of product, variant, and batch found in payload.")
+                        
 
-        # State tracking arrays for database operations
-        batch_toadd = []
-        serialno_toadd = []
-        serialno_todelete = []
-        stock_toadd = []
-        stock_toupdate = []
-        stl_toadd = []
-        stl_toupdate = []
-        rop_toadd = []
-        rop_toupdate = []
-        pricing_toadd = []
-        pricing_toupdate = []
-        
-        validate_seriano_name = []
-        stock_mov_adj_data = []
-        product_toupdate: List[UpdateProductDbSchema] = []
+                # Validate duplicate serial numbers inside the payload for this product
+                if prod.serialno_infos:
+                    for sn_info in prod.serialno_infos:
+                        if sn_info.name:
+                            if sn_info.name in product_serial_numbers[product_id]:
+                                ic(f"Duplicate serial number '{sn_info.name}' for the same product found.")
+                                raise ValueError(f"Duplicate serial number '{sn_info.name}' for the same product found.")
 
-        # STEP-3: PROCESSING DB ENTITIES AGAINST INCOMING PAYLOADS
-        for prod_db in prod_checked_results:
-            has_variant = prod_db['type_infos']['has_variant']
-            has_batch = prod_db['type_infos']['has_batch']
-            has_serialno = prod_db['type_infos']['has_serialno']
-            existing_product_id = prod_db['id']
-            existing_variants = prod_db.get('variants', {}) or {}
+                            product_serial_numbers[product_id].add(sn_info.name)
+                            if sn_info.id:
+                                serialno_tocheck.append(sn_info.id)
 
-            validated_items = validated_data.get(existing_product_id)
-            if not validated_items:
-                ic("No configuration found for existing product ID.")
-                return False
+                # Append data and track uniquely required database entities
+                validated_data[product_id].append(prod.model_dump())
+                
+                if product_id and product_id not in product_tocheck:
+                    product_tocheck.append(product_id)
+                if prod.variant_id and prod.variant_id not in variant_tocheck:
+                    variant_tocheck.append(prod.variant_id)
+                if prod.batch_infos and prod.batch_infos.id and (prod.batch_infos.id not in batch_tocheck):
+                    batch_tocheck.append(prod.batch_infos.id)
 
-            # Loop through each payload targeting this specific product
-            for inc_item in validated_items:
-                inc_shop_id = inc_item['shop_id']
-                inc_serialnos = inc_item.get('serialno_infos') or []
-                inc_batch_infos = inc_item.get('batch_infos') or {}
-                inc_batch_id = inc_batch_infos.get("id") if inc_batch_infos else None
-                inc_variant_id = inc_item.get('variant_id')
-                inc_stocks = inc_item.get('stocks') or 0
-                inc_update_type = inc_item['type']
-                inc_sell_price = inc_item.get('sell_price') or 0
-                inc_buy_price = inc_item.get('buy_price') or 0
-                inc_stl = inc_item.get('storage_location')
-                inc_rop = inc_item.get('reorder_point')
-                inc_entity_name = inc_item.get('entity_name')
-                inc_gst = inc_item.get('gst')
+            ic(product_tocheck, variant_tocheck, batch_tocheck, serialno_tocheck)
 
-                if has_variant and not inc_variant_id:
-                    ic("Product requires a variant target but none was provided.")
-                    return False
+            # STEP-2: DATABASE VERIFICATION
+            prod_checked_results = await prod_repo_obj.get_bulk_products_by_id(
+                data=GetBulkProductsById(id=product_tocheck, shop_id=shop_id, include_serialno=True)
+            )
+            ic(prod_checked_results)
+            ic(product_tocheck)
 
-                # Extract fallback reference datasets based on product structure
-                existing_stock_infos = {}
-                existing_pricing_infos = {}
-                existing_stl_info = {}
-                existing_rop_info = {}
-                existing_batch_list = []
+            if len(product_tocheck) != len(prod_checked_results):
+                ic("Mismatched product count from DB verification.")
+                raise ValueError("Mismatched product count from DB verification.")
 
-                if has_variant:
-                    variant_db_info = existing_variants.get(inc_variant_id)
-                    if not variant_db_info:
-                        ic("Target variant mismatch for the product.")
-                        return False
-                    
-                    existing_stock_infos = variant_db_info.get('stock_infos') or {}
-                    existing_pricing_infos = variant_db_info.get('pricing_infos') or {}
-                    existing_stl_info = variant_db_info.get('storage_location_infos') or {}
-                    existing_rop_info = variant_db_info.get('reorder_point_infos') or {}
-                    existing_batch_list = variant_db_info.get('batch_infos') or []
-                else:
-                    existing_stock_infos = prod_db.get('stock_infos') or {}
-                    existing_pricing_infos = prod_db.get('pricing_infos') or {}
-                    existing_stl_info = prod_db.get('storage_location_infos') or {}
-                    existing_rop_info = prod_db.get('reorder_point_infos') or {}
-                    existing_batch_list = prod_db.get('batch_infos') or []
+            # State tracking arrays for database operations
+            batch_toadd = []
+            serialno_toadd = []
+            serialno_todelete = []
+            stock_toadd = []
+            stock_toupdate = []
+            stl_toadd = []
+            stl_toupdate = []
+            rop_toadd = []
+            rop_toupdate = []
+            pricing_toadd = []
+            pricing_toupdate = []
+            
+            validate_seriano_name = []
+            stock_mov_adj_data = []
+            product_toupdate: List[UpdateProductDbSchema] = []
 
-                # Process Batches if required
-                is_batch_exists = False
-                batch_names = [b['name'] for b in existing_batch_list if 'name' in b]
+            # STEP-3: PROCESSING DB ENTITIES AGAINST INCOMING PAYLOADS
+            for prod_db in prod_checked_results:
+                has_variant = prod_db['type_infos']['has_variant']
+                has_batch = prod_db['type_infos']['has_batch']
+                has_serialno = prod_db['type_infos']['has_serialno']
+                existing_product_id = prod_db['id']
+                existing_variants = prod_db.get('variants', {}) or {}
 
-                if has_batch:
-                    if not inc_batch_infos:
-                        ic("Product configuration requires batch info details.")
-                        return False
-                    
-                    if not inc_batch_infos.get('id') and (
-                        not inc_batch_infos.get('name') or 
-                        not inc_batch_infos.get('expiry_date') or 
-                        not inc_batch_infos.get('manufacturing_date')
-                    ):
-                        ic("Batch information schema criteria failed.")
-                        return False
+                validated_items = validated_data.get(existing_product_id)
+                if not validated_items:
+                    ic("No configuration found for existing product ID.")
+                    raise ValueError("No configuration found for existing product ID.")
 
-                    if inc_batch_infos.get('name') in batch_names and not inc_batch_infos.get('id'):
-                        ic("Duplicate batch name detected for this product stack.")
-                        return False
 
-                    # Scan structural batch details if an ID is present
-                    if inc_batch_infos.get('id'):
-                        for exc_batch in existing_batch_list:
-                            if inc_batch_infos['id'] == exc_batch['id']:
-                                is_batch_exists = True
-                                inc_batch_id = exc_batch['id']
-                                existing_stock_infos = exc_batch.get('stock_infos') or {}
-                                existing_pricing_infos = exc_batch.get('pricing_infos') or {}
-                                existing_stl_info = exc_batch.get('storage_location_infos') or {}
-                                existing_rop_info = exc_batch.get('reorder_point_infos') or {}
-                                break
+                # Loop through each payload targeting this specific product
+                for inc_item in validated_items:
+                    inc_shop_id = inc_item['shop_id']
+                    inc_serialnos = inc_item.get('serialno_infos') or []
+                    inc_batch_infos = inc_item.get('batch_infos') or {}
+                    inc_batch_id = inc_batch_infos.get("id") if inc_batch_infos else None
+                    inc_variant_id = inc_item.get('variant_id')
+                    inc_stocks = inc_item.get('stocks') or 0
+                    inc_update_type = inc_item['type']
+                    inc_sell_price = inc_item.get('sell_price') or 0
+                    inc_buy_price = inc_item.get('buy_price') or 0
+                    inc_stl = inc_item.get('storage_location')
+                    inc_rop = inc_item.get('reorder_point')
+                    inc_entity_name = inc_item.get('entity_name')
+                    inc_gst = inc_item.get('gst')
+
+                    if not has_batch:
+                        inc_batch_infos = None
+                        inc_batch_id = None
+                    if not has_serialno:
+                        inc_serialnos = []
+
+                    if has_variant and not inc_variant_id:
+                        ic("Product requires a variant target but none was provided.")
+                        raise ValueError("Product requires a variant target but none was provided.")
+
+                    # Extract fallback reference datasets based on product structure
+                    existing_stock_infos = {}
+                    existing_pricing_infos = {}
+                    existing_stl_info = {}
+                    existing_rop_info = {}
+                    existing_batch_list = []
+
+                    if has_variant:
+                        variant_db_info = existing_variants.get(inc_variant_id)
+                        if not variant_db_info:
+                            ic("Target variant mismatch for the product.")
+                            raise ValueError("Target variant mismatch for the product.")
+                        
+                        existing_stock_infos = variant_db_info.get('stock_infos') or {}
+                        existing_pricing_infos = variant_db_info.get('pricing_infos') or {}
+                        existing_stl_info = variant_db_info.get('storage_location_infos') or {}
+                        existing_rop_info = variant_db_info.get('reorder_point_infos') or {}
+                        existing_batch_list = variant_db_info.get('batch_infos') or []
+                    else:
+                        existing_stock_infos = prod_db.get('stock_infos') or {}
+                        existing_pricing_infos = prod_db.get('pricing_infos') or {}
+                        existing_stl_info = prod_db.get('storage_location_infos') or {}
+                        existing_rop_info = prod_db.get('reorder_point_infos') or {}
+                        existing_batch_list = prod_db.get('batch_infos') or []
+
+                    # Process Batches if required
+                    is_batch_exists = False
+                    batch_names = [b['name'] for b in existing_batch_list if 'name' in b]
+
+                    if has_batch:
+                        if not inc_batch_infos:
+                            ic("Product configuration requires batch info details.")
+                            raise ValueError("Product configuration requires batch info details.")
+                        
+                        if not inc_batch_infos.get('id') and (
+                            not inc_batch_infos.get('name') or 
+                            not inc_batch_infos.get('expiry_date') or 
+                            not inc_batch_infos.get('manufacturing_date')
+                        ):
+                            ic("Batch information schema criteria failed.")
+                            raise ValueError("Batch information schema criteria failed.")
+
+                        if inc_batch_infos.get('name') in batch_names and not inc_batch_infos.get('id'):
+                            ic("Duplicate batch name detected for this product stack.")
+                            raise ValueError("Duplicate batch name detected for this product stack.")
+
+                        # Scan structural batch details if an ID is present
+                        if inc_batch_infos.get('id'):
+                            for exc_batch in existing_batch_list:
+                                if inc_batch_infos['id'] == exc_batch['id']:
+                                    is_batch_exists = True
+                                    inc_batch_id = exc_batch['id']
+                                    existing_stock_infos = exc_batch.get('stock_infos') or {}
+                                    existing_pricing_infos = exc_batch.get('pricing_infos') or {}
+                                    existing_stl_info = exc_batch.get('storage_location_infos') or {}
+                                    existing_rop_info = exc_batch.get('reorder_point_infos') or {}
+                                    break
+                            if not is_batch_exists:
+                                ic("Target batch ID not found in database records.")
+                                raise ValueError("Target batch ID not found in database records.")
+                        else:
+                            # Clean assignment tracking for dynamically declared new batches
+                            existing_stock_infos = {}
+                            existing_pricing_infos = {}
+                            existing_stl_info = {}
+                            existing_rop_info = {}
+
                         if not is_batch_exists:
-                            ic("Target batch ID not found in database records.")
-                            return False
-                    else:
-                        # Clean assignment tracking for dynamically declared new batches
-                        existing_stock_infos = {}
-                        existing_pricing_infos = {}
-                        existing_stl_info = {}
-                        existing_rop_info = {}
+                            inc_batch_id = generate_uuid()
+                            batch_toadd.append(
+                                ProductBatches(
+                                    id=inc_batch_id,
+                                    shop_id=shop_id,
+                                    product_id=existing_product_id,
+                                    variant_id=inc_variant_id,
+                                    name=inc_batch_infos['name'],
+                                    expiration_infos={
+                                        "expiry_date": str(inc_batch_infos['expiry_date']),
+                                        "manufacturing_date": str(inc_batch_infos['manufacturing_date'])
+                                    }
+                                )
+                            )
 
-                    if not is_batch_exists:
-                        inc_batch_id = generate_uuid()
-                        batch_toadd.append(
-                            ProductBatches(
-                                id=inc_batch_id,
-                                shop_id=shop_id,
-                                product_id=existing_product_id,
-                                variant_id=inc_variant_id,
-                                name=inc_batch_infos['name'],
-                                expiration_infos={
-                                    "expiry_date": str(inc_batch_infos['expiry_date']),
-                                    "manufacturing_date": str(inc_batch_infos['manufacturing_date'])
-                                }
-                            )
-                        )
-
-                # Process Serial Numbers validations
-                serialno_names = []
-                if has_serialno:
-                    if not inc_serialnos:
-                        ic("Serial number configurations absent.")
-                        return False
-                    if len(inc_serialnos) != inc_stocks:
-                        ic("Mismatch between physical inventory counts and serial units allocated.")
-                        return False
-                    
-                    for serialno in inc_serialnos:
-                        serialno_names.append(serialno['name'])
-
-                # Determine Upsert Matrices (Add vs Update)
-                is_stock_exists = bool(existing_stock_infos)
-                is_pricing_exists = bool(existing_pricing_infos)
-                is_stl_exists = bool(existing_stl_info)
-                is_rop_exists = bool(existing_rop_info)
-
-                # Stock Append Management
-                if inc_stocks:
-                    if is_stock_exists:
-                        stock_toupdate.append(
-                            UpdateInventoryStockDbSchema(
-                                shop_id=inc_shop_id,
-                                product_id=existing_product_id,
-                                variant_id=inc_variant_id,
-                                batch_id=inc_batch_id,
-                                type=inc_update_type,
-                                physical_stocks=inc_stocks,
-                                reserved_stocks=0
-                            )
-                        )
-                    else:
-                        stock_toadd.append(
-                            InventoryStocks(
-                                id=generate_uuid(),
-                                shop_id=inc_shop_id,
-                                physical_stocks=inc_stocks,
-                                reserved_stocks=0,
-                                available_stocks=inc_stocks,
-                                product_id=existing_product_id,
-                                variant_id=inc_variant_id,
-                                batch_id=inc_batch_id
-                            )
-                        )
-
-                # Financial Pricing Setup
-                if inc_buy_price and inc_sell_price:
-                    if is_pricing_exists:
-                        pricing_toupdate.append(
-                            UpdateInventoryPricingDbSchema(
-                                shop_id=inc_shop_id,
-                                product_id=existing_product_id,
-                                variant_id=inc_variant_id,
-                                batch_id=inc_batch_id,
-                                buy_price=inc_buy_price,
-                                sell_price=inc_sell_price
-                            )
-                        )
-                    else:
-                        pricing_toadd.append(
-                            InventoryPricings(
-                                id=generate_uuid(),
-                                shop_id=inc_shop_id,
-                                product_id=existing_product_id,
-                                variant_id=inc_variant_id,
-                                batch_id=inc_batch_id,
-                                buy_price=inc_buy_price,
-                                sell_price=inc_sell_price
-                            )
-                        )
-
-                # Storage Area Configurations
-                if inc_stl:
-                    if is_stl_exists:
-                        stl_toupdate.append(
-                            UpdateInventoryStorageLocationDbSchema(
-                                shop_id=inc_shop_id,
-                                product_id=existing_product_id,
-                                variant_id=inc_variant_id,
-                                batch_id=inc_batch_id,
-                                name=inc_stl
-                            )
-                        )
-                    else:
-                        stl_toadd.append(
-                            InventoryStoragelocations(
-                                id=generate_uuid(),
-                                shop_id=inc_shop_id,
-                                product_id=existing_product_id,
-                                variant_id=inc_variant_id,
-                                batch_id=inc_batch_id,
-                                name=inc_stl
-                            )
-                        )
-
-                # Reorder Metric Point Triggers
-                if inc_rop:
-                    if is_rop_exists:
-                        rop_toupdate.append(
-                            UpdateInventoryReorderPointDbSchema(
-                                shop_id=inc_shop_id,
-                                product_id=existing_product_id,
-                                variant_id=inc_variant_id,
-                                batch_id=inc_batch_id,
-                                reorder_point=inc_rop
-                            )
-                        )
-                    else:
-                        rop_toadd.append(
-                            InventoryReorderPoint(
-                                id=generate_uuid(),
-                                shop_id=inc_shop_id,
-                                product_id=existing_product_id,
-                                variant_id=inc_variant_id,
-                                batch_id=inc_batch_id,
-                                reorder_point=inc_rop
-                            )
-                        )
-
-                # Serial Handling Lifecycle
-                if has_serialno and inc_serialnos:
-                    if inc_update_type == "INCREMENT":
+                    # Process Serial Numbers validations
+                    serialno_names = []
+                    if has_serialno:
+                        if not inc_serialnos:
+                            ic("Serial number configurations absent.")
+                            raise ValueError("Serial number configurations absent.")
+                        if len(inc_serialnos) != inc_stocks:
+                            ic("Mismatch between physical inventory counts and serial units allocated.")
+                            raise ValueError("Mismatch between physical inventory counts and serial units allocated.")
+                        
                         for serialno in inc_serialnos:
-                            serialno_toadd.append(
-                                ProductSerialNumbers(
+                            serialno_names.append(serialno['name'])
+
+                    # Determine Upsert Matrices (Add vs Update)
+                    is_stock_exists = bool(existing_stock_infos)
+                    is_pricing_exists = bool(existing_pricing_infos)
+                    is_stl_exists = bool(existing_stl_info)
+                    is_rop_exists = bool(existing_rop_info)
+
+                    # Stock Append Management
+                    if inc_stocks:
+                        if is_stock_exists:
+                            stock_toupdate.append(
+                                UpdateInventoryStockDbSchema(
+                                    shop_id=inc_shop_id,
+                                    product_id=existing_product_id,
+                                    variant_id=inc_variant_id,
+                                    batch_id=inc_batch_id,
+                                    type=inc_update_type,
+                                    physical_stocks=inc_stocks,
+                                    reserved_stocks=0
+                                )
+                            )
+                        else:
+                            stock_toadd.append(
+                                InventoryStocks(
+                                    id=generate_uuid(),
+                                    shop_id=inc_shop_id,
+                                    physical_stocks=inc_stocks,
+                                    reserved_stocks=0,
+                                    available_stocks=inc_stocks,
+                                    product_id=existing_product_id,
+                                    variant_id=inc_variant_id,
+                                    batch_id=inc_batch_id
+                                )
+                            )
+
+                    # Financial Pricing Setup
+                    if inc_buy_price and inc_sell_price:
+                        if is_pricing_exists:
+                            pricing_toupdate.append(
+                                UpdateInventoryPricingDbSchema(
+                                    shop_id=inc_shop_id,
+                                    product_id=existing_product_id,
+                                    variant_id=inc_variant_id,
+                                    batch_id=inc_batch_id,
+                                    buy_price=inc_buy_price,
+                                    sell_price=inc_sell_price,
+                                    online_sell_price=inc_sell_price
+                                )
+                            )
+                        else:
+                            pricing_toadd.append(
+                                InventoryPricings(
                                     id=generate_uuid(),
                                     shop_id=inc_shop_id,
                                     product_id=existing_product_id,
                                     variant_id=inc_variant_id,
                                     batch_id=inc_batch_id,
-                                    name=serialno['name'],
-                                    status="AVAILABLE"
+                                    buy_price=inc_buy_price,
+                                    sell_price=inc_sell_price,
+                                    online_sell_price=inc_sell_price
                                 )
                             )
-                    elif inc_update_type == "DECREMENT":
-                        for serialno in inc_serialnos:
-                            if not serialno.get("id"):
-                                ic("Required serial identifier parameters missing for dynamic removals.")
-                                return False
-                            serialno_todelete.append(serialno['id'])
 
-                if has_serialno:
-                    validate_seriano_name.append({
-                        'shop_id': inc_shop_id,
+                    # Storage Area Configurations
+                    if inc_stl:
+                        if is_stl_exists:
+                            stl_toupdate.append(
+                                UpdateInventoryStorageLocationDbSchema(
+                                    shop_id=inc_shop_id,
+                                    product_id=existing_product_id,
+                                    variant_id=inc_variant_id,
+                                    batch_id=inc_batch_id,
+                                    name=inc_stl
+                                )
+                            )
+                        else:
+                            stl_toadd.append(
+                                InventoryStoragelocations(
+                                    id=generate_uuid(),
+                                    shop_id=inc_shop_id,
+                                    product_id=existing_product_id,
+                                    variant_id=inc_variant_id,
+                                    batch_id=inc_batch_id,
+                                    name=inc_stl
+                                )
+                            )
+
+                    # Reorder Metric Point Triggers
+                    if inc_rop:
+                        if is_rop_exists:
+                            rop_toupdate.append(
+                                UpdateInventoryReorderPointDbSchema(
+                                    shop_id=inc_shop_id,
+                                    product_id=existing_product_id,
+                                    variant_id=inc_variant_id,
+                                    batch_id=inc_batch_id,
+                                    reorder_point=inc_rop,
+                                    online_reorder_point=0.0
+                                )
+                            )
+                        else:
+                            rop_toadd.append(
+                                InventoryReorderPoint(
+                                    id=generate_uuid(),
+                                    shop_id=inc_shop_id,
+                                    product_id=existing_product_id,
+                                    variant_id=inc_variant_id,
+                                    batch_id=inc_batch_id,
+                                    reorder_point=inc_rop,
+                                    online_reorder_point=0.0
+                                )
+                            )
+
+                    # Serial Handling Lifecycle
+                    if has_serialno and inc_serialnos:
+                        if inc_update_type == "INCREMENT":
+                            for serialno in inc_serialnos:
+                                serialno_toadd.append(
+                                    ProductSerialNumbers(
+                                        id=generate_uuid(),
+                                        shop_id=inc_shop_id,
+                                        product_id=existing_product_id,
+                                        variant_id=inc_variant_id,
+                                        batch_id=inc_batch_id,
+                                        name=serialno['name'],
+                                        status="AVAILABLE"
+                                    )
+                                )
+                        elif inc_update_type == "DECREMENT":
+                            for serialno in inc_serialnos:
+                                if not serialno.get("id"):
+                                    ic("Required serial identifier parameters missing for dynamic removals.")
+                                    raise ValueError("Required serial identifier parameters missing for dynamic removals.")
+                                serialno_todelete.append(serialno['id'])
+
+                    if has_serialno:
+                        validate_seriano_name.append({
+                            'shop_id': inc_shop_id,
+                            'product_id': existing_product_id,
+                            'variant_id': inc_variant_id,
+                            'batch_id': inc_batch_id,
+                            'names': serialno_names
+                        })
+
+                    stock_mov_adj_data.append({
                         'product_id': existing_product_id,
                         'variant_id': inc_variant_id,
                         'batch_id': inc_batch_id,
-                        'names': serialno_names
+                        'serial_numbers': inc_serialnos,
+                        'type': inc_update_type,
+                        'stocks': inc_stocks,
+                        'shop_id': inc_shop_id,
+                        'entity_name': inc_entity_name
                     })
 
-                stock_mov_adj_data.append({
-                    'product_id': existing_product_id,
-                    'variant_id': inc_variant_id,
-                    'batch_id': inc_batch_id,
-                    'serial_numbers': inc_serialnos,
-                    'type': inc_update_type,
-                    'stocks': inc_stocks,
-                    'shop_id': inc_shop_id,
-                    'entity_name': inc_entity_name
-                })
-
-                product_toupdate.append(
-                    UpdateProductDbSchema(
-                        id=existing_product_id,
-                        shop_id=inc_shop_id,
-                        gst=inc_gst,
-                        is_active=True
-                    )
-                )
-
-        # STEP-4: DATABASE EXECUTION
-        if batch_toadd:
-            await prod_repo_obj.create_bulk_batch(data=batch_toadd)
-        
-        if serialno_toadd:
-            res_serialno_names = await prod_repo_obj.verify_bulk_serialno_name(data=validate_seriano_name)
-            if res_serialno_names:
-                ic("Unique serial criteria breached. System match collision detected.")
-                return False
-            await prod_repo_obj.create_bulk_selialno(data=serialno_toadd)
-
-        if serialno_todelete:
-            await prod_repo_obj.delete_bulk_serialno(data=serialno_todelete)
-
-        if stock_toadd:
-            await inv_repo_obj.create_bulk_stocks(data=stock_toadd)
-
-        if stock_toupdate:
-            res_stocks = await inv_repo_obj.update_bulk_stocks(data=stock_toupdate)
-            
-            # Safe mapping for zero-stock status changes without list mutation bugs
-            zero_stock_product_ids = {stock['product_id'] for stock in res_stocks if stock.get('available_stocks') == 0}
-            
-            final_product_updates = []
-            for p_update in product_toupdate:
-                if p_update.id in zero_stock_product_ids:
-                    final_product_updates.append(
+                    product_toupdate.append(
                         UpdateProductDbSchema(
-                            id=p_update.id,
-                            shop_id=p_update.shop_id,
-                            gst=p_update.gst,
-                            is_active=False
+                            id=existing_product_id,
+                            shop_id=inc_shop_id,
+                            gst=inc_gst,
+                            is_active=True
                         )
                     )
-                else:
-                    final_product_updates.append(p_update)
-            product_toupdate = final_product_updates
 
-        if stl_toadd:
-            await inv_repo_obj.create_bulk_storage_location(data=stl_toadd)
-        if stl_toupdate:
-            await inv_repo_obj.update_bulk_storage_location(data=stl_toupdate)
+            # STEP-4: DATABASE EXECUTION
+            if batch_toadd:
+                await prod_repo_obj.create_bulk_batch(data=batch_toadd)
             
-        if rop_toadd:
-            await inv_repo_obj.create_bulk_reorder_point(data=rop_toadd)
-        if rop_toupdate:
-            await inv_repo_obj.update_bulk_reorder_point(data=rop_toupdate)
+            if serialno_toadd:
+                res_serialno_names = await prod_repo_obj.verify_bulk_serialno_name(data=validate_seriano_name)
+                if res_serialno_names:
+                    ic("Unique serial criteria breached. System match collision detected.")
+                    raise ValueError("Unique serial criteria breached. System match collision detected.")
+                await prod_repo_obj.create_bulk_selialno(data=serialno_toadd)
 
-        if pricing_toadd:
-            await inv_repo_obj.create_bulk_pricing(data=pricing_toadd)
-        if pricing_toupdate:
-            await inv_repo_obj.update_bulk_pricing(data=pricing_toupdate)
+            if serialno_todelete:
+                await prod_repo_obj.delete_bulk_serialno(data=serialno_todelete)
 
-        if product_toupdate:
-            await prod_repo_obj.update_bulk_product(data=product_toupdate)
+            if stock_toadd:
+                await inv_repo_obj.create_bulk_stocks(data=stock_toadd)
 
-        # FINAL COMPILATION & VIEW WRITE SYNCS
-        await ProdInvReadDbRepo.add_updatereaddb(
-            shop_id=shop_id,
-            product_ids=product_tocheck,
-            session=self.session
-        )
+            if stock_toupdate:
+                res_stocks = await inv_repo_obj.update_bulk_stocks(data=stock_toupdate)
+                
+                # Safe mapping for zero-stock status changes without list mutation bugs
+                zero_stock_product_ids = {stock['product_id'] for stock in res_stocks if stock.get('available_stocks') == 0}
+                
+                final_product_updates = []
+                for p_update in product_toupdate:
+                    if p_update.id in zero_stock_product_ids:
+                        final_product_updates.append(
+                            UpdateProductDbSchema(
+                                id=p_update.id,
+                                shop_id=p_update.shop_id,
+                                gst=p_update.gst,
+                                is_active=False
+                            )
+                        )
+                    else:
+                        final_product_updates.append(p_update)
+                product_toupdate = final_product_updates
 
-        if create_stock_mov_adj:
-            await emit_stock_mov_adj(session=self.session, data=stock_mov_adj_data)
+            if stl_toadd:
+                await inv_repo_obj.create_bulk_storage_location(data=stl_toadd)
+            if stl_toupdate:
+                await inv_repo_obj.update_bulk_storage_location(data=stl_toupdate)
+                
+            if rop_toadd:
+                await inv_repo_obj.create_bulk_reorder_point(data=rop_toadd)
+            if rop_toupdate:
+                await inv_repo_obj.update_bulk_reorder_point(data=rop_toupdate)
+
+            if pricing_toadd:
+                await inv_repo_obj.create_bulk_pricing(data=pricing_toadd)
+            if pricing_toupdate:
+                await inv_repo_obj.update_bulk_pricing(data=pricing_toupdate)
+
+            if product_toupdate:
+                await prod_repo_obj.update_bulk_product(data=product_toupdate)
+
+            # FINAL COMPILATION & VIEW WRITE SYNCS
+            self.session.expire_all()
+            await ProdInvReadDbRepo.add_updatereaddb(
+                shop_id=shop_id,
+                product_ids=product_tocheck,
+                session=self.session
+            )
+
+            if create_stock_mov_adj:
+                await emit_stock_mov_adj(session=self.session, data=stock_mov_adj_data)
 
 
-        return True
+            # Emit Success Notification
+            try:
+                from helpers.emit_notification import emit_notification
+                import asyncio
+                asyncio.create_task(emit_notification(
+                    title="Bulk Inventory Updated",
+                    message=f"Successfully processed bulk inventory update for {len(product_tocheck)} products.",
+                    type="info",
+                    user_id=executing_user_id or shop_id
+                ))
+            except Exception as notification_error:
+                ic(f"Notification error: {notification_error}")
 
-            
-
-
+            return True
+    
+        except Exception as e:
+            # Emit Error Notification
+            try:
+                from helpers.emit_notification import emit_notification
+                import asyncio
+                first_shop_id = data[0].shop_id if data else None
+                asyncio.create_task(emit_notification(
+                    title="Bulk Inventory Update Failed",
+                    message=f"Failed to process bulk inventory update: {str(e)}",
+                    type="error",
+                    user_id=executing_user_id or first_shop_id
+                ))
+            except Exception as notification_error:
+                ic(f"Notification error: {notification_error}")
+            raise e

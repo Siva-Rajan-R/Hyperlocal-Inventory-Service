@@ -228,6 +228,15 @@ class ProdInvReadDbRepo:
             ic(f"Error in get_bulk_by_id: {e}")
             return []
 
+    @classmethod
+    async def delete_product(cls, product_id: str, shop_id: str) -> bool:
+        try:
+            result = await PROD_INV_COLLECTION.delete_one({"id": product_id, "shop_id": shop_id})
+            return result.deleted_count > 0
+        except Exception as e:
+            ic(f"Error deleting product from read DB: {e}")
+            return False
+
         
 
 

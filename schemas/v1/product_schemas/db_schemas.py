@@ -16,6 +16,7 @@ class CreateProductDbSchema(BaseModel):
     category_id:str
     unit_id:str
     name:str
+    brand:Optional[str]=None
     gst:Optional[str]="0%"
     description:str
     type_infos:ProductTypeInfosType
@@ -32,6 +33,7 @@ class UpdateProductDbSchema(BaseModel):
     sku:Optional[str]=None
     barcode:Optional[str]=None
     name:Optional[str]=None
+    brand:Optional[str]=None
     description:Optional[str]=None
     type_infos:Optional[ProductTypeInfosType]=None
     have_tracking:Optional[bool]=None
