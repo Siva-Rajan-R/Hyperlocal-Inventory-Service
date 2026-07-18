@@ -1,0 +1,16 @@
+services:
+  inventory-service:
+    build: 
+      context: .
+      dockerfile: .
+    
+    env_file:
+      - .env
+    
+    networks:
+      - backend-networks
+    
+    ports:
+      - "8004:8000"
+    
+    restart: unless-stopped
