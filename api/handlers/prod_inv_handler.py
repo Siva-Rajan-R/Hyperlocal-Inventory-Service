@@ -12,7 +12,7 @@ from hyperlocal_platform.core.utils.routingkey_builder import generate_routingke
 from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
 from core.constants import SERVICE_NAME
 from infras.primary_db.services.prod_inv_service import ProductInventoryService
-from schemas.v1.product_schemas.request_schemas import GetAllProductSchema,GetProductsById,GetProductsByShopId
+from schemas.v1.product_schemas.request_schemas import GetAllProductSchema,GetProductsById,GetProductsByShopId,GetBulkProductsById
 from infras.primary_db.repos.product_repo import ProductRepo
 from core.data_formats.enums.inventory_enums import InventoryFetchMode
 from core.utils.calculate_offer import calculate_offer
@@ -163,6 +163,17 @@ class HandleProdInvRequest:
     async def getby_id(self,data:GetProductsById):
         # res=await ProductRepo(session=self.session).get_products_by_id(data=data)
         res=await ProdInvReadDbRepo.get_by_id(data=data)
+        return SuccessResponseTypDict(
+            detail=BaseResponseTypDict(
+                msg="Inventories fetched successfully",
+                status_code=200,
+                success=True
+            ),
+            data=res
+        )
+
+    async def get_bulk_by_ids(self, data: GetBulkProductsById):
+        res = await ProdInvReadDbRepo.get_bulk_by_id(data=data)
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Inventories fetched successfully",

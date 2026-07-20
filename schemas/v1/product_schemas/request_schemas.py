@@ -126,7 +126,7 @@ class GetProductsById(BaseModel):
 
 
 class GetBulkProductsById(BaseModel):
-    shop_id:str
+    shop_id:Optional[str]=None
     include_serialno:Optional[bool]=False
     active:Optional[bool]=None
     id:List[str]

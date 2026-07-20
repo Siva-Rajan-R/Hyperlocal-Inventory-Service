@@ -8,7 +8,7 @@ from ...handlers.prod_inv_handler import HandleProdInvRequest
 from typing import Annotated,Optional,List
 from infras.primary_db.main import get_pg_async_session,AsyncSession
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
-from schemas.v1.product_schemas.request_schemas import GetAllProductSchema,GetProductsById,GetProductsByShopId,DeleteProductSchema
+from schemas.v1.product_schemas.request_schemas import GetAllProductSchema,GetProductsById,GetProductsByShopId,DeleteProductSchema,GetBulkProductsById
 from icecream import ic
 from pydantic import BaseModel
 from integrations.utility_service import upload_assets,delete_assets
@@ -65,7 +65,7 @@ async def upload_images(session:PG_ASYNC_SESSION,data:Annotated[UploadImagesSche
             detail="Product not Found"
         )
     
-    urls=await upload_assets(files=files,shop_id=data.shop_id)
+    urls=await upload_assets(files=files)
     image_urls = list(stmt_res.image_url) if stmt_res.image_url else []
     if len(image_urls) + len(files) > 3:
         raise HTTPException(
@@ -139,6 +139,10 @@ async def getby_shop_id(session:PG_ASYNC_SESSION,data:GetProductsByShopId=Depend
 @router.get('/by/id/{shop_id}/{id}')
 async def getby_id(session:PG_ASYNC_SESSION,data:GetProductsById=Depends()):
     return await HandleProdInvRequest(session=session).getby_id(data=data)
+
+@router.post('/by/ids')
+async def get_bulk_by_ids(data: GetBulkProductsById, session: PG_ASYNC_SESSION):
+    return await HandleProdInvRequest(session=session).get_bulk_by_ids(data=data)
 
 @router.post('/reservations/reserve')
 async def reserve_stock(data:ReserveInventorySchema, session:PG_ASYNC_SESSION):

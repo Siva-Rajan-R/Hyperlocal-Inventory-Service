@@ -207,9 +207,10 @@ class ProdInvReadDbRepo:
     ) -> List[dict]:
         try:
             query = {
-                "shop_id": data.shop_id,
                 "id": {"$in": data.id},
             }
+            if data.shop_id:
+                query["shop_id"] = data.shop_id
 
             if data.active is not None:
                 query["is_active"] = data.active
