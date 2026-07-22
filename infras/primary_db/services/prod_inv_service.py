@@ -238,6 +238,7 @@ class ProductInventoryService:
                     ic(cust_obj)
                 
                 try:
+                    prod_name = getattr(data, 'name', None) or "Product"
                     from messaging.main import RabbitMQMessagingConfig
                     rabbitmq_msg_obj = RabbitMQMessagingConfig()
                     await rabbitmq_msg_obj.publish_event(
@@ -248,10 +249,11 @@ class ProductInventoryService:
                             "user_name": "Hyperlocal-User",
                             "service": "Inventory",
                             "action": "CREATED",
-                            "entity_type": "Product",
-                            "entity_id": product_id,
-                            "description": f"Created product {product_id}",
-                            "changes": [{"field": "id", "before": str(product_id), "after": "CREATED"}]
+                            "entity_type": "PRODUCTS",
+                            "entity_id": str(product_id),
+                            "entity_name": str(prod_name),
+                            "description": f"Created Product {prod_name} ({product_id})",
+                            "changes": []
                         },
                         headers={}
                     )
@@ -278,32 +280,10 @@ class ProductInventoryService:
                     
                     analytics_payload = {
                         "shop_id": data.shop_id,
-                        "datas": [
-                            {
-                                "product_id": product_id,
-                                "variant_id": None,
-                                "batch_id": None,
-                                "is_active": False,
-                                "stocks": 0,
-                                "low_stocks": 0,
-                                "no_stocks": 1
-                            }
-                        ]
+                        "entity_name": "PRODUCT",
+                        "entity_id": str(product_id),
+                        "action": "CREATE"
                     }
-                    
-                    if data.type_infos.has_variant and variants_toadd:
-                        analytics_payload["datas"] = [
-                            {
-                                "product_id": product_id,
-                                "variant_id": str(v.id),
-                                "batch_id": None,
-                                "is_active": False,
-                                "stocks": 0,
-                                "low_stocks": 0,
-                                "no_stocks": 1
-                            }
-                            for v in variants_toadd
-                        ]
 
                     await rabbitmq_msg_obj.publish_event(
                         routing_key="analytics.service.routing.key",
@@ -523,20 +503,43 @@ class ProductInventoryService:
 
 
             try:
+                prod_name = update_fields.get("name") or prod_get_res.get("name") or "Product"
                 from messaging.main import RabbitMQMessagingConfig
                 rabbitmq_msg_obj = RabbitMQMessagingConfig()
+                
+                def _is_empty_or_none(val):
+                    if val is None: return True
+                    if isinstance(val, (dict, list, set, str, tuple)) and len(val) == 0: return True
+                    return str(val).strip() in ("None", "{}", "[]", "", "null", "NoneType")
+
+                dumped_updates = data.model_dump(exclude_unset=True, exclude_none=True)
+                changes = []
+                for key, new_val in dumped_updates.items():
+                    if key in ["id", "shop_id", "user_id", "cur_user_id"]:
+                        continue
+                    prev_val = prod_get_res.get(key)
+                    if _is_empty_or_none(prev_val) and _is_empty_or_none(new_val):
+                        continue
+                    if prev_val != new_val and str(prev_val).strip() != str(new_val).strip():
+                        changes.append({
+                            "field": key,
+                            "before": str(prev_val) if prev_val is not None else "None",
+                            "after": str(new_val) if new_val is not None else "None"
+                        })
+
                 await rabbitmq_msg_obj.publish_event(
                     routing_key="activity_logs.routing.key",
                     exchange_name="activity_logs.exchange",
                     payload={
                         "shop_id": data.shop_id,
-                        "user_name": "Hyperlocal-Inventory",
+                        "user_name": "Hyperlocal-User",
                         "service": "Inventory",
-                        "action": "UPDATE",
-                        "entity_type": "Product",
-                        "entity_id": data.id,
-                        "description": f"Bulk created/updated inventory items",
-                        "changes": [{"field": "id", "before": "None", "after": data.id}]
+                        "action": "UPDATED",
+                        "entity_type": "PRODUCTS",
+                        "entity_id": str(data.id),
+                        "entity_name": str(prod_name),
+                        "description": f"Updated Product {prod_name} ({data.id})",
+                        "changes": changes
                     },
                     headers={}
                 )
@@ -550,12 +553,35 @@ class ProductInventoryService:
                 asyncio.create_task(emit_notification(
                     title="Product Updated",
                     message=f"Product '{prod_name}' has been successfully updated.",
-                    type="info",
                     user_id=executing_user_id or data.shop_id,
-                    additional_metadata={"product_id": data.id}
                 ))
             except Exception as notification_error:
                 ic(f"Notification error: {notification_error}")
+            try:
+                from messaging.main import RabbitMQMessagingConfig
+                rabbitmq_msg_obj = RabbitMQMessagingConfig()
+                analytics_payload = {
+                    "shop_id": data.shop_id,
+                    "entity_name": "PRODUCT",
+                    "entity_id": str(data.id),
+                    "action": "UPDATE"
+                }
+                await rabbitmq_msg_obj.publish_event(
+                    routing_key="analytics.service.routing.key",
+                    exchange_name="analytics.service.exchange",
+                    payload=analytics_payload,
+                    headers={
+                        "entity_name": "prodinv_event",
+                        "service_name": "ANALYTICS",
+                        "saga_id": "none",
+                        "reply_key": "none",
+                        "reply_exchange": "none",
+                        "reply_entity_name": "none",
+                        "body": analytics_payload
+                    }
+                )
+            except Exception as analytics_err:
+                ic(f"Failed to publish analytics event on product update: {analytics_err}")
 
             return True
 
@@ -1040,13 +1066,16 @@ class ProductInventoryService:
                 has_serialno = prod_db['type_infos']['has_serialno']
                 existing_product_id = prod_db['id']
                 existing_variants = prod_db.get('variants', {}) or {}
+                have_tracking=prod_db['have_tracking']
 
                 validated_items = validated_data.get(existing_product_id)
                 if not validated_items:
                     ic("No configuration found for existing product ID.")
                     raise ValueError("No configuration found for existing product ID.")
 
-
+                if have_tracking==False:
+                    ic("This product tracking was not enabled skipping ...")
+                    continue
                 # Loop through each payload targeting this specific product
                 for inc_item in validated_items:
                     inc_shop_id = inc_item['shop_id']
@@ -1412,6 +1441,32 @@ class ProductInventoryService:
                 ))
             except Exception as notification_error:
                 ic(f"Notification error: {notification_error}")
+            try:
+                from messaging.main import RabbitMQMessagingConfig
+                rabbitmq_msg_obj = RabbitMQMessagingConfig()
+                for p_id in product_tocheck:
+                    analytics_payload = {
+                        "shop_id": shop_id,
+                        "entity_name": "PRODUCT",
+                        "entity_id": str(p_id),
+                        "action": "UPDATE"
+                    }
+                    await rabbitmq_msg_obj.publish_event(
+                        routing_key="analytics.service.routing.key",
+                        exchange_name="analytics.service.exchange",
+                        payload=analytics_payload,
+                        headers={
+                            "entity_name": "prodinv_event",
+                            "service_name": "ANALYTICS",
+                            "saga_id": "none",
+                            "reply_key": "none",
+                            "reply_exchange": "none",
+                            "reply_entity_name": "none",
+                            "body": analytics_payload
+                        }
+                    )
+            except Exception as analytics_err:
+                ic(f"Failed to publish analytics events on bulk product update: {analytics_err}")
 
             return True
     

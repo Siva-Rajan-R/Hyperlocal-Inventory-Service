@@ -548,6 +548,8 @@ class ProductRepo:
             stmt = stmt.where(Products.is_active == data.active)
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
+        if getattr(data, 'have_tracking', None) is not None:
+            stmt = stmt.where(Products.have_tracking == data.have_tracking)
 
         stmt = (
             stmt
@@ -581,6 +583,8 @@ class ProductRepo:
             stmt = stmt.where(Products.is_active == data.active)
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
+        if getattr(data, 'have_tracking', None) is not None:
+            stmt = stmt.where(Products.have_tracking == data.have_tracking)
 
         stmt = (
             stmt

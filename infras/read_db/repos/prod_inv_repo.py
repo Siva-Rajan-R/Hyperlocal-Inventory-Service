@@ -124,6 +124,7 @@ class ProdInvReadDbRepo:
         data:GetAllProductSchema
     ) -> List[dict]:
         try:
+            from datetime import datetime
             query = {}
 
             if data.active is not None:
@@ -132,13 +133,51 @@ class ProdInvReadDbRepo:
             if data.visible_online is not None:
                 query["visible_online"] = data.visible_online
 
+            if getattr(data, 'have_tracking', None) is not None:
+                query["have_tracking"] = data.have_tracking
+
+            if getattr(data, 'query', None):
+                query["$or"] = [
+                    {"name": {"$regex": data.query, "$options": "i"}},
+                    {"id": {"$regex": data.query, "$options": "i"}},
+                    {"ui_id": {"$regex": data.query, "$options": "i"}}
+                ]
+
+            if getattr(data, 'from_date', None):
+                try:
+                    from_dt = datetime.strptime(data.from_date, "%Y-%m-%d")
+                    if "created_at" not in query:
+                        query["created_at"] = {}
+                    query["created_at"]["$gte"] = from_dt
+                except Exception:
+                    pass
+
+            if getattr(data, 'to_date', None):
+                try:
+                    to_date_str = data.to_date
+                    if len(to_date_str) <= 10:
+                        to_date_str += ' 23:59:59'
+                    to_dt = datetime.strptime(to_date_str, "%Y-%m-%d %H:%M:%S")
+                    if "created_at" not in query:
+                        query["created_at"] = {}
+                    query["created_at"]["$lte"] = to_dt
+                except Exception:
+                    pass
+
+            if getattr(data, 'stock_status', None):
+                status_val = data.stock_status.lower().strip()
+                if status_val in ["no", "no_stock", "out_of_stock"]:
+                    query["stock_infos.available_stocks"] = {"$lte": 0}
+                elif status_val in ["low", "low_stock"]:
+                    query["$expr"] = {"$lte": ["$stock_infos.available_stocks", "$reorder_point_infos.reorder_point"]}
+
             cursor = PROD_INV_COLLECTION.find(query)
             
-            data = await cursor.to_list(length=None)
-            for d in data:
+            data_res = await cursor.to_list(length=None)
+            for d in data_res:
                 d["_id"] = str(d["_id"])
             
-            return data
+            return data_res
 
         except Exception as e:
             ic(f"Error in get_all: {e}")
@@ -150,6 +189,7 @@ class ProdInvReadDbRepo:
         data:GetProductsByShopId
     ) -> List[dict]:
         try:
+            from datetime import datetime
             query = {
                 "shop_id": data.shop_id
             }
@@ -160,13 +200,51 @@ class ProdInvReadDbRepo:
             if data.visible_online is not None:
                 query["visible_online"] = data.visible_online
 
+            if getattr(data, 'have_tracking', None) is not None:
+                query["have_tracking"] = data.have_tracking
+
+            if getattr(data, 'query', None):
+                query["$or"] = [
+                    {"name": {"$regex": data.query, "$options": "i"}},
+                    {"id": {"$regex": data.query, "$options": "i"}},
+                    {"ui_id": {"$regex": data.query, "$options": "i"}}
+                ]
+
+            if getattr(data, 'from_date', None):
+                try:
+                    from_dt = datetime.strptime(data.from_date, "%Y-%m-%d")
+                    if "created_at" not in query:
+                        query["created_at"] = {}
+                    query["created_at"]["$gte"] = from_dt
+                except Exception:
+                    pass
+
+            if getattr(data, 'to_date', None):
+                try:
+                    to_date_str = data.to_date
+                    if len(to_date_str) <= 10:
+                        to_date_str += ' 23:59:59'
+                    to_dt = datetime.strptime(to_date_str, "%Y-%m-%d %H:%M:%S")
+                    if "created_at" not in query:
+                        query["created_at"] = {}
+                    query["created_at"]["$lte"] = to_dt
+                except Exception:
+                    pass
+
+            if getattr(data, 'stock_status', None):
+                status_val = data.stock_status.lower().strip()
+                if status_val in ["no", "no_stock", "out_of_stock"]:
+                    query["stock_infos.available_stocks"] = {"$lte": 0}
+                elif status_val in ["low", "low_stock"]:
+                    query["$expr"] = {"$lte": ["$stock_infos.available_stocks", "$reorder_point_infos.reorder_point"]}
+
             cursor = PROD_INV_COLLECTION.find(query)
 
-            data = await cursor.to_list(length=None)
-            for d in data:
+            data_res = await cursor.to_list(length=None)
+            for d in data_res:
                 d["_id"] = str(d["_id"])
             
-            return data
+            return data_res
 
         except Exception as e:
             ic(f"Error in get_by_shop_id: {e}")
