@@ -119,59 +119,109 @@ class ProdInvReadDbRepo:
     
 
     @classmethod
+    def _build_search_query(cls, data, base_query: dict = None) -> dict:
+        from datetime import datetime
+        query = dict(base_query) if base_query else {}
+
+        if data.active is not None:
+            query["is_active"] = data.active
+
+        if data.visible_online is not None:
+            query["visible_online"] = data.visible_online
+
+        if getattr(data, 'have_tracking', None) is not None:
+            query["have_tracking"] = data.have_tracking
+
+        search_q = getattr(data, 'query', None) or getattr(data, 'q', None)
+        if search_q:
+            q_str = str(search_q).strip()
+            if q_str:
+                regex = {"$regex": q_str, "$options": "i"}
+                query["$or"] = [
+                    {"name": regex},
+                    {"id": regex},
+                    {"ui_id": regex},
+                    {"sku": regex},
+                    {"barcode": regex},
+                    {"brand": regex},
+                    {"category_id": regex},
+                    {"category_infos.name": regex},
+                    {"category_infos.id": regex},
+                    {"unit_id": regex},
+                    {"unit_infos.name": regex},
+                    {"unit_infos.id": regex},
+                    {"variants.name": regex},
+                    {"variants.sku": regex},
+                    {"variants.barcode": regex},
+                    {"variants.ui_id": regex},
+                    {"variants.id": regex},
+                    {
+                        "$expr": {
+                            "$gt": [
+                                {
+                                    "$size": {
+                                        "$filter": {
+                                            "input": { "$objectToArray": { "$ifNull": ["$variants", {}] } },
+                                            "as": "v",
+                                            "cond": {
+                                                "$or": [
+                                                    { "$regexMatch": { "input": { "$ifNull": ["$$v.v.name", ""] }, "regex": q_str, "options": "i" } },
+                                                    { "$regexMatch": { "input": { "$ifNull": ["$$v.v.sku", ""] }, "regex": q_str, "options": "i" } },
+                                                    { "$regexMatch": { "input": { "$ifNull": ["$$v.v.barcode", ""] }, "regex": q_str, "options": "i" } },
+                                                    { "$regexMatch": { "input": { "$ifNull": ["$$v.v.ui_id", ""] }, "regex": q_str, "options": "i" } },
+                                                    { "$regexMatch": { "input": { "$ifNull": ["$$v.v.id", ""] }, "regex": q_str, "options": "i" } }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                },
+                                0
+                            ]
+                        }
+                    }
+                ]
+
+        if getattr(data, 'from_date', None):
+            try:
+                from_dt = datetime.strptime(data.from_date, "%Y-%m-%d")
+                if "created_at" not in query:
+                    query["created_at"] = {}
+                query["created_at"]["$gte"] = from_dt
+            except Exception:
+                pass
+
+        if getattr(data, 'to_date', None):
+            try:
+                to_date_str = data.to_date
+                if len(to_date_str) <= 10:
+                    to_date_str += ' 23:59:59'
+                to_dt = datetime.strptime(to_date_str, "%Y-%m-%d %H:%M:%S")
+                if "created_at" not in query:
+                    query["created_at"] = {}
+                query["created_at"]["$lte"] = to_dt
+            except Exception:
+                pass
+
+        if getattr(data, 'stock_status', None):
+            status_val = data.stock_status.lower().strip()
+            if status_val in ["no", "no_stock", "out_of_stock"]:
+                query["stock_infos.available_stocks"] = {"$lte": 0}
+            elif status_val in ["low", "low_stock"]:
+                query["$expr"] = {"$lte": ["$stock_infos.available_stocks", "$reorder_point_infos.reorder_point"]}
+
+        return query
+
+    @classmethod
     async def get_all(
         cls,
         data:GetAllProductSchema
     ) -> List[dict]:
         try:
-            from datetime import datetime
-            query = {}
-
-            if data.active is not None:
-                query["is_active"] = data.active
-
-            if data.visible_online is not None:
-                query["visible_online"] = data.visible_online
-
-            if getattr(data, 'have_tracking', None) is not None:
-                query["have_tracking"] = data.have_tracking
-
-            if getattr(data, 'query', None):
-                query["$or"] = [
-                    {"name": {"$regex": data.query, "$options": "i"}},
-                    {"id": {"$regex": data.query, "$options": "i"}},
-                    {"ui_id": {"$regex": data.query, "$options": "i"}}
-                ]
-
-            if getattr(data, 'from_date', None):
-                try:
-                    from_dt = datetime.strptime(data.from_date, "%Y-%m-%d")
-                    if "created_at" not in query:
-                        query["created_at"] = {}
-                    query["created_at"]["$gte"] = from_dt
-                except Exception:
-                    pass
-
-            if getattr(data, 'to_date', None):
-                try:
-                    to_date_str = data.to_date
-                    if len(to_date_str) <= 10:
-                        to_date_str += ' 23:59:59'
-                    to_dt = datetime.strptime(to_date_str, "%Y-%m-%d %H:%M:%S")
-                    if "created_at" not in query:
-                        query["created_at"] = {}
-                    query["created_at"]["$lte"] = to_dt
-                except Exception:
-                    pass
-
-            if getattr(data, 'stock_status', None):
-                status_val = data.stock_status.lower().strip()
-                if status_val in ["no", "no_stock", "out_of_stock"]:
-                    query["stock_infos.available_stocks"] = {"$lte": 0}
-                elif status_val in ["low", "low_stock"]:
-                    query["$expr"] = {"$lte": ["$stock_infos.available_stocks", "$reorder_point_infos.reorder_point"]}
-
+            query = cls._build_search_query(data)
             cursor = PROD_INV_COLLECTION.find(query)
+            if getattr(data, 'limit', None):
+                offset = data.offset - 1 if (data.offset and data.offset > 0) else 0
+                cursor = cursor.skip(offset * data.limit).limit(data.limit)
             
             data_res = await cursor.to_list(length=None)
             for d in data_res:
@@ -189,56 +239,11 @@ class ProdInvReadDbRepo:
         data:GetProductsByShopId
     ) -> List[dict]:
         try:
-            from datetime import datetime
-            query = {
-                "shop_id": data.shop_id
-            }
-
-            if data.active is not None:
-                query["is_active"] = data.active
-
-            if data.visible_online is not None:
-                query["visible_online"] = data.visible_online
-
-            if getattr(data, 'have_tracking', None) is not None:
-                query["have_tracking"] = data.have_tracking
-
-            if getattr(data, 'query', None):
-                query["$or"] = [
-                    {"name": {"$regex": data.query, "$options": "i"}},
-                    {"id": {"$regex": data.query, "$options": "i"}},
-                    {"ui_id": {"$regex": data.query, "$options": "i"}}
-                ]
-
-            if getattr(data, 'from_date', None):
-                try:
-                    from_dt = datetime.strptime(data.from_date, "%Y-%m-%d")
-                    if "created_at" not in query:
-                        query["created_at"] = {}
-                    query["created_at"]["$gte"] = from_dt
-                except Exception:
-                    pass
-
-            if getattr(data, 'to_date', None):
-                try:
-                    to_date_str = data.to_date
-                    if len(to_date_str) <= 10:
-                        to_date_str += ' 23:59:59'
-                    to_dt = datetime.strptime(to_date_str, "%Y-%m-%d %H:%M:%S")
-                    if "created_at" not in query:
-                        query["created_at"] = {}
-                    query["created_at"]["$lte"] = to_dt
-                except Exception:
-                    pass
-
-            if getattr(data, 'stock_status', None):
-                status_val = data.stock_status.lower().strip()
-                if status_val in ["no", "no_stock", "out_of_stock"]:
-                    query["stock_infos.available_stocks"] = {"$lte": 0}
-                elif status_val in ["low", "low_stock"]:
-                    query["$expr"] = {"$lte": ["$stock_infos.available_stocks", "$reorder_point_infos.reorder_point"]}
-
+            query = cls._build_search_query(data, base_query={"shop_id": data.shop_id})
             cursor = PROD_INV_COLLECTION.find(query)
+            if getattr(data, 'limit', None):
+                offset = data.offset - 1 if (data.offset and data.offset > 0) else 0
+                cursor = cursor.skip(offset * data.limit).limit(data.limit)
 
             data_res = await cursor.to_list(length=None)
             for d in data_res:

@@ -101,7 +101,8 @@ class UpdateProductSerialnoSchema(BaseModel):
 
 
 class GetAllProductSchema(BaseModel):
-    query:Optional[str]=None
+    query:Optional[str]=Field(default=None,alias='q')
+    q:Optional[str]=None
     limit:Optional[int]=10
     offset:Optional[int]=1
     active:Optional[bool]=None
@@ -113,7 +114,8 @@ class GetAllProductSchema(BaseModel):
     have_tracking:Optional[bool]=None
 
 class GetProductsByShopId(BaseModel):
-    query:Optional[str]=None
+    query:Optional[str]=Field(default=None,alias='q')
+    q:Optional[str]=None
     limit:Optional[int]=10
     offset:Optional[int]=1
     include_serialno:Optional[bool]=False

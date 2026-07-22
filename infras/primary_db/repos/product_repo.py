@@ -551,6 +551,26 @@ class ProductRepo:
         if getattr(data, 'have_tracking', None) is not None:
             stmt = stmt.where(Products.have_tracking == data.have_tracking)
 
+        search_q = getattr(data, 'query', None) or getattr(data, 'q', None)
+        if search_q:
+            search_term = f"%{search_q}%"
+            stmt = stmt.outerjoin(ProductVariants, Products.id == ProductVariants.product_id).where(
+                or_(
+                    Products.name.ilike(search_term),
+                    Products.id.ilike(search_term),
+                    Products.ui_id.ilike(search_term),
+                    Products.sku.ilike(search_term),
+                    Products.barcode.ilike(search_term),
+                    Products.brand.ilike(search_term),
+                    Products.category_id.ilike(search_term),
+                    Products.unit_id.ilike(search_term),
+                    ProductVariants.name.ilike(search_term),
+                    ProductVariants.sku.ilike(search_term),
+                    ProductVariants.barcode.ilike(search_term),
+                    ProductVariants.id.ilike(search_term)
+                )
+            ).distinct()
+
         stmt = (
             stmt
             .options(
@@ -585,6 +605,26 @@ class ProductRepo:
             stmt = stmt.where(Products.visible_online == data.visible_online)
         if getattr(data, 'have_tracking', None) is not None:
             stmt = stmt.where(Products.have_tracking == data.have_tracking)
+
+        search_q = getattr(data, 'query', None) or getattr(data, 'q', None)
+        if search_q:
+            search_term = f"%{search_q}%"
+            stmt = stmt.outerjoin(ProductVariants, Products.id == ProductVariants.product_id).where(
+                or_(
+                    Products.name.ilike(search_term),
+                    Products.id.ilike(search_term),
+                    Products.ui_id.ilike(search_term),
+                    Products.sku.ilike(search_term),
+                    Products.barcode.ilike(search_term),
+                    Products.brand.ilike(search_term),
+                    Products.category_id.ilike(search_term),
+                    Products.unit_id.ilike(search_term),
+                    ProductVariants.name.ilike(search_term),
+                    ProductVariants.sku.ilike(search_term),
+                    ProductVariants.barcode.ilike(search_term),
+                    ProductVariants.id.ilike(search_term)
+                )
+            ).distinct()
 
         stmt = (
             stmt
