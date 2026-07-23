@@ -136,7 +136,9 @@ class ProdInvReadDbRepo:
         if search_q:
             q_str = str(search_q).strip()
             if q_str:
-                regex = {"$regex": q_str, "$options": "i"}
+                import re
+                escaped_q = re.escape(q_str)
+                regex = {"$regex": escaped_q, "$options": "i"}
                 query["$or"] = [
                     {"name": regex},
                     {"id": regex},
@@ -157,26 +159,32 @@ class ProdInvReadDbRepo:
                     {"variants.id": regex},
                     {
                         "$expr": {
-                            "$gt": [
-                                {
-                                    "$size": {
-                                        "$filter": {
-                                            "input": { "$objectToArray": { "$ifNull": ["$variants", {}] } },
-                                            "as": "v",
-                                            "cond": {
-                                                "$or": [
-                                                    { "$regexMatch": { "input": { "$ifNull": ["$$v.v.name", ""] }, "regex": q_str, "options": "i" } },
-                                                    { "$regexMatch": { "input": { "$ifNull": ["$$v.v.sku", ""] }, "regex": q_str, "options": "i" } },
-                                                    { "$regexMatch": { "input": { "$ifNull": ["$$v.v.barcode", ""] }, "regex": q_str, "options": "i" } },
-                                                    { "$regexMatch": { "input": { "$ifNull": ["$$v.v.ui_id", ""] }, "regex": q_str, "options": "i" } },
-                                                    { "$regexMatch": { "input": { "$ifNull": ["$$v.v.id", ""] }, "regex": q_str, "options": "i" } }
-                                                ]
+                            "$cond": {
+                                "if": { "$eq": [{ "$type": "$variants" }, "object"] },
+                                "then": {
+                                    "$gt": [
+                                        {
+                                            "$size": {
+                                                "$filter": {
+                                                    "input": { "$objectToArray": "$variants" },
+                                                    "as": "v",
+                                                    "cond": {
+                                                        "$or": [
+                                                            { "$regexMatch": { "input": { "$ifNull": ["$$v.v.name", ""] }, "regex": escaped_q, "options": "i" } },
+                                                            { "$regexMatch": { "input": { "$ifNull": ["$$v.v.sku", ""] }, "regex": escaped_q, "options": "i" } },
+                                                            { "$regexMatch": { "input": { "$ifNull": ["$$v.v.barcode", ""] }, "regex": escaped_q, "options": "i" } },
+                                                            { "$regexMatch": { "input": { "$ifNull": ["$$v.v.ui_id", ""] }, "regex": escaped_q, "options": "i" } },
+                                                            { "$regexMatch": { "input": { "$ifNull": ["$$v.v.id", ""] }, "regex": escaped_q, "options": "i" } }
+                                                        ]
+                                                    }
+                                                }
                                             }
-                                        }
-                                    }
+                                        },
+                                        0
+                                    ]
                                 },
-                                0
-                            ]
+                                "else": False
+                            }
                         }
                     }
                 ]

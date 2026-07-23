@@ -1,10 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import date
 from typing import Optional,List,Dict
 from core.data_formats.enums.product_enums import ProductSerialnoStatusEnums
 from .custom_types import ProductBatchExpirationInfosType,ProductTypeInfosType
-
-
 
 # PRODUCT
 class CreateProductSchema(BaseModel):
@@ -99,8 +97,8 @@ class UpdateProductSerialnoSchema(BaseModel):
     visible_online:Optional[bool]=None
 
 
-
 class GetAllProductSchema(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     query:Optional[str]=Field(default=None,alias='q')
     q:Optional[str]=None
     limit:Optional[int]=10
@@ -114,6 +112,7 @@ class GetAllProductSchema(BaseModel):
     have_tracking:Optional[bool]=None
 
 class GetProductsByShopId(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     query:Optional[str]=Field(default=None,alias='q')
     q:Optional[str]=None
     limit:Optional[int]=10

@@ -137,27 +137,42 @@ class HandleProdInvRequest:
              
         )
     
-    async def get(self,data:GetAllProductSchema):
-        # res=await ProductRepo(session=self.session).get_products(data=data)
-        res=await ProdInvReadDbRepo.get_all(data=data)
+    async def get(self, data: GetAllProductSchema):
+        try:
+            res = await ProdInvReadDbRepo.get_all(data=data)
+        except Exception as e:
+            ic(f"Error in read db get: {e}")
+            res = None
+
+        if not res and self.session:
+            res = await ProductRepo(session=self.session).get_products(data=data)
+
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Inventories fetched successfully",
                 status_code=200,
                 success=True
             ),
-            data=res
+            data=res or []
         )
-    async def getby_shop_id(self,data:GetProductsByShopId):
-        # res=await ProductRepo(session=self.session).get_products_by_shop_id(data=data)
-        res=await ProdInvReadDbRepo.get_by_shop_id(data=data)
+
+    async def getby_shop_id(self, data: GetProductsByShopId):
+        try:
+            res = await ProdInvReadDbRepo.get_by_shop_id(data=data)
+        except Exception as e:
+            ic(f"Error in read db get_by_shop_id: {e}")
+            res = None
+
+        if not res and self.session:
+            res = await ProductRepo(session=self.session).get_products_by_shop_id(data=data)
+
         return SuccessResponseTypDict(
             detail=BaseResponseTypDict(
                 msg="Inventories fetched successfully",
                 status_code=200,
                 success=True
             ),
-            data=res
+            data=res or []
         )
     
     async def getby_id(self,data:GetProductsById):
