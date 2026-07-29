@@ -1,5 +1,5 @@
 from aio_pika.abc import AbstractIncomingMessage
-import orjson,inspect
+import orjson, json, inspect
 from icecream import ic
 
 from messaging.main import RabbitMQMessagingConfig
@@ -40,7 +40,13 @@ async def service_main_controller(msg:AbstractIncomingMessage):
         reply_entity_name:str=headers.get("reply_entity_name")
         entity_name:str=headers.get("entity_name")
         service_name:str=headers.get("service_name")
-        body:dict=headers.get("body")
+        body = headers.get("body")
+        # body may arrive as a JSON string (encoded for AMQP header compatibility)
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except Exception:
+                pass
 
         saga_repo=SagaStatesRepo(session=session)
         ic(payload,headers,saga_id,reply_entity_name,reply_key,reply_exchange,entity_name,service_name,body)
@@ -140,7 +146,8 @@ async def service_main_controller(msg:AbstractIncomingMessage):
                     )
                 
 
-            await session.commit()
+            if session.in_transaction():
+                await session.commit()
 
 
             return 
@@ -164,7 +171,8 @@ async def service_main_controller(msg:AbstractIncomingMessage):
                 )
             
 
-            await session.commit()
+            if session.in_transaction():
+                await session.commit()
 
             return False
         

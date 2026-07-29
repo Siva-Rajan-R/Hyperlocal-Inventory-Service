@@ -994,14 +994,16 @@ class ProductInventoryService:
                 inc_variant_id = prod.variant_id
                 inc_batch_id = prod.batch_infos.id if prod.batch_infos else None
                 
+                existing_entry = None
                 for inside_data in validated_data[product_id]:
                     v_variant_id = inside_data.get("variant_id")
                     v_batch_infos = inside_data.get("batch_infos")
                     v_batch_id = v_batch_infos.get("id") if v_batch_infos else None
+                    v_type = inside_data.get("type")
 
-                    if v_variant_id == inc_variant_id and v_batch_id == inc_batch_id:
-                        ic("A duplicate combination of product, variant, and batch found in payload.")
-                        raise ValueError("A duplicate combination of product, variant, and batch found in payload.")
+                    if v_variant_id == inc_variant_id and v_batch_id == inc_batch_id and v_type == prod.type:
+                        existing_entry = inside_data
+                        break
                         
                 product_variant_key = f"{product_id}_{prod.variant_id}"
                 if product_variant_key not in product_serial_numbers:
@@ -1019,8 +1021,16 @@ class ProductInventoryService:
                             if sn_info.id:
                                 serialno_tocheck.append(sn_info.id)
 
-                # Append data and track uniquely required database entities
-                validated_data[product_id].append(prod.model_dump())
+                if existing_entry:
+                    # Merge stocks and serial numbers
+                    existing_entry["stocks"] = float(existing_entry.get("stocks") or 0.0) + float(prod.stocks or 0.0)
+                    if prod.serialno_infos:
+                        existing_sns = existing_entry.setdefault("serialno_infos", [])
+                        for sn in prod.serialno_infos:
+                            existing_sns.append(sn.model_dump(mode="json") if hasattr(sn, "model_dump") else sn)
+                else:
+                    # Append data and track uniquely required database entities
+                    validated_data[product_id].append(prod.model_dump(mode="json"))
                 
                 if product_id and product_id not in product_tocheck:
                     product_tocheck.append(product_id)
@@ -1191,7 +1201,7 @@ class ProductInventoryService:
                         if not inc_serialnos:
                             ic("Serial number configurations absent.")
                             raise ValueError("Serial number configurations absent.")
-                        if len(inc_serialnos) != inc_stocks:
+                        if inc_stocks > 0 and len(inc_serialnos) != inc_stocks:
                             ic("Mismatch between physical inventory counts and serial units allocated.")
                             raise ValueError("Mismatch between physical inventory counts and serial units allocated.")
                         
@@ -1325,21 +1335,70 @@ class ProductInventoryService:
                                         status="AVAILABLE"
                                     )
                                 )
+                            validate_seriano_name.append({
+                                'shop_id': inc_shop_id,
+                                'product_id': existing_product_id,
+                                'variant_id': inc_variant_id,
+                                'batch_id': inc_batch_id,
+                                'names': serialno_names
+                            })
+                            
                         elif inc_update_type == "DECREMENT":
-                            for serialno in inc_serialnos:
-                                if not serialno.get("id"):
-                                    ic("Required serial identifier parameters missing for dynamic removals.")
-                                    raise ValueError("Required serial identifier parameters missing for dynamic removals.")
-                                serialno_todelete.append(serialno['id'])
+                            # Build a name→id map from the FRESH PostgreSQL data in prod_db
+                            # so we always resolve the correct UUID, even if MongoDB is stale.
+                            db_serialno_infos = []
+                            if has_variant and inc_variant_id:
+                                variant_data = prod_db.get("variants", {}).get(inc_variant_id) or {}
+                                if has_batch and inc_batch_id:
+                                    batches_list = variant_data.get("batch_infos") or []
+                                    batch_data = {}
+                                    for b in batches_list:
+                                        if b.get("id") == inc_batch_id or b.get("name") == inc_batch_id:
+                                            batch_data = b
+                                            break
+                                    db_serialno_infos = batch_data.get("serialno_infos") or []
+                                else:
+                                    db_serialno_infos = variant_data.get("serialno_infos") or []
+                            elif has_batch and inc_batch_id:
+                                batches_list = prod_db.get("batch_infos") or []
+                                batch_data = {}
+                                for b in batches_list:
+                                    if b.get("id") == inc_batch_id or b.get("name") == inc_batch_id:
+                                        batch_data = b
+                                        break
+                                db_serialno_infos = batch_data.get("serialno_infos") or []
+                            else:
+                                db_serialno_infos = prod_db.get("serialno_infos") or []
+                            db_sn_id_by_name = {
+                                sn.get("name"): sn.get("id")
+                                for sn in db_serialno_infos
+                                if isinstance(sn, dict) and sn.get("name")
+                            }
+                            db_sn_ids_set = set(
+                                sn.get("id") for sn in db_serialno_infos
+                                if isinstance(sn, dict) and sn.get("id")
+                            )
 
-                    if has_serialno:
-                        validate_seriano_name.append({
-                            'shop_id': inc_shop_id,
-                            'product_id': existing_product_id,
-                            'variant_id': inc_variant_id,
-                            'batch_id': inc_batch_id,
-                            'names': serialno_names
-                        })
+                            for serialno in inc_serialnos:
+                                sn_id = serialno.get("id")
+                                sn_name = serialno.get("name")
+
+                                # If the provided UUID is NOT in PostgreSQL's current records,
+                                # it's stale (from MongoDB). Fall back to name-based lookup.
+                                if sn_id and sn_id not in db_sn_ids_set:
+                                    ic(f"Serial UUID '{sn_id}' (name='{sn_name}') not found in PostgreSQL — UUID is stale, trying name lookup.")
+                                    sn_id = db_sn_id_by_name.get(sn_name) if sn_name else None
+
+                                # If still no id, try name-only lookup (no id provided at all)
+                                if not sn_id and sn_name:
+                                    sn_id = db_sn_id_by_name.get(sn_name)
+
+                                if sn_id:
+                                    serialno_todelete.append(sn_id)
+                                else:
+                                    ic(f"Serial number '{serialno}' not found in PostgreSQL records for deletion, skipping.")
+
+
 
                     stock_mov_adj_data.append({
                         'product_id': existing_product_id,
@@ -1373,7 +1432,11 @@ class ProductInventoryService:
                 await prod_repo_obj.create_bulk_selialno(data=serialno_toadd)
 
             if serialno_todelete:
-                await prod_repo_obj.delete_bulk_serialno(data=serialno_todelete)
+                ic("Deleting serial UUIDs from PostgreSQL:", serialno_todelete)
+                res_del = await prod_repo_obj.delete_bulk_serialno(data=serialno_todelete)
+                ic("delete_bulk_serialno RETURNING result:", res_del)
+            else:
+                ic("serialno_todelete is EMPTY — no serials will be deleted")
 
             if stock_toadd:
                 await inv_repo_obj.create_bulk_stocks(data=stock_toadd)
@@ -1418,6 +1481,9 @@ class ProductInventoryService:
                 await prod_repo_obj.update_bulk_product(data=product_toupdate)
 
             # FINAL COMPILATION & VIEW WRITE SYNCS
+            # Flush all pending changes (including deletions) to the DB first so
+            # that the subsequent get_bulk_products_by_id re-query sees the correct state.
+            await self.session.flush()
             self.session.expire_all()
             await ProdInvReadDbRepo.add_updatereaddb(
                 shop_id=shop_id,

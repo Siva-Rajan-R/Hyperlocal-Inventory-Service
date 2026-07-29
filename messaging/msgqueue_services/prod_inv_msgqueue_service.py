@@ -243,5 +243,7 @@ class MessagingQueueProductInvService:
             if not res:
                 return res
 
+            await session.commit()
             return res
+
 

@@ -15,17 +15,117 @@ class ProdInvReadDbRepo:
     @classmethod
     async def add_updatereaddb(cls, shop_id: str, product_ids: List[str], session: AsyncSession):
         try:
-            # Fetch products from Primary DB
+            from sqlalchemy import select, text
+            from infras.primary_db.models.product_model import ProductSerialNumbers
+
+            # Fetch products from Primary DB (without serialno to avoid ORM relationship cache)
             primary_repo = ProductRepo(session=session)
             request_data = GetBulkProductsById(
                 shop_id=shop_id,
-                include_serialno=True,
+                include_serialno=False,  # We fetch serialnos directly below to bypass cache
                 id=product_ids
             )
             primary_products = await primary_repo.get_bulk_products_by_id(data=request_data)
             ic(primary_products)
             if not primary_products:
                 return False
+
+            # Query serial numbers via raw text SQL using expanding IN clause.
+            # Using text() + expanding bindparam bypasses the ORM identity map so that
+            # rows deleted earlier in this same transaction are NOT returned.
+            # NOTE: ANY(:pids) with asyncpg requires array types — we use IN instead.
+            from sqlalchemy import bindparam
+            fresh_serialnos: dict = {}
+            if product_ids:
+                sn_stmt = text(
+                    "SELECT id, product_id, variant_id, batch_id, name, status, visible_online "
+                    "FROM product_serialnumbers "
+                    "WHERE product_id IN :pids AND shop_id = :shop_id"
+                ).bindparams(bindparam("pids", expanding=True))
+                sn_rows = (await session.execute(
+                    sn_stmt,
+                    {"pids": list(product_ids), "shop_id": shop_id}
+                )).mappings().all()
+
+                ic("Fresh serialno count from DB:", len(sn_rows))
+                for row in sn_rows:
+                    pid = row["product_id"]
+                    if pid not in fresh_serialnos:
+                        fresh_serialnos[pid] = []
+                    fresh_serialnos[pid].append({
+                        "id": row["id"],
+                        "variant_id": row["variant_id"],
+                        "batch_id": row["batch_id"],
+                        "name": row["name"],
+                        "status": row["status"],
+                        "visible_online": row["visible_online"],
+                    })
+
+            ic("fresh_serialnos per product:", {k: len(v) for k, v in fresh_serialnos.items()})
+
+            # Inject the fresh serialno_infos into each product's data structure
+            for p_data in primary_products:
+                prod_id = p_data.get("id")
+                type_infos = p_data.get("type_infos") or {}
+                has_serialno = type_infos.get("has_serialno")
+                has_variant = type_infos.get("has_variant")
+                has_batch = type_infos.get("has_batch")
+
+                product_sn_list = fresh_serialnos.get(prod_id, [])
+
+                if has_serialno:
+                    # First, initialize the empty serialno collections so we do not have stale state
+                    if has_variant:
+                        variants = p_data.get("variants") or {}
+                        for vid, v_data in variants.items():
+                            if has_batch:
+                                batches = v_data.get("batch_infos") or []
+                                for b in batches:
+                                    b["serialno_infos"] = []
+                            else:
+                                v_data["serialno_infos"] = []
+                    else:
+                        if has_batch:
+                            batches = p_data.get("batch_infos") or []
+                            for b in batches:
+                                b["serialno_infos"] = []
+                        else:
+                            p_data["serialno_infos"] = []
+
+                    # Distribute serial numbers to the correct sub-scope based on variant_id and batch_id
+                    for sn in product_sn_list:
+                        sn_item = {
+                            "id": sn["id"],
+                            "name": sn["name"],
+                            "status": sn["status"],
+                            "visible_online": sn["visible_online"],
+                        }
+                        v_id = sn["variant_id"]
+                        b_id = sn["batch_id"]
+
+                        if has_variant and v_id:
+                            variants = p_data.get("variants") or {}
+                            variant_data = variants.get(v_id)
+                            if variant_data:
+                                if has_batch and b_id:
+                                    batches = variant_data.get("batch_infos") or []
+                                    for b in batches:
+                                        if b.get("id") == b_id:
+                                            b.setdefault("serialno_infos", []).append(sn_item)
+                                            break
+                                else:
+                                    variant_data.setdefault("serialno_infos", []).append(sn_item)
+                        else:
+                            if has_batch and b_id:
+                                batches = p_data.get("batch_infos") or []
+                                for b in batches:
+                                    if b.get("id") == b_id:
+                                        b.setdefault("serialno_infos", []).append(sn_item)
+                                        break
+                            else:
+                                p_data.setdefault("serialno_infos", []).append(sn_item)
+                    ic(f"Injected serials for product {prod_id} successfully.")
+
 
             # Fetch existing read models to compare and reuse category/unit names
             existing_cursor = PROD_INV_COLLECTION.find(
@@ -113,8 +213,11 @@ class ProdInvReadDbRepo:
             return False
 
         except Exception as e:
+            import traceback
             ic(f"Error in add_updatereaddb: {e}")
+            ic(traceback.format_exc())
             return False
+
 
     
 

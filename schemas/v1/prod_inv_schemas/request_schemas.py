@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional,List
+from typing import Optional,List,Union
 from ..product_schemas.request_schemas import CreateProductBatchSchema,CreateProductSchema,CreateProductVariantSchema
 from ..inventory_schemas.request_schemas import CreateInventoryPricingSchema,CreateInventoryStockSchema,CreateInventoryStorageLocationSchema
 from ..product_schemas.custom_types import ProductBatchExpirationInfosType,ProductTypeInfosType
