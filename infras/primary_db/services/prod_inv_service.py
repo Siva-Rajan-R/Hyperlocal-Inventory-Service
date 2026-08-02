@@ -1106,8 +1106,7 @@ class ProductInventoryService:
                     if not has_batch:
                         inc_batch_infos = None
                         inc_batch_id = None
-                    if not has_serialno:
-                        inc_serialnos = []
+
 
                     if has_variant and not inc_variant_id:
                         ic("Product requires a variant target but none was provided.")
@@ -1322,7 +1321,7 @@ class ProductInventoryService:
                             )
 
                     # Serial Handling Lifecycle
-                    if has_serialno and inc_serialnos:
+                    if inc_serialnos:
                         if inc_update_type == "INCREMENT":
                             for serialno in inc_serialnos:
                                 serialno_toadd.append(
