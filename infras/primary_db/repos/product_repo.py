@@ -238,9 +238,7 @@ class ProductRepo:
         return res
     
 
-    # @start_db_transaction  ← DO NOT enable — delete_bulk_serialno runs within the
-    # outer update_all session transaction; a separate transaction here breaks the
-    # flush+add_updatereaddb sync chain causing stale data in MongoDB.
+    @start_db_transaction
     async def delete_bulk_serialno(self, data: List[str]):
         if not data:
             return []
