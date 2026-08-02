@@ -245,17 +245,32 @@ class ProductRepo:
         if not data:
             return []
         from sqlalchemy import or_
-        clean_data = [str(d).strip() for d in data if d and str(d).strip()]
-        if not clean_data:
+        import uuid
+        
+        uuids_list = []
+        names_list = []
+        for d in data:
+            if not d or not str(d).strip():
+                continue
+            val = str(d).strip()
+            try:
+                uuid.UUID(val)
+                uuids_list.append(val)
+            except ValueError:
+                names_list.append(val)
+                
+        if not uuids_list and not names_list:
             return []
+            
+        conditions = []
+        if uuids_list:
+            conditions.append(ProductSerialNumbers.id.in_(uuids_list))
+        if names_list:
+            conditions.append(ProductSerialNumbers.name.in_(names_list))
+            
         stmt = (
             delete(ProductSerialNumbers)
-            .where(
-                or_(
-                    ProductSerialNumbers.id.in_(clean_data),
-                    ProductSerialNumbers.name.in_(clean_data)
-                )
-            )
+            .where(or_(*conditions))
             .returning(*self.serialno_cols)
         )
 
