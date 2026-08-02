@@ -1091,7 +1091,8 @@ class ProductInventoryService:
                     inc_shop_id = inc_item['shop_id']
                     inc_serialnos = inc_item.get('serialno_infos') or []
                     inc_batch_infos = inc_item.get('batch_infos') or {}
-                    inc_batch_id = inc_batch_infos.get("id") if inc_batch_infos else None
+                    inc_batch_id = (inc_batch_infos.get("id") or inc_batch_infos.get("batch_id")) if isinstance(inc_batch_infos, dict) else (inc_batch_infos if isinstance(inc_batch_infos, str) else None)
+                    inc_batch_name = inc_batch_infos.get("name") if isinstance(inc_batch_infos, dict) else (inc_batch_infos if isinstance(inc_batch_infos, str) else None)
                     inc_variant_id = inc_item.get('variant_id')
                     inc_stocks = inc_item.get('stocks') or 0
                     inc_update_type = inc_item['type']
@@ -1344,57 +1345,99 @@ class ProductInventoryService:
                             })
                             
                         elif inc_update_type == "DECREMENT":
-                            # Build a name→id map from the FRESH PostgreSQL data in prod_db
-                            # so we always resolve the correct UUID, even if MongoDB is stale.
+                            # Build name->id and id set maps from PostgreSQL data in prod_db
+                            def _find_b(b_list, target_id, target_name):
+                                for b in (b_list or []):
+                                    if not isinstance(b, dict): continue
+                                    c_id, c_name = b.get("id"), b.get("name")
+                                    if (target_id and (c_id == target_id or c_name == target_id)) or (target_name and (c_name == target_name or c_id == target_name)):
+                                        return b
+                                return {}
+
                             db_serialno_infos = []
                             if has_variant and inc_variant_id:
                                 variant_data = prod_db.get("variants", {}).get(inc_variant_id) or {}
-                                if has_batch and inc_batch_id:
+                                if has_batch and (inc_batch_id or inc_batch_name):
                                     batches_list = variant_data.get("batch_infos") or []
-                                    batch_data = {}
-                                    for b in batches_list:
-                                        if b.get("id") == inc_batch_id or b.get("name") == inc_batch_id:
-                                            batch_data = b
-                                            break
+                                    batch_data = _find_b(batches_list, inc_batch_id, inc_batch_name)
                                     db_serialno_infos = batch_data.get("serialno_infos") or []
+                                    if not db_serialno_infos:
+                                        db_serialno_infos = variant_data.get("serialno_infos") or []
+                                        if not db_serialno_infos:
+                                            for b in batches_list:
+                                                if isinstance(b, dict) and b.get("serialno_infos"):
+                                                    db_serialno_infos.extend(b["serialno_infos"])
                                 else:
                                     db_serialno_infos = variant_data.get("serialno_infos") or []
-                            elif has_batch and inc_batch_id:
+                                    if not db_serialno_infos and has_batch:
+                                        for b in (variant_data.get("batch_infos") or []):
+                                            if isinstance(b, dict) and b.get("serialno_infos"):
+                                                db_serialno_infos.extend(b["serialno_infos"])
+
+                            elif has_batch and (inc_batch_id or inc_batch_name):
                                 batches_list = prod_db.get("batch_infos") or []
-                                batch_data = {}
-                                for b in batches_list:
-                                    if b.get("id") == inc_batch_id or b.get("name") == inc_batch_id:
-                                        batch_data = b
-                                        break
+                                batch_data = _find_b(batches_list, inc_batch_id, inc_batch_name)
                                 db_serialno_infos = batch_data.get("serialno_infos") or []
+                                if not db_serialno_infos:
+                                    db_serialno_infos = prod_db.get("serialno_infos") or []
+                                    if not db_serialno_infos:
+                                        for b in batches_list:
+                                            if isinstance(b, dict) and b.get("serialno_infos"):
+                                                db_serialno_infos.extend(b["serialno_infos"])
                             else:
                                 db_serialno_infos = prod_db.get("serialno_infos") or []
-                            db_sn_id_by_name = {
-                                sn.get("name"): sn.get("id")
-                                for sn in db_serialno_infos
-                                if isinstance(sn, dict) and sn.get("name")
-                            }
-                            db_sn_ids_set = set(
-                                sn.get("id") for sn in db_serialno_infos
-                                if isinstance(sn, dict) and sn.get("id")
-                            )
+
+                            # Global fallback if still empty
+                            if not db_serialno_infos:
+                                if prod_db.get("serialno_infos"):
+                                    db_serialno_infos.extend(prod_db["serialno_infos"])
+                                for v in (prod_db.get("variants") or {}).values():
+                                    if isinstance(v, dict):
+                                        if v.get("serialno_infos"):
+                                            db_serialno_infos.extend(v["serialno_infos"])
+                                        for b in (v.get("batch_infos") or []):
+                                            if isinstance(b, dict) and b.get("serialno_infos"):
+                                                db_serialno_infos.extend(b["serialno_infos"])
+                                for b in (prod_db.get("batch_infos") or []):
+                                    if isinstance(b, dict) and b.get("serialno_infos"):
+                                        db_serialno_infos.extend(b["serialno_infos"])
+
+                            db_sn_id_by_name = {}
+                            db_sn_ids_set = set()
+                            for sn in db_serialno_infos:
+                                if isinstance(sn, dict):
+                                    s_id = sn.get("id") or sn.get("serialno_id")
+                                    s_name = sn.get("name") or sn.get("serialno_name") or sn.get("serial_no")
+                                    if s_id:
+                                        db_sn_ids_set.add(str(s_id))
+                                    if s_name and s_id:
+                                        db_sn_id_by_name[str(s_name).strip()] = str(s_id)
 
                             for serialno in inc_serialnos:
-                                sn_id = serialno.get("id")
-                                sn_name = serialno.get("name")
+                                sn_id = None
+                                sn_name = None
+                                if isinstance(serialno, dict):
+                                    sn_id = serialno.get("id") or serialno.get("serialno_id") or serialno.get("serial_no_id")
+                                    sn_name = serialno.get("name") or serialno.get("serialno_name") or serialno.get("serial_no_name") or serialno.get("serial_no") or serialno.get("serialno")
+                                elif isinstance(serialno, str):
+                                    if serialno in db_sn_ids_set:
+                                        sn_id = serialno
+                                    else:
+                                        sn_name = serialno
+                                elif hasattr(serialno, "id") or hasattr(serialno, "name"):
+                                    sn_id = getattr(serialno, "id", None)
+                                    sn_name = getattr(serialno, "name", None)
 
-                                # If the provided UUID is NOT in PostgreSQL's current records,
-                                # it's stale (from MongoDB). Fall back to name-based lookup.
-                                if sn_id and sn_id not in db_sn_ids_set:
-                                    ic(f"Serial UUID '{sn_id}' (name='{sn_name}') not found in PostgreSQL — UUID is stale, trying name lookup.")
-                                    sn_id = db_sn_id_by_name.get(sn_name) if sn_name else None
+                                target_id = None
+                                if sn_id and str(sn_id) in db_sn_ids_set:
+                                    target_id = str(sn_id)
+                                elif sn_name and str(sn_name).strip() in db_sn_id_by_name:
+                                    target_id = db_sn_id_by_name[str(sn_name).strip()]
+                                elif sn_id and str(sn_id).strip() in db_sn_id_by_name:
+                                    target_id = db_sn_id_by_name[str(sn_id).strip()]
 
-                                # If still no id, try name-only lookup (no id provided at all)
-                                if not sn_id and sn_name:
-                                    sn_id = db_sn_id_by_name.get(sn_name)
-
-                                if sn_id:
-                                    serialno_todelete.append(sn_id)
+                                if target_id:
+                                    serialno_todelete.append(target_id)
                                 else:
                                     ic(f"Serial number '{serialno}' not found in PostgreSQL records for deletion, skipping.")
 
