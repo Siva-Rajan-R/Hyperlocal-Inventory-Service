@@ -241,19 +241,26 @@ class ProductRepo:
     # @start_db_transaction  ← DO NOT enable — delete_bulk_serialno runs within the
     # outer update_all session transaction; a separate transaction here breaks the
     # flush+add_updatereaddb sync chain causing stale data in MongoDB.
-    async def delete_bulk_serialno(self,data:List[str]):
-        stmt=(
-            delete(
-                ProductSerialNumbers
-            )
+    async def delete_bulk_serialno(self, data: List[str]):
+        if not data:
+            return []
+        from sqlalchemy import or_
+        clean_data = [str(d).strip() for d in data if d and str(d).strip()]
+        if not clean_data:
+            return []
+        stmt = (
+            delete(ProductSerialNumbers)
             .where(
-                ProductSerialNumbers.id.in_(data)
+                or_(
+                    ProductSerialNumbers.id.in_(clean_data),
+                    ProductSerialNumbers.name.in_(clean_data)
+                )
             )
             .returning(*self.serialno_cols)
         )
 
-        res=(await self.session.execute(stmt)).scalars().all()
-        ic(res)
+        res = (await self.session.execute(stmt)).scalars().all()
+        ic("delete_bulk_serialno RETURNING result:", res)
         return res
     
 

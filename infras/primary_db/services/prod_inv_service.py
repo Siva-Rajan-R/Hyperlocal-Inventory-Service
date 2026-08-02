@@ -1419,7 +1419,6 @@ class ProductInventoryService:
                                     sn_id = serialno.get("id") or serialno.get("serialno_id") or serialno.get("serial_no_id")
                                     sn_name = serialno.get("name") or serialno.get("serialno_name") or serialno.get("serial_no_name") or serialno.get("serial_no") or serialno.get("serialno")
                                 elif isinstance(serialno, str):
-                                    # If length looks like UUID or has hyphens, treat as ID, else name
                                     if len(serialno) > 20 or "-" in serialno:
                                         sn_id = serialno
                                     else:
@@ -1428,16 +1427,12 @@ class ProductInventoryService:
                                     sn_id = getattr(serialno, "id", None)
                                     sn_name = getattr(serialno, "name", None)
 
-                                target_id = None
                                 if sn_id:
-                                    target_id = str(sn_id)
-                                elif sn_name and str(sn_name).strip() in db_sn_id_by_name:
-                                    target_id = db_sn_id_by_name[str(sn_name).strip()]
-
-                                if target_id:
-                                    serialno_todelete.append(target_id)
-                                else:
-                                    ic(f"Serial number '{serialno}' not found in PostgreSQL records for deletion, skipping.")
+                                    serialno_todelete.append(str(sn_id).strip())
+                                if sn_name:
+                                    serialno_todelete.append(str(sn_name).strip())
+                                if not sn_id and not sn_name:
+                                    ic(f"Serial number '{serialno}' missing id and name, skipping.")
 
 
 
