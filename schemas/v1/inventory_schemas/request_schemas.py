@@ -99,7 +99,7 @@ from datetime import datetime
 
 class SerialnoInfosProdInvType(BaseModel):
     id:Optional[str]=None
-    name:str
+    name:Optional[str]=None
 
 
 class ReserveInventorySchema(BaseModel):
