@@ -1420,7 +1420,8 @@ class ProductInventoryService:
                                     sn_id = serialno.get("id") or serialno.get("serialno_id") or serialno.get("serial_no_id")
                                     sn_name = serialno.get("name") or serialno.get("serialno_name") or serialno.get("serial_no_name") or serialno.get("serial_no") or serialno.get("serialno")
                                 elif isinstance(serialno, str):
-                                    if serialno in db_sn_ids_set:
+                                    # If length looks like UUID or has hyphens, treat as ID, else name
+                                    if len(serialno) > 20 or "-" in serialno:
                                         sn_id = serialno
                                     else:
                                         sn_name = serialno
@@ -1429,12 +1430,10 @@ class ProductInventoryService:
                                     sn_name = getattr(serialno, "name", None)
 
                                 target_id = None
-                                if sn_id and str(sn_id) in db_sn_ids_set:
+                                if sn_id:
                                     target_id = str(sn_id)
                                 elif sn_name and str(sn_name).strip() in db_sn_id_by_name:
                                     target_id = db_sn_id_by_name[str(sn_name).strip()]
-                                elif sn_id and str(sn_id).strip() in db_sn_id_by_name:
-                                    target_id = db_sn_id_by_name[str(sn_id).strip()]
 
                                 if target_id:
                                     serialno_todelete.append(target_id)
