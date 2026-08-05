@@ -1,5 +1,5 @@
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.exceptions import HTTPException
 from schemas.v1.prod_inv_schemas.request_schemas import CreateProdInvSchema,UpdateProdInvSchema,DeleteProdInvSchema
@@ -74,6 +74,37 @@ class HandleProdInvRequest:
                   status_code=400
              ),
              
+        )
+
+    async def create_bulk(self, data: List[CreateProdInvSchema], executing_user_id: Optional[str] = None):
+        valid_items = []
+        cust_field_obj = CustomFieldsService(session=self.session)
+        for item in data:
+            if item.type_infos.has_variant and not item.variant_infos:
+                continue
+            fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=item.shop_id))
+            valid_custom_fields = validate_and_filter_custom_fields(item.custom_fields, fields)
+            valid_items.append(CreateProdInvSchema(custom_fields=valid_custom_fields, **item.model_dump(exclude=['custom_fields'])))
+            
+        res = await ProductInventoryService(session=self.session).create_bulk_prodinv_items(data=valid_items, executing_user_id=executing_user_id)
+        if res:
+            await self.session.commit()
+            return SuccessResponseTypDict(
+                detail=BaseResponseTypDict(
+                    status_code=201,
+                    success=True,
+                    msg="Bulk Inventory Products Created Successfully"
+                ),
+                data=res
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=ErrorResponseTypDict(
+                msg="Error => Creating Bulk Inventory Products",
+                description="Failed to create products in bulk",
+                success=False,
+                status_code=400
+            )
         )
     
     async def update(self,data:UpdateProdInvSchema, executing_user_id: Optional[str] = None):

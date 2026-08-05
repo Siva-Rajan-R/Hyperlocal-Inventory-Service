@@ -649,7 +649,8 @@ class InventoryRepo:
                         "seriano_numbers":res.serialno_infos,
                         "type":"DECREMENT",
                         "stocks":res.qty,
-                        "entity_name":data.entity_name
+                        "entity_name":data.entity_name,
+                        "entity_id":getattr(data, "entity_id", None)
                     }
                 )
 

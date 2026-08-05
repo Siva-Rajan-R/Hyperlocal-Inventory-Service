@@ -330,6 +330,17 @@ class ProductInventoryService:
             except Exception as notification_error:
                 ic(f"Notification error: {notification_error}")
             raise e
+
+    async def create_bulk_prodinv_items(self, data: List[CreateProdInvSchema], executing_user_id: Optional[str] = None) -> List[dict]:
+        results = []
+        for item in data:
+            try:
+                res = await self.create(data=item, executing_user_id=executing_user_id)
+                if res:
+                    results.append(res)
+            except Exception as e:
+                ic(f"Error in bulk creating product item '{item.name}': {e}")
+        return results
     
 
     async def update(self, data: UpdateProdInvSchema, executing_user_id: Optional[str] = None):
@@ -1444,7 +1455,8 @@ class ProductInventoryService:
                         'type': inc_update_type,
                         'stocks': inc_stocks,
                         'shop_id': inc_shop_id,
-                        'entity_name': inc_entity_name
+                        'entity_name': inc_entity_name,
+                        'entity_id': inc_item.get('entity_id') if isinstance(inc_item, dict) else getattr(inc_item, 'entity_id', None)
                     })
 
                     product_toupdate.append(

@@ -192,4 +192,5 @@ class UpdateAllProdInvSchema(BaseModel):
     online_sell_price:Optional[float]=None
     type:str
     entity_name:str
+    entity_id:Optional[str]=None
     create_stock_mov_adj:bool=False

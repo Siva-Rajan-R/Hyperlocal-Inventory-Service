@@ -52,6 +52,11 @@ async def create(data:CreateProdInvSchema,session:PG_ASYNC_SESSION,user_id: Opti
     return await HandleProdInvRequest(session=session).create(data=data, executing_user_id=user_id)
 
 
+@router.post('/bulk')
+async def create_bulk(data:List[CreateProdInvSchema],session:PG_ASYNC_SESSION,user_id: Optional[str] = Depends(get_current_user_id)):
+    return await HandleProdInvRequest(session=session).create_bulk(data=data, executing_user_id=user_id)
+
+
 @router.post('/upload/images')
 async def upload_images(session:PG_ASYNC_SESSION,data:Annotated[UploadImagesSchema,Depends(UploadImagesSchema.as_form)],files:List[UploadFile]=File(...)):
     stmt_res=(await session.execute(
