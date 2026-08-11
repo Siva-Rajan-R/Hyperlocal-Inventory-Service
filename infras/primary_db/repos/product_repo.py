@@ -567,7 +567,15 @@ class ProductRepo:
         stmt = select(Products)
         
         if data.active is not None:
-            stmt = stmt.where(Products.is_active == data.active)
+            if data.active is True:
+                stmt = stmt.where(
+                    or_(
+                        Products.is_active == True,
+                        Products.have_tracking == False
+                    )
+                )
+            else:
+                stmt = stmt.where(Products.is_active == data.active)
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
         if getattr(data, 'have_tracking', None) is not None:
@@ -622,7 +630,15 @@ class ProductRepo:
         stmt = select(Products).where(Products.shop_id == data.shop_id)
 
         if data.active is not None:
-            stmt = stmt.where(Products.is_active == data.active)
+            if data.active is True:
+                stmt = stmt.where(
+                    or_(
+                        Products.is_active == True,
+                        Products.have_tracking == False
+                    )
+                )
+            else:
+                stmt = stmt.where(Products.is_active == data.active)
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
         if getattr(data, 'have_tracking', None) is not None:
@@ -674,7 +690,15 @@ class ProductRepo:
         stmt = select(Products).where(Products.shop_id == data.shop_id, Products.id == data.id)
         
         if data.active is not None:
-            stmt = stmt.where(Products.is_active == data.active)
+            if data.active is True:
+                stmt = stmt.where(
+                    or_(
+                        Products.is_active == True,
+                        Products.have_tracking == False
+                    )
+                )
+            else:
+                stmt = stmt.where(Products.is_active == data.active)
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
 
@@ -711,6 +735,20 @@ class ProductRepo:
                 selectinload(Products.reorder_points).load_only(*self.inventory_rop_cols),
             )
         )
+
+        if data.active is not None:
+            if data.active is True:
+                stmt = stmt.where(
+                    or_(
+                        Products.is_active == True,
+                        Products.have_tracking == False
+                    )
+                )
+            else:
+                stmt = stmt.where(Products.is_active == data.active)
+
+        if data.visible_online is not None:
+            stmt = stmt.where(Products.visible_online == data.visible_online)
 
         if data.include_serialno:
             stmt = stmt.options(selectinload(Products.serialnos).load_only(*self.serialno_cols))

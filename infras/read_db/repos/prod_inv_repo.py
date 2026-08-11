@@ -227,7 +227,12 @@ class ProdInvReadDbRepo:
         query = dict(base_query) if base_query else {}
 
         if data.active is not None:
-            query["is_active"] = data.active
+            if data.active is True:
+                if "$and" not in query:
+                    query["$and"] = []
+                query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
+            else:
+                query["is_active"] = data.active
 
         if data.visible_online is not None:
             query["visible_online"] = data.visible_online
@@ -378,7 +383,12 @@ class ProdInvReadDbRepo:
             }
 
             if data.active is not None:
-                query["is_active"] = data.active
+                if data.active is True:
+                    if "$and" not in query:
+                        query["$and"] = []
+                    query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
+                else:
+                    query["is_active"] = data.active
 
             if data.visible_online is not None:
                 query["visible_online"] = data.visible_online
@@ -407,7 +417,12 @@ class ProdInvReadDbRepo:
                 query["shop_id"] = data.shop_id
 
             if data.active is not None:
-                query["is_active"] = data.active
+                if data.active is True:
+                    if "$and" not in query:
+                        query["$and"] = []
+                    query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
+                else:
+                    query["is_active"] = data.active
 
             if data.visible_online is not None:
                 query["visible_online"] = data.visible_online
