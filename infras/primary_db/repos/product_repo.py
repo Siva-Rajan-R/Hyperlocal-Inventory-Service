@@ -900,5 +900,7 @@ class ProductRepo:
             "serialnos":serialnos
         }
     
-    
-        
+    async def get_product_names_by_shop_id(self, shop_id: str) -> List[str]:
+        stmt = select(Products.name).where(Products.shop_id == shop_id)
+        res = await self.session.execute(stmt)
+        return list(res.scalars().all())

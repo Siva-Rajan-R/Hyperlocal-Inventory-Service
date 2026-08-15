@@ -37,6 +37,9 @@ class DeleteImagesSchema(BaseModel):
     product_id:str
     urls:List[str]
 
+class CheckProductNameSchema(BaseModel):
+    shop_id: str
+    name: str
 
 router=APIRouter(
     tags=["Inventory CRUD's"],
@@ -46,6 +49,27 @@ router=APIRouter(
 PG_ASYNC_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 
 from core.utils.user_info import get_current_user_id
+
+@router.post('/check-name')
+async def check_product_name(data: CheckProductNameSchema, session: PG_ASYNC_SESSION):
+    repo = ProductRepo(session=session)
+    existing_names = await repo.get_product_names_by_shop_id(shop_id=data.shop_id)
+    
+    from core.utils.similarity_check import find_similar_name
+    similar_name = find_similar_name(data.name, existing_names)
+    
+    if similar_name:
+        return {
+            "allowed": False,
+            "similar_name": similar_name,
+            "message": f"A product with a similar name '{similar_name}' already exists."
+        }
+    
+    return {
+        "allowed": True,
+        "message": "Product name is unique."
+    }
+
 
 @router.post('')
 async def create(data:CreateProdInvSchema,session:PG_ASYNC_SESSION,user_id: Optional[str] = Depends(get_current_user_id)):
@@ -71,6 +95,11 @@ async def upload_images(session:PG_ASYNC_SESSION,data:Annotated[UploadImagesSche
         )
     
     urls=await upload_assets(files=files)
+    if not isinstance(urls, list) or not urls:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to upload product images to storage"
+        )
     image_urls = list(stmt_res.image_url) if stmt_res.image_url else []
     if len(image_urls) + len(files) > 3:
         raise HTTPException(

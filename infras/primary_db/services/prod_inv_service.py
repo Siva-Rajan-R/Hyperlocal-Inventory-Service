@@ -1456,7 +1456,10 @@ class ProductInventoryService:
                         'stocks': inc_stocks,
                         'shop_id': inc_shop_id,
                         'entity_name': inc_entity_name,
-                        'entity_id': inc_item.get('entity_id') if isinstance(inc_item, dict) else getattr(inc_item, 'entity_id', None)
+                        'entity_id': inc_item.get('entity_id') if isinstance(inc_item, dict) else getattr(inc_item, 'entity_id', None),
+                        'ui_id': inc_item.get('ui_id') if isinstance(inc_item, dict) else getattr(inc_item, 'ui_id', None),
+                        'purchase_id': inc_item.get('purchase_id') if isinstance(inc_item, dict) else getattr(inc_item, 'purchase_id', None),
+                        'order_id': inc_item.get('order_id') if isinstance(inc_item, dict) else getattr(inc_item, 'order_id', None)
                     })
 
                     product_toupdate.append(

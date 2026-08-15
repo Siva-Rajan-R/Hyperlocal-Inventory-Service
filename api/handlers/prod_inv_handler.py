@@ -46,6 +46,24 @@ class HandleProdInvRequest:
                 
             )
         
+        # Check for similar product names
+        repo = ProductRepo(session=self.session)
+        existing_names = await repo.get_product_names_by_shop_id(shop_id=data.shop_id)
+        from core.utils.similarity_check import find_similar_name
+        similar_name = find_similar_name(data.name, existing_names)
+        
+        if similar_name:
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponseTypDict(
+                    msg="Similarity Check Failed",
+                    description=f"A product with a similar name '{similar_name}' already exists. Please choose a different name.",
+                    success=False,
+                    status_code=400
+                )
+            )
+
+        
         cust_field_obj=CustomFieldsService(session=self.session)
         fields=await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
         

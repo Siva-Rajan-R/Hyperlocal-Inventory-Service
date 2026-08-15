@@ -80,10 +80,13 @@ async def upload_assets(files:list[UploadFile]):
                 files=multipart_files,
             )
         ic(response.text)
-        return response.json()
+        res_data = response.json()
+        if isinstance(res_data, dict) and "data" in res_data:
+            return res_data["data"]
+        return res_data if isinstance(res_data, list) else []
     except Exception as e:
         ic(f"Error uploading images: {e}")
-    return {}
+    return []
 
 
 async def delete_assets(urls:list[str]):

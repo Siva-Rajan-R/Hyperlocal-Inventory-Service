@@ -193,4 +193,7 @@ class UpdateAllProdInvSchema(BaseModel):
     type:str
     entity_name:str
     entity_id:Optional[str]=None
+    ui_id:Optional[str]=None
+    purchase_id:Optional[str]=None
+    order_id:Optional[str]=None
     create_stock_mov_adj:bool=False
