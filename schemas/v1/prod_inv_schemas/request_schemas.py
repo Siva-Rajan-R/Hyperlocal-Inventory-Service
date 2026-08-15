@@ -29,6 +29,7 @@ class UpdateProdInvVariantType(BaseModel):
     storage_location: Optional[str] = None
     reorder_point: Optional[float] = None
     online_reorder_point: Optional[float] = None
+    barcode: Optional[str] = None
 
 
 class CreateProdInvBatchType(BaseModel):
@@ -83,6 +84,7 @@ class UpdateProdInvSchema(BaseModel):
     custom_fields: Optional[dict] = {}
     visible_online: Optional[bool] = None
     gst:Optional[str]="0%"
+    barcode: Optional[str] = None
 
 
 class DeleteProdInvSchema(BaseModel):

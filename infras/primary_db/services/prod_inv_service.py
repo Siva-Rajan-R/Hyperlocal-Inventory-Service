@@ -379,11 +379,15 @@ class ProductInventoryService:
                 from schemas.v1.product_schemas.db_schemas import UpdateProductVariantDbSchema
                 for variant in data.variant_infos:
                     if variant.id:
+                        if variant.barcode:
+                            if not await validate_barcode_uniqueness(self.session, data.shop_id, variant.barcode, exclude_variant_id=variant.id):
+                                raise ValueError(f"Product Barcode '{variant.barcode}' already exists.")
                         variants_toupdate.append(
                             UpdateProductVariantDbSchema(
                                 id=variant.id,
                                 name=variant.name,
-                                shop_id=data.shop_id
+                                shop_id=data.shop_id,
+                                barcode=variant.barcode
                             )
                         )
                         var_id = variant.id
@@ -392,7 +396,12 @@ class ProductInventoryService:
                         
                         # Variant SKU & Barcode Resolution for newly added variant
                         variant_sku = await generate_product_sku(self.session, data.shop_id, data.category_id or prod_get_res.get("category_id"), data.name or prod_get_res.get("name"), variant.name)
-                        variant_barcode = await generate_product_barcode(self.session, data.shop_id)
+                        if variant.barcode:
+                            if not await validate_barcode_uniqueness(self.session, data.shop_id, variant.barcode):
+                                raise ValueError(f"Product Barcode '{variant.barcode}' already exists.")
+                            variant_barcode = variant.barcode
+                        else:
+                            variant_barcode = await generate_product_barcode(self.session, data.shop_id)
 
                         variants_toadd.append(
                             ProductVariants(
