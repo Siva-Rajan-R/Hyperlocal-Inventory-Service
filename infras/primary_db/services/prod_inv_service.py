@@ -127,7 +127,7 @@ class ProductInventoryService:
                             )
                         )
                     
-                    rop=5
+                    rop=1
                     if variant.reorder_point:
                         rop=variant.reorder_point
                     online_rop=0.0
@@ -182,7 +182,7 @@ class ProductInventoryService:
                         )
                     )
                 
-                rop=data.reorder_point or 5
+                rop=data.reorder_point or 1
                 online_rop=data.online_reorder_point or 0.0
                 rop_id=generate_uuid()
                 rop_toadd.append(
@@ -1552,6 +1552,8 @@ class ProductInventoryService:
             )
 
             if create_stock_mov_adj:
+                # Build the flat list from all validated inventory items across all products
+                stock_mov_adj_data = [item for items_list in validated_data.values() for item in items_list]
                 await emit_stock_mov_adj(session=self.session, data=stock_mov_adj_data)
 
 

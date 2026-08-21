@@ -397,7 +397,7 @@ class InventoryRepo:
         
     
     @start_db_transaction
-    async def reserve_stock(self, data: ReserveInventorySchema):
+    async def reserve_stock(self, data: ReserveInventorySchema, skip_stock_check: bool = False):
         # data format: {"session_id", "product_id", "variant_id", "batch_id", "shop_id", "qty", "expires_at"}
         session_id = data.session_id
         product_id = data.product_id
@@ -466,6 +466,13 @@ class InventoryRepo:
             )
             self.session.add(reservation)
 
+        # For non-tracking products (skip_stock_check=True), we only need the reservation
+        # record for billing history — no stock rows exist, so skip lock/update entirely.
+        if skip_stock_check:
+            ic("Non-tracking product: skipping stock reservation lock")
+            await self.session.commit()
+            return True
+
         delta = new_qty - old_qty
         if delta == 0:
             return True
@@ -513,6 +520,7 @@ class InventoryRepo:
         ic(readdb_res)
         
         return True
+
 
     @start_db_transaction
     async def release_reservations(self, data:ReleaseInventorySchema):
@@ -639,26 +647,32 @@ class InventoryRepo:
                 )
             
             stock_record = (await self.session.execute(stmt_stock)).scalars().first()
-            if stock_record:
-                stock_adj_mov_data.append(
-                    {
-                        "shop_id":res.shop_id,
-                        "product_id":res.product_id,
-                        "variant_id":res.variant_id,
-                        "batch_id":res.batch_id,
-                        "seriano_numbers":res.serialno_infos,
-                        "type":"DECREMENT",
-                        "stocks":res.qty,
-                        "entity_name":data.entity_name,
-                        "entity_id":getattr(data, "entity_id", None)
-                    }
-                )
 
+            # Always record the stock adjustment event for billing history,
+            # even for non-tracking products (have_tracking=False) that have
+            # no InventoryStocks row. Use stocks=0 before/after for those.
+            stock_adj_mov_data.append(
+                {
+                    "shop_id":res.shop_id,
+                    "product_id":res.product_id,
+                    "variant_id":res.variant_id,
+                    "batch_id":res.batch_id,
+                    "seriano_numbers":res.serialno_infos,
+                    "type":"DECREMENT",
+                    "stocks":res.qty,
+                    "entity_name":data.entity_name,
+                    "entity_id":getattr(data, "entity_id", None)
+                }
+            )
+
+            if stock_record:
                 # Apply delta to physical stocks (subtract because items are bought)
                 stock_record.physical_stocks -= res.qty
                 # Release reserved stock lock
                 stock_record.reserved_stocks = max(0, (stock_record.reserved_stocks or 0) - abs(res.qty))
                 stock_record.available_stocks = stock_record.physical_stocks - stock_record.reserved_stocks
+            else:
+                ic(f"Non-tracking product {res.product_id}: no stock record to update, still creating adj entry")
 
             product_ids.append(res.product_id) 
             ic(res.shop_id)

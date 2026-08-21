@@ -337,7 +337,7 @@ class ProdInvReadDbRepo:
             cursor = PROD_INV_COLLECTION.find(query)
             if getattr(data, 'limit', None):
                 offset = data.offset - 1 if (data.offset and data.offset > 0) else 0
-                cursor = cursor.skip(offset * data.limit).limit(data.limit)
+                cursor = cursor.sort("created_at", -1).skip(offset * data.limit).limit(data.limit)
             
             data_res = await cursor.to_list(length=None)
             for d in data_res:
@@ -359,7 +359,7 @@ class ProdInvReadDbRepo:
             cursor = PROD_INV_COLLECTION.find(query)
             if getattr(data, 'limit', None):
                 offset = data.offset - 1 if (data.offset and data.offset > 0) else 0
-                cursor = cursor.skip(offset * data.limit).limit(data.limit)
+                cursor = cursor.sort("created_at", -1).skip(offset * data.limit).limit(data.limit)
 
             data_res = await cursor.to_list(length=None)
             for d in data_res:

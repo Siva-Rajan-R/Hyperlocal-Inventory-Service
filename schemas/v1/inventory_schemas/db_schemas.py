@@ -42,8 +42,8 @@ class UpdateInventoryPricingDbSchema(BaseModel):
     product_id:str
     variant_id:Optional[str]=None
     batch_id:Optional[str]=None
-    buy_price:float
-    sell_price:float
+    buy_price:Optional[float]=None
+    sell_price:Optional[float]=None
     online_sell_price:Optional[float]=None
 
 

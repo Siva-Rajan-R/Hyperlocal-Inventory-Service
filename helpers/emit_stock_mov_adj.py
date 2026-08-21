@@ -173,6 +173,7 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
 
     entity_id_val = None
     update_type_val = None
+    entity_name_val = "ADJUSTMENT"
     if data:
         for d in data:
             if isinstance(d, dict):
@@ -180,10 +181,12 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
                     entity_id_val = d.get('purchase_ui_id') or d.get('order_ui_id') or d.get('ui_id') or d.get('entity_id') or d.get('invoice_no') or d.get('sale_ui_id') or d.get('return_ui_id') or d.get('sale_return_ui_id') or d.get('offline_sale_ui_id') or d.get('order_id') or d.get('sale_id') or d.get('return_id')
                 if not update_type_val:
                     update_type_val = d.get('type')
-                if entity_id_val and update_type_val:
+                if d.get('entity_name'):
+                    entity_name_val = d.get('entity_name')
+                if entity_id_val and update_type_val and entity_name_val != "ADJUSTMENT":
                     break
 
-    desc_entity = entity_name.replace("_", " ").lower() if entity_name else "adjustment"
+    desc_entity = entity_name_val.replace("_", " ").lower() if entity_name_val else "adjustment"
         
     if update_type_val == "INCREMENT":
         action_text = "Stock increase"
@@ -197,7 +200,7 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
     else:
         desc_str = f"{action_text} via {desc_entity}"
 
-    mov_type = entity_name
+    mov_type = entity_name_val
 
     # STEP-4: Package Transaction context for Saga Engine Orchestration
     stock_mov_adj_data = {

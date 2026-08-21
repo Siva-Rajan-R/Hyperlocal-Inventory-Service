@@ -198,8 +198,12 @@ async def reserve_stock(data:ReserveInventorySchema, session:PG_ASYNC_SESSION):
             detail="Some of the variant batch and serialno id was not exists"
         )
     
-    res = await repo.reserve_stock(data=data)
+    # For non-tracking products, skip stock reservation (no stock rows exist)
+    # but still create a reservation record so commit can create stock adj entry
+    have_tracking = is_prod_exists.get('have_tracking', True)
+    res = await repo.reserve_stock(data=data, skip_stock_check=not have_tracking)
     return SuccessResponseTypDict(detail=BaseResponseTypDict(status_code=200, success=res, msg="Stock reserved"))
+
 
 @router.post('/reservations/release')
 async def release_reservations(data:ReleaseInventorySchema, session:PG_ASYNC_SESSION):
