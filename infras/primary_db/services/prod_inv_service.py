@@ -52,6 +52,8 @@ class ProductInventoryService:
             else:
                 product_sku = await generate_product_sku(self.session, data.shop_id, data.category_id, data.name)
 
+
+
             if data.barcode:
                 if not await validate_barcode_uniqueness(self.session, data.shop_id, data.barcode):
                     raise ValueError(f"Product Barcode '{data.barcode}' already exists.")
@@ -200,6 +202,10 @@ class ProductInventoryService:
             ic(ui_id_res)
             ui_id=f"{ui_id_res.get("prefix")}-{ui_id_res.get("current_number")}"
             ic(ui_id)
+            cf_data = data.custom_fields or {}
+            if data.variant_types:
+                cf_data["variant_types"] = [vt.model_dump() for vt in data.variant_types]
+
             product_toadd=CreateProductDbSchema(
                 id=product_id,
                 ui_id=ui_id,
@@ -207,7 +213,8 @@ class ProductInventoryService:
                 sku=product_sku,
                 barcode=product_barcode,
                 brand=data.brand or None,
-                **data.model_dump(exclude=["stocks","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand"])
+                custom_fields=cf_data,
+                **data.model_dump(exclude=["stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields"])
             )
 
             product_repo_obj=ProductRepo(session=self.session)
@@ -237,6 +244,67 @@ class ProductInventoryService:
                     )
                     ic(cust_obj)
                 
+                # Handle initial opening stock update if provided (> 0)
+                stock_update_payloads = []
+                if data.type_infos.has_variant and data.variant_infos and variants_toadd:
+                    for v_item, v_obj in zip(data.variant_infos, variants_toadd):
+                        stock_val = getattr(v_item, 'stocks', None)
+                        if stock_val is not None and float(stock_val) > 0:
+                            stock_update_payloads.append({
+                                'shop_id': data.shop_id,
+                                'product_id': product_id,
+                                'variant_id': v_obj.id,
+                                'batch_infos': None,
+                                'serialno_infos': [],
+                                'stocks': float(stock_val),
+                                'storage_location': v_item.storage_location or None,
+                                'reorder_point': v_item.reorder_point or 5,
+                                'online_reorder_point': v_item.online_reorder_point or 0.0,
+                                'name': data.name,
+                                'gst': data.gst or "0%",
+                                'description': data.description,
+                                'buy_price': v_item.buy_price or 0.0,
+                                'sell_price': v_item.sell_price or 0.0,
+                                'online_sell_price': v_item.online_sell_price or 0.0,
+                                'type': 'INCREMENT',
+                                'entity_name': 'OPENING_STOCK',
+                                'entity_id': ui_id,
+                                'ui_id': ui_id,
+                                'create_stock_mov_adj': True
+                            })
+                else:
+                    stock_val = getattr(data, 'stocks', None)
+                    if stock_val is not None and float(stock_val) > 0:
+                        stock_update_payloads.append({
+                            'shop_id': data.shop_id,
+                            'product_id': product_id,
+                            'variant_id': None,
+                            'batch_infos': None,
+                            'serialno_infos': [],
+                            'stocks': float(stock_val),
+                            'storage_location': data.storage_location or None,
+                            'reorder_point': data.reorder_point or 5,
+                            'online_reorder_point': data.online_reorder_point or 0.0,
+                            'name': data.name,
+                            'gst': data.gst or "0%",
+                            'description': data.description,
+                            'buy_price': data.buy_price or 0.0,
+                            'sell_price': data.sell_price or 0.0,
+                            'online_sell_price': data.online_sell_price or 0.0,
+                            'type': 'INCREMENT',
+                            'entity_name': 'OPENING_STOCK',
+                            'entity_id': ui_id,
+                            'ui_id': ui_id,
+                            'create_stock_mov_adj': True
+                        })
+
+                if stock_update_payloads:
+                    try:
+                        update_payload = [UpdateAllProdInvSchema(**payload) for payload in stock_update_payloads]
+                        await self.update_all(data=update_payload, executing_user_id=executing_user_id)
+                    except Exception as e:
+                        ic(f"Error applying opening stock during product creation: {e}")
+
                 try:
                     prod_name = getattr(data, 'name', None) or "Product"
                     from messaging.main import RabbitMQMessagingConfig
@@ -250,9 +318,9 @@ class ProductInventoryService:
                             "service": "Inventory",
                             "action": "CREATED",
                             "entity_type": "PRODUCTS",
-                            "entity_id": str(product_id),
+                            "entity_id": str(ui_id),
                             "entity_name": str(prod_name),
-                            "description": f"Created Product {prod_name} ({product_id})",
+                            "description": f"Created Product {prod_name} ({ui_id})",
                             "changes": []
                         },
                         headers={}
@@ -476,6 +544,11 @@ class ProductInventoryService:
                     ))
 
             # Rest of the updates and syncing
+            if data.variant_types:
+                existing_cf = prod_get_res.get("custom_fields") if isinstance(prod_get_res, dict) and isinstance(prod_get_res.get("custom_fields"), dict) else {}
+                existing_cf["variant_types"] = [vt.model_dump() for vt in data.variant_types]
+                update_fields["custom_fields"] = existing_cf
+
             if update_fields:
                 product_toadd = UpdateProductDbSchema(
                     id=data.id,
@@ -547,6 +620,7 @@ class ProductInventoryService:
                             "after": str(new_val) if new_val is not None else "None"
                         })
 
+                effective_ui_id = prod_get_res.get("ui_id") or getattr(data, "ui_id", None) or str(data.id)
                 await rabbitmq_msg_obj.publish_event(
                     routing_key="activity_logs.routing.key",
                     exchange_name="activity_logs.exchange",
@@ -556,9 +630,9 @@ class ProductInventoryService:
                         "service": "Inventory",
                         "action": "UPDATED",
                         "entity_type": "PRODUCTS",
-                        "entity_id": str(data.id),
+                        "entity_id": str(effective_ui_id),
                         "entity_name": str(prod_name),
-                        "description": f"Updated Product {prod_name} ({data.id})",
+                        "description": f"Updated Product {prod_name} ({effective_ui_id})",
                         "changes": changes
                     },
                     headers={}
@@ -650,7 +724,7 @@ class ProductInventoryService:
         return res
     
 
-    async def delete(self,data:DeleteProdInvSchema):
+    async def delete(self,data:DeleteProdInvSchema, executing_user_id: Optional[str] = None):
         product_del_data=DeleteProductDbSchema(id=data.id,shop_id=data.shop_id)
         res=await ProductRepo(session=self.session).delete_product(data=product_del_data)
         ic(res)
@@ -1552,8 +1626,36 @@ class ProductInventoryService:
             )
 
             if create_stock_mov_adj:
-                # Build the flat list from all validated inventory items across all products
-                stock_mov_adj_data = [item for items_list in validated_data.values() for item in items_list]
+                # Build the flat list from all validated inventory items across all products with explicit stocks_before/after
+                stock_mov_adj_data = []
+                for items_list in validated_data.values():
+                    for item in items_list:
+                        item_copy = dict(item)
+                        # Derive exact stocks_before and stocks_after for stock movement logging
+                        p_id = item_copy.get("product_id")
+                        v_id = item_copy.get("variant_id")
+                        b_id = (item_copy.get("batch_infos") or {}).get("id") if isinstance(item_copy.get("batch_infos"), dict) else item_copy.get("batch_id")
+                        
+                        # Find matching stock entry from stock_toupdate / stock_toadd
+                        stk_qty = float(item_copy.get("stocks") or 0)
+                        u_type = item_copy.get("type", "INCREMENT")
+                        
+                        # For opening stock / initial allocation: stock_before=0, stock_after=stk_qty
+                        if item_copy.get("entity_name") == "OPENING_STOCK":
+                            item_copy["stocks_before"] = 0.0
+                            item_copy["stocks_after"] = stk_qty
+                        else:
+                            # Search in stock_toupdate for previous stock value
+                            prev_stock = 0.0
+                            for s_upd in stock_toupdate:
+                                if s_upd.product_id == p_id and s_upd.variant_id == v_id and s_upd.batch_id == b_id:
+                                    prev_stock = float(s_upd.physical_stocks or 0.0)
+                                    break
+                            item_copy["stocks_before"] = prev_stock
+                            item_copy["stocks_after"] = prev_stock + stk_qty if u_type == "INCREMENT" else max(0.0, prev_stock - stk_qty)
+                        
+                        stock_mov_adj_data.append(item_copy)
+
                 await emit_stock_mov_adj(session=self.session, data=stock_mov_adj_data)
 
 

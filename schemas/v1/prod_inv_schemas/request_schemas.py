@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Optional,List,Union
 from ..product_schemas.request_schemas import CreateProductBatchSchema,CreateProductSchema,CreateProductVariantSchema
 from ..inventory_schemas.request_schemas import CreateInventoryPricingSchema,CreateInventoryStockSchema,CreateInventoryStorageLocationSchema
-from ..product_schemas.custom_types import ProductBatchExpirationInfosType,ProductTypeInfosType
+from ..product_schemas.custom_types import ProductBatchExpirationInfosType,ProductTypeInfosType,VariantTypeDefinition
 from datetime import date
 
 class CreateProdInvVariantType(BaseModel):
@@ -16,6 +16,7 @@ class CreateProdInvVariantType(BaseModel):
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
     barcode: Optional[str] = None
+    stocks: Optional[float] = None
 
 class UpdateProdInvVariantType(BaseModel):
     id: Optional[str] = None
@@ -30,6 +31,7 @@ class UpdateProdInvVariantType(BaseModel):
     reorder_point: Optional[float] = None
     online_reorder_point: Optional[float] = None
     barcode: Optional[str] = None
+    stocks: Optional[float] = None
 
 
 class CreateProdInvBatchType(BaseModel):
@@ -50,6 +52,7 @@ class CreateProdInvSchema(BaseModel):
     barcode:Optional[str]=None
     type_infos:ProductTypeInfosType
     have_tracking:bool
+    variant_types: Optional[List[VariantTypeDefinition]] = None
     variant_infos:Optional[List[CreateProdInvVariantType]]=None
     storage_location:Optional[str]=None
     buy_price:Optional[float]=None
@@ -61,6 +64,7 @@ class CreateProdInvSchema(BaseModel):
     custom_fields:Optional[dict]={}
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
+    stocks: Optional[float] = None
 
 
 
@@ -74,6 +78,7 @@ class UpdateProdInvSchema(BaseModel):
     description: Optional[str] = None
     type_infos: Optional[ProductTypeInfosType] = None
     have_tracking: Optional[bool] = None
+    variant_types: Optional[List[VariantTypeDefinition]] = None
     variant_infos: Optional[List[UpdateProdInvVariantType]] = None
     storage_location: Optional[str] = None
     buy_price: Optional[float] = None

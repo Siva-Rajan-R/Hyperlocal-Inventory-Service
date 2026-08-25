@@ -227,8 +227,7 @@ class ProductRepo:
             )
             .where(
                 Products.id==data.id,
-                Products.shop_id==data.shop_id,
-                Products.is_active==False
+                Products.shop_id==data.shop_id
             )
             .returning(*self.product_cols)
         )
@@ -456,6 +455,17 @@ class ProductRepo:
                             "storage_location": stl.name,
                         }
 
+            # Resolve variant_types (e.g. [{"name": "Color", "values": ["red", "blue", "green"]}])
+            cf_dict = getattr(product, 'custom_fields', None) or getattr(product, 'additional_infos', None) or {}
+            variant_types = cf_dict.get("variant_types") if isinstance(cf_dict, dict) else None
+            if not variant_types:
+                extracted_values = [val.name for val in variant.values() if val and val.name]
+                if extracted_values:
+                    variant_types = [{
+                        "name": "Variant",
+                        "values": extracted_values
+                    }]
+            res_toadd["variant_types"] = variant_types or []
             res_toadd["variants"] = variant_infos
 
         # SITUATION B: Standard Product (No Variants)

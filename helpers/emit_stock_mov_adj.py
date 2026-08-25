@@ -18,8 +18,7 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
     Handles combinations of Variants, Batches, and Serial Numbers smoothly.
     """
     print("Inside emit stock mov adj")
-    # prod_repo_obj = ProductRepo(session=session)
-    prod_repo_obj = ProdInvReadDbRepo
+    prod_repo_obj = ProductRepo(session=session)
 
     validated_data: Dict[str, List[dict]] = {}
     product_ids = []
@@ -38,11 +37,8 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
             product_ids.append(product_id)
             
     # STEP-2: Fetch matching inventory profiles from Primary DB
-    # product_res = await prod_repo_obj.get_bulk_products_by_id(
-    #     data=GetBulkProductsById(shop_id=shop_id, id=product_ids)
-    # )
-    product_res = await prod_repo_obj.get_bulk_by_id(
-        data=GetBulkProductsById(shop_id=shop_id, id=product_ids)
+    product_res = await prod_repo_obj.get_bulk_products_by_id(
+        data=GetBulkProductsById(shop_id=shop_id, id=product_ids, include_serialno=True)
     )
     # ic(product_res)
     
@@ -129,16 +125,17 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
                     serialno_infos = prod_db.get('serialno_infos', []) if has_serialno else []
 
             # Safely get current physical stocks metrics
-            current_physical = float(stock_infos.get('physical_stocks', 0))
-
-            # stock_before = physical stock BEFORE this adjustment
-            # stock_after  = physical stock AFTER this adjustment
-            if update_type == "INCREMENT":
-                stock_before = current_physical - stocks_adjusted
-                stock_after = current_physical
+            if val.get('stocks_before') is not None and val.get('stocks_after') is not None:
+                stock_before = float(val['stocks_before'])
+                stock_after = float(val['stocks_after'])
             else:
-                stock_before = current_physical + stocks_adjusted
-                stock_after = current_physical
+                current_physical = float(stock_infos.get('physical_stocks', 0))
+                if update_type == "INCREMENT":
+                    stock_before = current_physical
+                    stock_after = current_physical + stocks_adjusted
+                else:
+                    stock_before = current_physical
+                    stock_after = max(0.0, current_physical - stocks_adjusted)
 
             raw_serials = val.get('serial_numbers') or val.get('serialno_infos') or []
             extracted_serials = []
@@ -154,10 +151,10 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
                 'product_id': product_id,
                 'name': product_name,
                 'ui_id': ui_id,
-                'category_id': category_id,
-                'category_name': category_name,
-                'unit_id': unit_id,
-                'unit_name': unit_name,
+                'category_id': category_id or "",
+                'category_name': category_name or "",
+                'unit_id': unit_id or "",
+                'unit_name': unit_name or "",
                 'variant_id': variant_id,
                 'variant_name': variant_name,
                 'batch_id': batch_infos.get('id') if batch_infos else batch_id,
@@ -186,19 +183,27 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
                 if entity_id_val and update_type_val and entity_name_val != "ADJUSTMENT":
                     break
 
-    desc_entity = entity_name_val.replace("_", " ").lower() if entity_name_val else "adjustment"
-        
-    if update_type_val == "INCREMENT":
-        action_text = "Stock increase"
-    elif update_type_val == "DECREMENT":
-        action_text = "Stock decrease"
+    if entity_name_val == "OPENING_STOCK":
+        action_text = "Opening stock"
+        desc_entity = "opening stock"
+        if entity_id_val:
+            desc_str = f"Opening stock initialized ({entity_id_val})"
+        else:
+            desc_str = "Opening stock initialized"
     else:
-        action_text = "Stock adjusted"
+        desc_entity = entity_name_val.replace("_", " ").lower() if entity_name_val else "adjustment"
+            
+        if update_type_val == "INCREMENT":
+            action_text = "Stock increase"
+        elif update_type_val == "DECREMENT":
+            action_text = "Stock decrease"
+        else:
+            action_text = "Stock adjusted"
 
-    if entity_id_val:
-        desc_str = f"{action_text} via {desc_entity} and its id {entity_id_val}"
-    else:
-        desc_str = f"{action_text} via {desc_entity}"
+        if entity_id_val:
+            desc_str = f"{action_text} via {desc_entity} ({entity_id_val})"
+        else:
+            desc_str = f"{action_text} via {desc_entity}"
 
     mov_type = entity_name_val
 

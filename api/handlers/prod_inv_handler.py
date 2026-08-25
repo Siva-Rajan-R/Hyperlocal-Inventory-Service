@@ -100,9 +100,24 @@ class HandleProdInvRequest:
         for item in data:
             if item.type_infos.has_variant and not item.variant_infos:
                 continue
+            
+            # Skip ANY product during bulk creation if stocks is missing or <= 0
+            if item.type_infos.has_variant and item.variant_infos:
+                has_valid_stock = any((getattr(v, 'stocks', None) is not None and float(v.stocks) > 0) for v in item.variant_infos)
+                if not has_valid_stock:
+                    ic(f"Skipping variant product '{item.name}' during bulk create because stock is 0.")
+                    continue
+            else:
+                stock_val = getattr(item, 'stocks', None)
+                if stock_val is None or float(stock_val) <= 0:
+                    ic(f"Skipping product '{item.name}' during bulk create because stock is 0.")
+                    continue
+
             fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=item.shop_id))
             valid_custom_fields = validate_and_filter_custom_fields(item.custom_fields, fields)
-            valid_items.append(CreateProdInvSchema(custom_fields=valid_custom_fields, **item.model_dump(exclude=['custom_fields'])))
+            item_data = item.model_dump()
+            item_data["custom_fields"] = valid_custom_fields
+            valid_items.append(CreateProdInvSchema(**item_data))
             
         res = await ProductInventoryService(session=self.session).create_bulk_prodinv_items(data=valid_items, executing_user_id=executing_user_id)
         if res:

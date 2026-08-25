@@ -1,51 +1,61 @@
-# import smtplib
-# from email.mime.multipart import MIMEMultipart
-# from email.mime.text import MIMEText
+import asyncio
+import time
+from playwright.async_api import async_playwright
 
-# def send_titan_email():
-#     # 1. Configure configuration and credentials
-#     smtp_server = "smtpout.secureserver.net"
-#     smtp_port = 465  # Use 465 for SSL, or 587 for TLS
-#     sender_email = "noreply@vexatech.in"
-#     sender_password = "Srini@2103"
-#     recipient_email = "vexatech.connect@gmail.com"
+URL = "https://www.lathamathavan.edu.in/"
 
-    
-#     # 2. Create the email message container
-#     msg = MIMEMultipart()
-#     msg['From'] = sender_email
-#     msg['To'] = recipient_email
-#     msg['Subject'] = "Automated Report from Python"
-    
-#     # 3. Define the email body (Supports Plain Text or HTML)
-#     body = """
-#     <html>
-#       <body>
-#         <h2>Hello!</h2>
-#         <p>This is an automated notification sent via <b>Titan Email</b> using Python.</p>
-#       </body>
-#     </html>
-#     """
-#     msg.attach(MIMEText(body, 'html'))
-    
-#     try:
-#         # 4. Connect to Titan's secure SMTP server
-#         print("Connecting to Titan SMTP server...")
-#         with smtplib.SMTP_SSL(smtp_server, smtp_port) as server:
-#             # Identify yourself to the server
-#             server.ehlo() 
-            
-#             # Log in to your Titan account
-#             server.login(sender_email, sender_password)
-#             print("Login successful!")
-            
-#             # Send the email
-#             server.sendmail(sender_email, recipient_email, msg.as_string())
-#             print(f"Email successfully sent to {recipient_email}!")
-            
-#     except Exception as e:
-#         print(f"An error occurred while sending email: {e}")
+BATCH_SIZE = 100000
 
-# # Run the function
-# if __name__ == "__main__":
-#     send_titan_email()
+
+async def main():
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+
+        context = await browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/151.0.0.0 Safari/537.36"
+            )
+        )
+
+        page = await context.new_page()
+
+        # Warm up / establish cookies if required
+        await page.goto("https://www.lathamathavan.edu.in/")
+
+        print(f"Sending {BATCH_SIZE} requests as one burst...")
+
+        start = time.perf_counter()
+
+        async def request(i):
+            try:
+                response = await page.request.get(URL)
+                return i, response.status
+            except Exception as e:
+                return i, str(e)
+
+        # Launch the entire batch together
+        results = await asyncio.gather(
+            *(request(i) for i in range(BATCH_SIZE))
+        )
+
+        elapsed = time.perf_counter() - start
+
+        counts = {}
+
+        for _, status in results:
+            counts[status] = counts.get(status, 0) + 1
+
+        print("\n========== RESULT ==========")
+        print(f"Requests : {BATCH_SIZE}")
+        print(f"Time     : {elapsed:.3f}s")
+        print(f"RPS      : {BATCH_SIZE / elapsed:.2f}")
+
+        for status, count in sorted(counts.items(), key=lambda x: str(x[0])):
+            print(f"{status}: {count}")
+
+        await browser.close()
+
+
+asyncio.run(main())

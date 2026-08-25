@@ -137,6 +137,36 @@ class MessagingQueueProductInvService:
             if not res:
                 return res
 
+            # Update is_active status on Products table based on new stock levels
+            shop_id = data[0].shop_id if data else None
+            product_ids = list(set([d.product_id for d in data if d.product_id]))
+            
+            if shop_id and product_ids:
+                from infras.primary_db.models.inventory_model import InventoryStocks
+                from infras.primary_db.models.product_model import Products
+                from sqlalchemy import select, func, update
+
+                for p_id in product_ids:
+                    stmt_sum = select(func.coalesce(func.sum(InventoryStocks.available_stocks), 0)).where(
+                        InventoryStocks.shop_id == shop_id,
+                        InventoryStocks.product_id == p_id
+                    )
+                    total_avail = (await session.execute(stmt_sum)).scalar() or 0
+                    is_active_val = total_avail > 0
+                    await session.execute(
+                        update(Products)
+                        .where(Products.id == p_id, Products.shop_id == shop_id)
+                        .values(is_active=is_active_val)
+                    )
+
+                await session.commit()
+
+                try:
+                    from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
+                    await ProdInvReadDbRepo.add_updatereaddb(shop_id=shop_id, product_ids=product_ids, session=session)
+                except Exception as sync_err:
+                    ic(f"Error syncing Read DB in update_bulk_stock: {sync_err}")
+
             return res
 
     # ---------------- REORDER POINT ---------------- #

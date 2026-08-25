@@ -11,3 +11,7 @@ class ProductTypeInfosType(BaseModel):
 class ProductBatchExpirationInfosType(BaseModel):
     manufacturing_date:date
     expiry_date:date
+
+class VariantTypeDefinition(BaseModel):
+    name: str
+    values: List[str]
