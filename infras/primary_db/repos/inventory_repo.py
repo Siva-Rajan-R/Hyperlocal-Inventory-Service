@@ -679,6 +679,7 @@ class InventoryRepo:
             shop_id=res.shop_id  
             res.status = "COMPLETED"
         
+        await self.session.flush()
         if product_ids and shop_id:
             readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
             ic(readdb_res)

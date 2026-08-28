@@ -461,8 +461,9 @@ class ProductRepo:
             if not variant_types:
                 extracted_values = [val.name for val in variant.values() if val and val.name]
                 if extracted_values:
+                    var_type_name = cf_dict.get("variant_type_name") or cf_dict.get("variant_name") or cf_dict.get("type_name") or "Option"
                     variant_types = [{
-                        "name": "Variant",
+                        "name": str(var_type_name),
                         "values": extracted_values
                     }]
             res_toadd["variant_types"] = variant_types or []
@@ -568,6 +569,7 @@ class ProductRepo:
                 }
             )
 
+        res_toadd["custom_fields"] = getattr(product, 'custom_fields', None) or getattr(product, 'additional_infos', None) or {}
         return res_toadd
 
     async def get_products(self, data: GetAllProductSchema):

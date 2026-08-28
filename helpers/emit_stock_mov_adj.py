@@ -36,7 +36,8 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
         if product_id not in product_ids:
             product_ids.append(product_id)
             
-    # STEP-2: Fetch matching inventory profiles from Primary DB
+    # STEP-2: Fetch matching inventory profiles from Primary DB (flush pending session state first)
+    await session.flush()
     product_res = await prod_repo_obj.get_bulk_products_by_id(
         data=GetBulkProductsById(shop_id=shop_id, id=product_ids, include_serialno=True)
     )
@@ -131,11 +132,11 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
             else:
                 current_physical = float(stock_infos.get('physical_stocks', 0))
                 if update_type == "INCREMENT":
-                    stock_before = current_physical
-                    stock_after = current_physical + stocks_adjusted
+                    stock_before = current_physical - stocks_adjusted
+                    stock_after = current_physical
                 else:
-                    stock_before = current_physical
-                    stock_after = max(0.0, current_physical - stocks_adjusted)
+                    stock_before = current_physical + stocks_adjusted
+                    stock_after = current_physical
 
             raw_serials = val.get('serial_numbers') or val.get('serialno_infos') or []
             extracted_serials = []

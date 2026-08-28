@@ -188,12 +188,17 @@ class ProdInvReadDbRepo:
                 # Fetch Custom Fields
                 from infras.primary_db.services.customfield_service import CustomFieldsService
                 cf_service = CustomFieldsService(session=session)
+                existing_cf = p_data.get("custom_fields") or {}
+                if not isinstance(existing_cf, dict):
+                    existing_cf = {}
                 try:
                     cf_values = await cf_service.get_values_by_product(product_id=prod_id, shop_id=shop_id)
-                    p_data["custom_fields"] = {v["field_name"]: v["value"] for v in cf_values} if cf_values else {}
+                    if cf_values:
+                        for v in cf_values:
+                            existing_cf[v["field_name"]] = v["value"]
                 except Exception as e:
                     ic(f"Error fetching custom fields for read db: {e}")
-                    p_data["custom_fields"] = {}
+                p_data["custom_fields"] = existing_cf
                 
                 # Prepare bulk operation
                 bulk_ops.append(

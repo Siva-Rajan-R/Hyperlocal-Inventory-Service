@@ -203,8 +203,9 @@ class ProductInventoryService:
             ui_id=f"{ui_id_res.get("prefix")}-{ui_id_res.get("current_number")}"
             ic(ui_id)
             cf_data = data.custom_fields or {}
-            if data.variant_types:
-                cf_data["variant_types"] = [vt.model_dump() for vt in data.variant_types]
+            v_types = data.variant_types or (cf_data.get("variant_types") if isinstance(cf_data, dict) else None)
+            if v_types:
+                cf_data["variant_types"] = [vt.model_dump() if hasattr(vt, 'model_dump') else vt for vt in v_types]
 
             product_toadd=CreateProductDbSchema(
                 id=product_id,
@@ -213,8 +214,8 @@ class ProductInventoryService:
                 sku=product_sku,
                 barcode=product_barcode,
                 brand=data.brand or None,
-                custom_fields=cf_data,
-                **data.model_dump(exclude=["stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields"])
+                additional_infos=cf_data,
+                **data.model_dump(exclude=["stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields","additional_infos"])
             )
 
             product_repo_obj=ProductRepo(session=self.session)
@@ -544,10 +545,16 @@ class ProductInventoryService:
                     ))
 
             # Rest of the updates and syncing
-            if data.variant_types:
-                existing_cf = prod_get_res.get("custom_fields") if isinstance(prod_get_res, dict) and isinstance(prod_get_res.get("custom_fields"), dict) else {}
-                existing_cf["variant_types"] = [vt.model_dump() for vt in data.variant_types]
-                update_fields["custom_fields"] = existing_cf
+            existing_cf = prod_get_res.get("custom_fields") if isinstance(prod_get_res, dict) and isinstance(prod_get_res.get("custom_fields"), dict) else {}
+            if data.custom_fields and isinstance(data.custom_fields, dict):
+                existing_cf.update(data.custom_fields)
+
+            v_types = data.variant_types or (data.custom_fields.get("variant_types") if isinstance(data.custom_fields, dict) else None)
+            if v_types:
+                existing_cf["variant_types"] = [vt.model_dump() if hasattr(vt, 'model_dump') else vt for vt in v_types]
+
+            if v_types or (data.custom_fields and isinstance(data.custom_fields, dict)):
+                update_fields["additional_infos"] = existing_cf
 
             if update_fields:
                 product_toadd = UpdateProductDbSchema(
@@ -1645,14 +1652,9 @@ class ProductInventoryService:
                             item_copy["stocks_before"] = 0.0
                             item_copy["stocks_after"] = stk_qty
                         else:
-                            # Search in stock_toupdate for previous stock value
-                            prev_stock = 0.0
-                            for s_upd in stock_toupdate:
-                                if s_upd.product_id == p_id and s_upd.variant_id == v_id and s_upd.batch_id == b_id:
-                                    prev_stock = float(s_upd.physical_stocks or 0.0)
-                                    break
-                            item_copy["stocks_before"] = prev_stock
-                            item_copy["stocks_after"] = prev_stock + stk_qty if u_type == "INCREMENT" else max(0.0, prev_stock - stk_qty)
+                            # Let emit_stock_mov_adj calculate exact stocks_before and stocks_after based on post-update physical stocks
+                            item_copy.pop("stocks_before", None)
+                            item_copy.pop("stocks_after", None)
                         
                         stock_mov_adj_data.append(item_copy)
 

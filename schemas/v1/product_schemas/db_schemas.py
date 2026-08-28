@@ -23,6 +23,7 @@ class CreateProductDbSchema(BaseModel):
     have_tracking:bool
     is_active:bool
     visible_online:bool = False
+    additional_infos:Optional[dict]=None
 
 
 class UpdateProductDbSchema(BaseModel):
@@ -38,6 +39,7 @@ class UpdateProductDbSchema(BaseModel):
     type_infos:Optional[ProductTypeInfosType]=None
     have_tracking:Optional[bool]=None
     is_active:Optional[bool]=None
+    additional_infos:Optional[dict]=None
     gst:Optional[str]=None
     visible_online:Optional[bool]=None
 
