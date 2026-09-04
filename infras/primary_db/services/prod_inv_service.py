@@ -1,3 +1,4 @@
+from core.utils.user_context import get_activity_log_user_info
 from models.repo_models.base_repo_model import BaseRepoModel
 import asyncio
 from models.service_models.base_service_model import BaseServiceModel
@@ -315,7 +316,7 @@ class ProductInventoryService:
                         exchange_name="activity_logs.exchange",
                         payload={
                             "shop_id": data.shop_id,
-                            "user_name": "Hyperlocal-User",
+                            **get_activity_log_user_info(),
                             "service": "Inventory",
                             "action": "CREATED",
                             "entity_type": "PRODUCTS",
@@ -633,7 +634,7 @@ class ProductInventoryService:
                     exchange_name="activity_logs.exchange",
                     payload={
                         "shop_id": data.shop_id,
-                        "user_name": "Hyperlocal-User",
+                        **get_activity_log_user_info(),
                         "service": "Inventory",
                         "action": "UPDATED",
                         "entity_type": "PRODUCTS",
@@ -773,7 +774,7 @@ class ProductInventoryService:
                 exchange_name="activity_logs.exchange",
                 payload={
                     "shop_id": data.shop_id,
-                    "user_name": "siva",
+                    **get_activity_log_user_info(),
                     "service": "Inventory",
                     "action": "DELETED",
                     "entity_type": "ProductInventory",
@@ -1029,7 +1030,7 @@ class ProductInventoryService:
                     exchange_name="activity_logs.exchange",
                     payload={
                         "shop_id": shop_id,
-                        "user_name": "siva",
+                        **get_activity_log_user_info(),
                         "service": "Inventory",
                         "action": "UPDATE",
                         "entity_type": "InventoryBulk",
