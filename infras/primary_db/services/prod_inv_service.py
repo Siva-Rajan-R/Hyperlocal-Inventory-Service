@@ -786,6 +786,33 @@ class ProductInventoryService:
         except Exception as e:
             ic(f"Failed to publish activity log: {e}")
 
+        # --- 4. Publish analytics delete event ---
+        try:
+            from messaging.main import RabbitMQMessagingConfig
+            rabbitmq_msg_obj = RabbitMQMessagingConfig()
+            analytics_payload = {
+                "shop_id": data.shop_id,
+                "entity_name": "PRODUCT",
+                "entity_id": str(data.id),
+                "action": "DELETE"
+            }
+            await rabbitmq_msg_obj.publish_event(
+                routing_key="analytics.service.routing.key",
+                exchange_name="analytics.service.exchange",
+                payload=analytics_payload,
+                headers={
+                    "entity_name": "prodinv_event",
+                    "service_name": "ANALYTICS",
+                    "saga_id": "none",
+                    "reply_key": "none",
+                    "reply_exchange": "none",
+                    "reply_entity_name": "none",
+                    "body": analytics_payload
+                }
+            )
+        except Exception as e:
+            ic(f"Failed to publish analytics delete event: {e}")
+
         return res
     
 

@@ -167,6 +167,33 @@ class MessagingQueueProductInvService:
                 except Exception as sync_err:
                     ic(f"Error syncing Read DB in update_bulk_stock: {sync_err}")
 
+                try:
+                    from messaging.main import RabbitMQMessagingConfig
+                    rabbitmq_msg_obj = RabbitMQMessagingConfig()
+                    for p_id in product_ids:
+                        analytics_payload = {
+                            "shop_id": shop_id,
+                            "entity_name": "PRODUCT",
+                            "entity_id": str(p_id),
+                            "action": "UPDATE"
+                        }
+                        await rabbitmq_msg_obj.publish_event(
+                            routing_key="analytics.service.routing.key",
+                            exchange_name="analytics.service.exchange",
+                            payload=analytics_payload,
+                            headers={
+                                "entity_name": "prodinv_event",
+                                "service_name": "ANALYTICS",
+                                "saga_id": "none",
+                                "reply_key": "none",
+                                "reply_exchange": "none",
+                                "reply_entity_name": "none",
+                                "body": analytics_payload
+                            }
+                        )
+                except Exception as analytics_err:
+                    ic(f"Error publishing analytics events in update_bulk_stock: {analytics_err}")
+
             return res
 
     # ---------------- REORDER POINT ---------------- #

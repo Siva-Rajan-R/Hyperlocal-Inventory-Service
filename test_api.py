@@ -4,7 +4,7 @@ import json
 import uuid
 
 # Configuration
-BASE_URL = "http://localhost:8004/inventories/inventories"
+BASE_URL = "http://localhost:8004/inventories"
 HEADERS = {
     "Content-Type": "application/json",
     "x-user-infos": json.dumps({"id": "test_user", "name": "Test User", "role": "ADMIN"})
