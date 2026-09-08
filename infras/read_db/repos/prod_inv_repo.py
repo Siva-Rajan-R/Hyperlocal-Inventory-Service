@@ -233,11 +233,17 @@ class ProdInvReadDbRepo:
 
         if data.active is not None:
             if data.active is True:
-                if "$and" not in query:
-                    query["$and"] = []
-                query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
+                if getattr(data, 'exclude_tracking', False) is True:
+                    query["is_active"] = True
+                    query["have_tracking"] = True
+                else:
+                    if "$and" not in query:
+                        query["$and"] = []
+                    query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
             else:
                 query["is_active"] = data.active
+        elif getattr(data, 'exclude_tracking', False) is True:
+            query["have_tracking"] = True
 
         if data.visible_online is not None:
             query["visible_online"] = data.visible_online
@@ -389,11 +395,17 @@ class ProdInvReadDbRepo:
 
             if data.active is not None:
                 if data.active is True:
-                    if "$and" not in query:
-                        query["$and"] = []
-                    query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
+                    if getattr(data, 'exclude_tracking', False) is True:
+                        query["is_active"] = True
+                        query["have_tracking"] = True
+                    else:
+                        if "$and" not in query:
+                            query["$and"] = []
+                        query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
                 else:
                     query["is_active"] = data.active
+            elif getattr(data, 'exclude_tracking', False) is True:
+                query["have_tracking"] = True
 
             if data.visible_online is not None:
                 query["visible_online"] = data.visible_online
@@ -423,11 +435,17 @@ class ProdInvReadDbRepo:
 
             if data.active is not None:
                 if data.active is True:
-                    if "$and" not in query:
-                        query["$and"] = []
-                    query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
+                    if getattr(data, 'exclude_tracking', False) is True:
+                        query["is_active"] = True
+                        query["have_tracking"] = True
+                    else:
+                        if "$and" not in query:
+                            query["$and"] = []
+                        query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
                 else:
                     query["is_active"] = data.active
+            elif getattr(data, 'exclude_tracking', False) is True:
+                query["have_tracking"] = True
 
             if data.visible_online is not None:
                 query["visible_online"] = data.visible_online

@@ -110,6 +110,7 @@ class GetAllProductSchema(BaseModel):
     to_date:Optional[str]=None
     stock_status:Optional[str]=None
     have_tracking:Optional[bool]=None
+    exclude_tracking:Optional[bool]=None
 
 class GetProductsByShopId(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -125,6 +126,7 @@ class GetProductsByShopId(BaseModel):
     to_date:Optional[str]=None
     stock_status:Optional[str]=None
     have_tracking:Optional[bool]=None
+    exclude_tracking:Optional[bool]=None
 
 class GetProductsById(BaseModel):
     shop_id:str
@@ -132,6 +134,7 @@ class GetProductsById(BaseModel):
     include_serialno:Optional[bool]=False
     active:Optional[bool]=None
     visible_online:Optional[bool]=None
+    exclude_tracking:Optional[bool]=None
 
 
 class GetBulkProductsById(BaseModel):
@@ -140,6 +143,7 @@ class GetBulkProductsById(BaseModel):
     active:Optional[bool]=None
     id:List[str]
     visible_online:Optional[bool]=None
+    exclude_tracking:Optional[bool]=None
 
 
 

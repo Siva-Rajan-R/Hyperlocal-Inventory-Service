@@ -580,14 +580,19 @@ class ProductRepo:
         
         if data.active is not None:
             if data.active is True:
-                stmt = stmt.where(
-                    or_(
-                        Products.is_active == True,
-                        Products.have_tracking == False
+                if getattr(data, 'exclude_tracking', False) is True:
+                    stmt = stmt.where(Products.is_active == True, Products.have_tracking == True)
+                else:
+                    stmt = stmt.where(
+                        or_(
+                            Products.is_active == True,
+                            Products.have_tracking == False
+                        )
                     )
-                )
             else:
                 stmt = stmt.where(Products.is_active == data.active)
+        elif getattr(data, 'exclude_tracking', False) is True:
+            stmt = stmt.where(Products.have_tracking == True)
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
         if getattr(data, 'have_tracking', None) is not None:
@@ -644,14 +649,19 @@ class ProductRepo:
 
         if data.active is not None:
             if data.active is True:
-                stmt = stmt.where(
-                    or_(
-                        Products.is_active == True,
-                        Products.have_tracking == False
+                if getattr(data, 'exclude_tracking', False) is True:
+                    stmt = stmt.where(Products.is_active == True, Products.have_tracking == True)
+                else:
+                    stmt = stmt.where(
+                        or_(
+                            Products.is_active == True,
+                            Products.have_tracking == False
+                        )
                     )
-                )
             else:
                 stmt = stmt.where(Products.is_active == data.active)
+        elif getattr(data, 'exclude_tracking', False) is True:
+            stmt = stmt.where(Products.have_tracking == True)
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
         if getattr(data, 'have_tracking', None) is not None:
@@ -705,14 +715,19 @@ class ProductRepo:
         
         if data.active is not None:
             if data.active is True:
-                stmt = stmt.where(
-                    or_(
-                        Products.is_active == True,
-                        Products.have_tracking == False
+                if getattr(data, 'exclude_tracking', False) is True:
+                    stmt = stmt.where(Products.is_active == True, Products.have_tracking == True)
+                else:
+                    stmt = stmt.where(
+                        or_(
+                            Products.is_active == True,
+                            Products.have_tracking == False
+                        )
                     )
-                )
             else:
                 stmt = stmt.where(Products.is_active == data.active)
+        elif getattr(data, 'exclude_tracking', False) is True:
+            stmt = stmt.where(Products.have_tracking == True)
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
 
@@ -752,14 +767,19 @@ class ProductRepo:
 
         if data.active is not None:
             if data.active is True:
-                stmt = stmt.where(
-                    or_(
-                        Products.is_active == True,
-                        Products.have_tracking == False
+                if getattr(data, 'exclude_tracking', False) is True:
+                    stmt = stmt.where(Products.is_active == True, Products.have_tracking == True)
+                else:
+                    stmt = stmt.where(
+                        or_(
+                            Products.is_active == True,
+                            Products.have_tracking == False
+                        )
                     )
-                )
             else:
                 stmt = stmt.where(Products.is_active == data.active)
+        elif getattr(data, 'exclude_tracking', False) is True:
+            stmt = stmt.where(Products.have_tracking == True)
 
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
