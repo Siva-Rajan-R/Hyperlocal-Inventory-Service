@@ -237,7 +237,7 @@ class ProductRepo:
         return res
     
 
-    @start_db_transaction
+    # @start_db_transaction
     async def delete_bulk_serialno(self, data: List[str]):
         if not data:
             return []
