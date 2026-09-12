@@ -597,6 +597,10 @@ class ProductRepo:
             stmt = stmt.where(Products.visible_online == data.visible_online)
         if getattr(data, 'have_tracking', None) is not None:
             stmt = stmt.where(Products.have_tracking == data.have_tracking)
+        if getattr(data, 'category_id', None):
+            stmt = stmt.where(Products.category_id == data.category_id)
+        if getattr(data, 'unit_id', None):
+            stmt = stmt.where(Products.unit_id == data.unit_id)
 
         search_q = getattr(data, 'query', None) or getattr(data, 'q', None)
         if search_q:
@@ -666,6 +670,10 @@ class ProductRepo:
             stmt = stmt.where(Products.visible_online == data.visible_online)
         if getattr(data, 'have_tracking', None) is not None:
             stmt = stmt.where(Products.have_tracking == data.have_tracking)
+        if getattr(data, 'category_id', None):
+            stmt = stmt.where(Products.category_id == data.category_id)
+        if getattr(data, 'unit_id', None):
+            stmt = stmt.where(Products.unit_id == data.unit_id)
 
         search_q = getattr(data, 'query', None) or getattr(data, 'q', None)
         if search_q:

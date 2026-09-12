@@ -767,16 +767,51 @@ class ProductInventoryService:
     
 
     async def delete(self,data:DeleteProdInvSchema, executing_user_id: Optional[str] = None):
+        # 1. Check if product exists
+        prod_get = await ProductRepo(session=self.session).get_products_by_id(GetProductsById(shop_id=data.shop_id, id=data.id))
+        if not prod_get:
+            ic("Product not found")
+            return False
+
+        # 2. Check stock: product can only be deleted if total stock is 0
+        stock_stmt = select(
+            func.coalesce(func.sum(InventoryStocks.physical_stocks), 0.0).label("total_physical"),
+            func.coalesce(func.sum(InventoryStocks.available_stocks), 0.0).label("total_available"),
+            func.coalesce(func.sum(InventoryStocks.reserved_stocks), 0.0).label("total_reserved")
+        ).where(
+            InventoryStocks.product_id == data.id,
+            InventoryStocks.shop_id == data.shop_id
+        )
+        stock_res = (await self.session.execute(stock_stmt)).one_or_none()
+        if stock_res:
+            total_physical = float(stock_res.total_physical or 0.0)
+            total_available = float(stock_res.total_available or 0.0)
+            total_reserved = float(stock_res.total_reserved or 0.0)
+            if total_physical > 0 or total_available > 0 or total_reserved > 0:
+                raise ValueError(f"Cannot delete product '{prod_get.get('name', data.id)}' because it has existing stock (Physical: {total_physical}, Available: {total_available}, Reserved: {total_reserved}). Stock must be 0 before deletion.")
+
+        # 3. Clean up associated inventory records
+        await self.session.execute(delete(InventoryStocks).where(InventoryStocks.product_id == data.id, InventoryStocks.shop_id == data.shop_id))
+        await self.session.execute(delete(InventoryPricings).where(InventoryPricings.product_id == data.id, InventoryPricings.shop_id == data.shop_id))
+        await self.session.execute(delete(InventoryStoragelocations).where(InventoryStoragelocations.product_id == data.id, InventoryStoragelocations.shop_id == data.shop_id))
+        await self.session.execute(delete(InventoryReorderPoint).where(InventoryReorderPoint.product_id == data.id, InventoryReorderPoint.shop_id == data.shop_id))
+        
+        try:
+            from ..models.customfield_model import ProductCustomFieldsValues
+            await self.session.execute(delete(ProductCustomFieldsValues).where(ProductCustomFieldsValues.product_id == data.id, ProductCustomFieldsValues.shop_id == data.shop_id))
+        except Exception as e:
+            ic(f"Error cleaning up custom fields values on product delete: {e}")
+
         product_del_data=DeleteProductDbSchema(id=data.id,shop_id=data.shop_id)
         res=await ProductRepo(session=self.session).delete_product(data=product_del_data)
         ic(res)
 
-        # repo returns None if product not found OR if is_active=False
+        # repo returns None if product not found
         if not res:
-            ic("Product not found or is_active=True — deletion skipped")
+            ic("Product deletion returned None")
             return False
 
-        # --- 1. Delete images from object storage via Utility Service ---
+        # --- 4. Delete images from object storage via Utility Service ---
         try:
             image_urls = res.image_url or []
             if image_urls:
@@ -789,7 +824,7 @@ class ProductInventoryService:
         except Exception as e:
             ic(f"Failed to delete product images: {e}")
 
-        # --- 2. Sync deletion to Read DB ---
+        # --- 5. Sync deletion to Read DB ---
         try:
             from infras.read_db.repos.inventory_repo import InventoryReadDbRepo
             from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
@@ -799,8 +834,10 @@ class ProductInventoryService:
         except Exception as e:
             ic(f"Error syncing to read DB on delete: {e}")
 
-        # --- 3. Publish activity log ---
+        # --- 6. Publish activity log ---
         try:
+            prod_name = prod_get.get("name") if isinstance(prod_get, dict) else getattr(res, "name", "Product")
+            effective_ui_id = prod_get.get("ui_id") if isinstance(prod_get, dict) else getattr(res, "ui_id", str(data.id))
             from messaging.main import RabbitMQMessagingConfig
             rabbitmq_msg_obj = RabbitMQMessagingConfig()
             await rabbitmq_msg_obj.publish_event(
@@ -812,8 +849,9 @@ class ProductInventoryService:
                     "service": "Inventory",
                     "action": "DELETED",
                     "entity_type": "ProductInventory",
-                    "entity_id": data.id,
-                    "description": f"Deleted product {data.id}",
+                    "entity_id": str(effective_ui_id),
+                    "entity_name": str(prod_name),
+                    "description": f"Deleted product {prod_name} ({effective_ui_id})",
                     "changes": [{"field": "id", "before": str(data.id), "after": "DELETED"}]
                 },
                 headers={}
@@ -821,7 +859,7 @@ class ProductInventoryService:
         except Exception as e:
             ic(f"Failed to publish activity log: {e}")
 
-        # --- 4. Publish analytics delete event ---
+        # --- 7. Publish analytics delete event ---
         try:
             from messaging.main import RabbitMQMessagingConfig
             rabbitmq_msg_obj = RabbitMQMessagingConfig()
@@ -847,6 +885,19 @@ class ProductInventoryService:
             )
         except Exception as e:
             ic(f"Failed to publish analytics delete event: {e}")
+
+        # --- 8. Emit notification ---
+        try:
+            from helpers.emit_notification import emit_notification
+            prod_name = prod_get.get("name") if isinstance(prod_get, dict) else getattr(res, "name", "Product")
+            asyncio.create_task(emit_notification(
+                title="Product Deleted",
+                message=f"Product '{prod_name}' has been successfully deleted.",
+                type="info",
+                user_id=executing_user_id or data.shop_id
+            ))
+        except Exception as notification_error:
+            ic(f"Notification error: {notification_error}")
 
         return res
     

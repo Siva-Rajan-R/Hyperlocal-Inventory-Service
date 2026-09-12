@@ -251,6 +251,12 @@ class ProdInvReadDbRepo:
         if getattr(data, 'have_tracking', None) is not None:
             query["have_tracking"] = data.have_tracking
 
+        if getattr(data, 'category_id', None):
+            query["category_id"] = data.category_id
+
+        if getattr(data, 'unit_id', None):
+            query["unit_id"] = data.unit_id
+
         search_q = getattr(data, 'query', None) or getattr(data, 'q', None)
         if search_q:
             q_str = str(search_q).strip()

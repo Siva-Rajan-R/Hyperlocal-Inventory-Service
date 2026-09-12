@@ -179,27 +179,39 @@ class HandleProdInvRequest:
          )
     
     async def delete(self,data:DeleteProdInvSchema, executing_user_id: Optional[str] = None):
-        res=await ProductInventoryService(session=self.session).delete(data=data, executing_user_id=executing_user_id)
-        ic(res)
-        if res:
-             return SuccessResponseTypDict(
-                  detail=BaseResponseTypDict(
-                       status_code=200,
-                       success=True,
-                       msg="Inventory Deleted Successfully"
-                  )
-             )
-        
-        return HTTPException(
-             status_code=400,
-             detail=ErrorResponseTypDict(
-                  msg="Error => Deleting Inventory",
-                  description="Invalid payload for deleting invetory product",
-                  success=False,
-                  status_code=400
-             ),
-             
-        )
+        try:
+            res=await ProductInventoryService(session=self.session).delete(data=data, executing_user_id=executing_user_id)
+            ic(res)
+            if res:
+                return SuccessResponseTypDict(
+                    detail=BaseResponseTypDict(
+                        status_code=200,
+                        success=True,
+                        msg="Inventory Deleted Successfully"
+                    )
+                )
+            
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponseTypDict(
+                    msg="Error => Deleting Inventory",
+                    description="Invalid payload for deleting inventory product or product not found",
+                    success=False,
+                    status_code=400
+                ),
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponseTypDict(
+                    msg="Error => Deleting Inventory",
+                    description=str(e),
+                    success=False,
+                    status_code=400
+                )
+            )
     
     async def get(self, data: GetAllProductSchema):
         try:

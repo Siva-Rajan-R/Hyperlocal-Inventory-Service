@@ -106,6 +106,8 @@ class GetAllProductSchema(BaseModel):
     active:Optional[bool]=None
     include_serialno:Optional[bool]=False
     visible_online:Optional[bool]=None
+    category_id:Optional[str]=None
+    unit_id:Optional[str]=None
     from_date:Optional[str]=None
     to_date:Optional[str]=None
     stock_status:Optional[str]=None
@@ -121,6 +123,8 @@ class GetProductsByShopId(BaseModel):
     include_serialno:Optional[bool]=False
     active:Optional[bool]=None
     shop_id:str
+    category_id:Optional[str]=None
+    unit_id:Optional[str]=None
     visible_online:Optional[bool]=None
     from_date:Optional[str]=None
     to_date:Optional[str]=None
