@@ -10,7 +10,13 @@ from integrations.utility_service import get_shop_category, get_shop_unit
 from infras.primary_db.repos.product_repo import ProductRepo
 from infras.primary_db.main import AsyncInventoryLocalSession
 
+from core.utils.product_stock_filter import compute_product_stock_and_rop, filter_product_item, has_stock_filter
+
 class ProdInvReadDbRepo:
+
+    compute_product_stock_and_rop = staticmethod(compute_product_stock_and_rop)
+    filter_product_item = staticmethod(filter_product_item)
+    _has_stock_filter = staticmethod(has_stock_filter)
 
     @classmethod
     async def add_updatereaddb(cls, shop_id: str, product_ids: List[str], session: AsyncSession):
@@ -231,31 +237,42 @@ class ProdInvReadDbRepo:
         from datetime import datetime
         query = dict(base_query) if base_query else {}
 
-        if data.active is not None:
-            if data.active is True:
-                if getattr(data, 'exclude_tracking', False) is True:
-                    query["is_active"] = True
-                    query["have_tracking"] = True
-                else:
-                    if "$and" not in query:
-                        query["$and"] = []
-                    query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
-            else:
-                query["is_active"] = data.active
-        elif getattr(data, 'exclude_tracking', False) is True:
+        if getattr(data, 'exclude_inactive', None) is True:
+            query["is_active"] = True
+        elif getattr(data, 'exclude_active', None) is True:
+            query["is_active"] = False
+        elif getattr(data, 'active', None) is not None:
+            query["is_active"] = data.active
+
+        if getattr(data, 'exclude_tracking', None) is True:
+            query["have_tracking"] = False
+        elif getattr(data, 'exclude_non_tracking', None) is True:
             query["have_tracking"] = True
-
-        if data.visible_online is not None:
-            query["visible_online"] = data.visible_online
-
-        if getattr(data, 'have_tracking', None) is not None:
+        elif getattr(data, 'have_tracking', None) is not None:
             query["have_tracking"] = data.have_tracking
 
+        if getattr(data, 'visible_online', None) is not None:
+            query["visible_online"] = data.visible_online
+
         if getattr(data, 'category_id', None):
-            query["category_id"] = data.category_id
+            if "$and" not in query:
+                query["$and"] = []
+            query["$and"].append({
+                "$or": [
+                    {"category_id": data.category_id},
+                    {"category_infos.id": data.category_id}
+                ]
+            })
 
         if getattr(data, 'unit_id', None):
-            query["unit_id"] = data.unit_id
+            if "$and" not in query:
+                query["$and"] = []
+            query["$and"].append({
+                "$or": [
+                    {"unit_id": data.unit_id},
+                    {"unit_infos.id": data.unit_id}
+                ]
+            })
 
         search_q = getattr(data, 'query', None) or getattr(data, 'q', None)
         if search_q:
@@ -289,21 +306,21 @@ class ProdInvReadDbRepo:
                                 "then": {
                                     "$gt": [
                                         {
-                                            "$size": {
-                                                "$filter": {
-                                                    "input": { "$objectToArray": "$variants" },
-                                                    "as": "v",
-                                                    "cond": {
-                                                        "$or": [
-                                                            { "$regexMatch": { "input": { "$ifNull": ["$$v.v.name", ""] }, "regex": escaped_q, "options": "i" } },
-                                                            { "$regexMatch": { "input": { "$ifNull": ["$$v.v.sku", ""] }, "regex": escaped_q, "options": "i" } },
-                                                            { "$regexMatch": { "input": { "$ifNull": ["$$v.v.barcode", ""] }, "regex": escaped_q, "options": "i" } },
-                                                            { "$regexMatch": { "input": { "$ifNull": ["$$v.v.ui_id", ""] }, "regex": escaped_q, "options": "i" } },
-                                                            { "$regexMatch": { "input": { "$ifNull": ["$$v.v.id", ""] }, "regex": escaped_q, "options": "i" } }
-                                                        ]
-                                                    }
-                                                }
-                                            }
+                                             "$size": {
+                                                 "$filter": {
+                                                     "input": { "$objectToArray": "$variants" },
+                                                     "as": "v",
+                                                     "cond": {
+                                                         "$or": [
+                                                             { "$regexMatch": { "input": { "$ifNull": ["$$v.v.name", ""] }, "regex": escaped_q, "options": "i" } },
+                                                             { "$regexMatch": { "input": { "$ifNull": ["$$v.v.sku", ""] }, "regex": escaped_q, "options": "i" } },
+                                                             { "$regexMatch": { "input": { "$ifNull": ["$$v.v.barcode", ""] }, "regex": escaped_q, "options": "i" } },
+                                                             { "$regexMatch": { "input": { "$ifNull": ["$$v.v.ui_id", ""] }, "regex": escaped_q, "options": "i" } },
+                                                             { "$regexMatch": { "input": { "$ifNull": ["$$v.v.id", ""] }, "regex": escaped_q, "options": "i" } }
+                                                         ]
+                                                     }
+                                                 }
+                                             }
                                         },
                                         0
                                     ]
@@ -335,14 +352,24 @@ class ProdInvReadDbRepo:
             except Exception:
                 pass
 
-        if getattr(data, 'stock_status', None):
-            status_val = data.stock_status.lower().strip()
-            if status_val in ["no", "no_stock", "out_of_stock"]:
-                query["stock_infos.available_stocks"] = {"$lte": 0}
-            elif status_val in ["low", "low_stock"]:
-                query["$expr"] = {"$lte": ["$stock_infos.available_stocks", "$reorder_point_infos.reorder_point"]}
-
         return query
+
+    @classmethod
+    def _has_stock_filter(cls, data) -> bool:
+        return any([
+            getattr(data, 'exclude_stocks', None) is not None,
+            getattr(data, 'exclude_in_stock', None) is not None,
+            getattr(data, 'exclude_stock', None) is not None,
+            getattr(data, 'exclude_outofstock', None) is not None,
+            getattr(data, 'exclude_out_of_stock', None) is not None,
+            getattr(data, 'exclude_outofstov', None) is not None,
+            getattr(data, 'exclude_no_stock', None) is not None,
+            getattr(data, 'exclude_low_stocks', None) is not None,
+            getattr(data, 'exclude_low_stock', None) is not None,
+            getattr(data, 'exclude_lowstocks', None) is not None,
+            getattr(data, 'exclude_lowstock', None) is not None,
+            getattr(data, 'stock_status', None) is not None,
+        ])
 
     @classmethod
     async def get_all(
@@ -351,16 +378,31 @@ class ProdInvReadDbRepo:
     ) -> List[dict]:
         try:
             query = cls._build_search_query(data)
-            cursor = PROD_INV_COLLECTION.find(query)
-            if getattr(data, 'limit', None):
-                offset = data.offset - 1 if (data.offset and data.offset > 0) else 0
-                cursor = cursor.sort("created_at", -1).skip(offset * data.limit).limit(data.limit)
+            has_stock_filter = cls._has_stock_filter(data)
+
+            cursor = PROD_INV_COLLECTION.find(query).sort("created_at", -1)
             
+            if not has_stock_filter and getattr(data, 'limit', None):
+                offset = data.offset - 1 if (data.offset and data.offset > 0) else 0
+                cursor = cursor.skip(offset * data.limit).limit(data.limit)
+                data_res = await cursor.to_list(length=None)
+                for d in data_res:
+                    d["_id"] = str(d["_id"])
+                return data_res
+
             data_res = await cursor.to_list(length=None)
+            filtered_res = []
             for d in data_res:
                 d["_id"] = str(d["_id"])
-            
-            return data_res
+                if cls.filter_product_item(d, data):
+                    filtered_res.append(d)
+
+            if getattr(data, 'limit', None):
+                offset = data.offset - 1 if (data.offset and data.offset > 0) else 0
+                start = offset * data.limit
+                return filtered_res[start:start + data.limit]
+
+            return filtered_res
 
         except Exception as e:
             ic(f"Error in get_all: {e}")
@@ -373,16 +415,31 @@ class ProdInvReadDbRepo:
     ) -> List[dict]:
         try:
             query = cls._build_search_query(data, base_query={"shop_id": data.shop_id})
-            cursor = PROD_INV_COLLECTION.find(query)
-            if getattr(data, 'limit', None):
+            has_stock_filter = cls._has_stock_filter(data)
+
+            cursor = PROD_INV_COLLECTION.find(query).sort("created_at", -1)
+            
+            if not has_stock_filter and getattr(data, 'limit', None):
                 offset = data.offset - 1 if (data.offset and data.offset > 0) else 0
-                cursor = cursor.sort("created_at", -1).skip(offset * data.limit).limit(data.limit)
+                cursor = cursor.skip(offset * data.limit).limit(data.limit)
+                data_res = await cursor.to_list(length=None)
+                for d in data_res:
+                    d["_id"] = str(d["_id"])
+                return data_res
 
             data_res = await cursor.to_list(length=None)
+            filtered_res = []
             for d in data_res:
                 d["_id"] = str(d["_id"])
-            
-            return data_res
+                if cls.filter_product_item(d, data):
+                    filtered_res.append(d)
+
+            if getattr(data, 'limit', None):
+                offset = data.offset - 1 if (data.offset and data.offset > 0) else 0
+                start = offset * data.limit
+                return filtered_res[start:start + data.limit]
+
+            return filtered_res
 
         except Exception as e:
             ic(f"Error in get_by_shop_id: {e}")
@@ -394,33 +451,14 @@ class ProdInvReadDbRepo:
         data:GetProductsById,
     ) -> Optional[dict]:
         try:
-            query = {
-                "shop_id": data.shop_id,
-                "id": data.id
-            }
+            query = cls._build_search_query(data, base_query={"shop_id": data.shop_id, "id": data.id})
+            doc = await PROD_INV_COLLECTION.find_one(query)
+            if doc:
+                doc["_id"] = str(doc["_id"])
+                if cls.filter_product_item(doc, data):
+                    return doc
 
-            if data.active is not None:
-                if data.active is True:
-                    if getattr(data, 'exclude_tracking', False) is True:
-                        query["is_active"] = True
-                        query["have_tracking"] = True
-                    else:
-                        if "$and" not in query:
-                            query["$and"] = []
-                        query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
-                else:
-                    query["is_active"] = data.active
-            elif getattr(data, 'exclude_tracking', False) is True:
-                query["have_tracking"] = True
-
-            if data.visible_online is not None:
-                query["visible_online"] = data.visible_online
-
-            data = await PROD_INV_COLLECTION.find_one(query)
-            if data:
-                data["_id"] = str(data["_id"])
-
-            return data
+            return None
 
         except Exception as e:
             ic(f"Error in get_by_id: {e}")
@@ -433,35 +471,23 @@ class ProdInvReadDbRepo:
         data:GetBulkProductsById,
     ) -> List[dict]:
         try:
-            query = {
-                "id": {"$in": data.id},
-            }
+            base_q = {"id": {"$in": data.id}}
             if data.shop_id:
-                query["shop_id"] = data.shop_id
+                base_q["shop_id"] = data.shop_id
 
-            if data.active is not None:
-                if data.active is True:
-                    if getattr(data, 'exclude_tracking', False) is True:
-                        query["is_active"] = True
-                        query["have_tracking"] = True
-                    else:
-                        if "$and" not in query:
-                            query["$and"] = []
-                        query["$and"].append({"$or": [{"is_active": True}, {"have_tracking": False}]})
-                else:
-                    query["is_active"] = data.active
-            elif getattr(data, 'exclude_tracking', False) is True:
-                query["have_tracking"] = True
-
-            if data.visible_online is not None:
-                query["visible_online"] = data.visible_online
+            query = cls._build_search_query(data, base_query=base_q)
 
             cursor = PROD_INV_COLLECTION.find(
                 query,
-                {"_id": 0},  # Exclude MongoDB ObjectId
+                {"_id": 0},
             )
 
-            return await cursor.to_list(length=len(data.id))
+            docs = await cursor.to_list(length=len(data.id))
+            return [d for d in docs if cls.filter_product_item(d, data)]
+
+        except Exception as e:
+            ic(f"Error in get_bulk_by_id: {e}")
+            return []
 
         except Exception as e:
             ic(f"Error in get_bulk_by_id: {e}")

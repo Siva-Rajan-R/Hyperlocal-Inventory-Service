@@ -14,6 +14,7 @@ from typing import Optional,List
 from icecream import ic
 from core.data_formats.enums.stock_adj_enums import StockAdjustmentTypesEnum
 from core.utils.prod_inv_unit_builder import build_inventory_units
+from core.utils.product_stock_filter import filter_product_item, has_stock_filter
 from ..models.inventory_model import InventoryPricings,InventoryStocks,InventoryStoragelocations,InventoryReorderPoint
 from collections import defaultdict
 
@@ -578,25 +579,22 @@ class ProductRepo:
 
         stmt = select(Products)
         
-        if data.active is not None:
-            if data.active is True:
-                if getattr(data, 'exclude_tracking', False) is True:
-                    stmt = stmt.where(Products.is_active == True, Products.have_tracking == True)
-                else:
-                    stmt = stmt.where(
-                        or_(
-                            Products.is_active == True,
-                            Products.have_tracking == False
-                        )
-                    )
-            else:
-                stmt = stmt.where(Products.is_active == data.active)
-        elif getattr(data, 'exclude_tracking', False) is True:
+        if getattr(data, 'exclude_inactive', None) is True:
+            stmt = stmt.where(Products.is_active == True)
+        elif getattr(data, 'exclude_active', None) is True:
+            stmt = stmt.where(Products.is_active == False)
+        elif data.active is not None:
+            stmt = stmt.where(Products.is_active == data.active)
+
+        if getattr(data, 'exclude_tracking', None) is True:
+            stmt = stmt.where(Products.have_tracking == False)
+        elif getattr(data, 'exclude_non_tracking', None) is True:
             stmt = stmt.where(Products.have_tracking == True)
+        elif getattr(data, 'have_tracking', None) is not None:
+            stmt = stmt.where(Products.have_tracking == data.have_tracking)
+
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
-        if getattr(data, 'have_tracking', None) is not None:
-            stmt = stmt.where(Products.have_tracking == data.have_tracking)
         if getattr(data, 'category_id', None):
             stmt = stmt.where(Products.category_id == data.category_id)
         if getattr(data, 'unit_id', None):
@@ -633,8 +631,6 @@ class ProductRepo:
                 selectinload(Products.reorder_points).load_only(*self.inventory_rop_cols),
             )
             .order_by(Products.created_at.desc())
-            .limit(data.limit)
-            .offset(cursor)
         )
 
         if data.include_serialno:
@@ -642,8 +638,17 @@ class ProductRepo:
                 selectinload(Products.serialnos).load_only(*self.serialno_cols)
             )
 
+        if not has_stock_filter(data):
+            stmt = stmt.limit(data.limit).offset(cursor)
+            res = (await self.session.execute(stmt)).scalars().all()
+            return [self._map_product(product, data.include_serialno) for product in res]
+
         res = (await self.session.execute(stmt)).scalars().all()
-        return [self._map_product(product, data.include_serialno) for product in res]
+        mapped = [self._map_product(product, data.include_serialno) for product in res]
+        filtered = [p for p in mapped if filter_product_item(p, data)]
+        if data.limit:
+            return filtered[cursor:cursor + data.limit]
+        return filtered
 
     async def get_products_by_shop_id(self, data: GetProductsByShopId):
         offset = data.offset if data.offset > 0 else 1
@@ -651,25 +656,22 @@ class ProductRepo:
 
         stmt = select(Products).where(Products.shop_id == data.shop_id)
 
-        if data.active is not None:
-            if data.active is True:
-                if getattr(data, 'exclude_tracking', False) is True:
-                    stmt = stmt.where(Products.is_active == True, Products.have_tracking == True)
-                else:
-                    stmt = stmt.where(
-                        or_(
-                            Products.is_active == True,
-                            Products.have_tracking == False
-                        )
-                    )
-            else:
-                stmt = stmt.where(Products.is_active == data.active)
-        elif getattr(data, 'exclude_tracking', False) is True:
+        if getattr(data, 'exclude_inactive', None) is True:
+            stmt = stmt.where(Products.is_active == True)
+        elif getattr(data, 'exclude_active', None) is True:
+            stmt = stmt.where(Products.is_active == False)
+        elif data.active is not None:
+            stmt = stmt.where(Products.is_active == data.active)
+
+        if getattr(data, 'exclude_tracking', None) is True:
+            stmt = stmt.where(Products.have_tracking == False)
+        elif getattr(data, 'exclude_non_tracking', None) is True:
             stmt = stmt.where(Products.have_tracking == True)
+        elif getattr(data, 'have_tracking', None) is not None:
+            stmt = stmt.where(Products.have_tracking == data.have_tracking)
+
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
-        if getattr(data, 'have_tracking', None) is not None:
-            stmt = stmt.where(Products.have_tracking == data.have_tracking)
         if getattr(data, 'category_id', None):
             stmt = stmt.where(Products.category_id == data.category_id)
         if getattr(data, 'unit_id', None):
@@ -706,8 +708,6 @@ class ProductRepo:
                 selectinload(Products.reorder_points).load_only(*self.inventory_rop_cols),
             )
             .order_by(Products.created_at.desc())
-            .limit(data.limit)
-            .offset(cursor)
         )
 
         if data.include_serialno:
@@ -715,27 +715,35 @@ class ProductRepo:
                 selectinload(Products.serialnos).load_only(*self.serialno_cols)
             )
 
+        if not has_stock_filter(data):
+            stmt = stmt.limit(data.limit).offset(cursor)
+            res = (await self.session.execute(stmt)).scalars().all()
+            return [self._map_product(product, data.include_serialno) for product in res]
+
         res = (await self.session.execute(stmt)).scalars().all()
-        return [self._map_product(product, data.include_serialno) for product in res]
+        mapped = [self._map_product(product, data.include_serialno) for product in res]
+        filtered = [p for p in mapped if filter_product_item(p, data)]
+        if data.limit:
+            return filtered[cursor:cursor + data.limit]
+        return filtered
 
     async def get_products_by_id(self, data: GetProductsById):
         stmt = select(Products).where(Products.shop_id == data.shop_id, Products.id == data.id)
         
-        if data.active is not None:
-            if data.active is True:
-                if getattr(data, 'exclude_tracking', False) is True:
-                    stmt = stmt.where(Products.is_active == True, Products.have_tracking == True)
-                else:
-                    stmt = stmt.where(
-                        or_(
-                            Products.is_active == True,
-                            Products.have_tracking == False
-                        )
-                    )
-            else:
-                stmt = stmt.where(Products.is_active == data.active)
-        elif getattr(data, 'exclude_tracking', False) is True:
+        if getattr(data, 'exclude_inactive', None) is True:
+            stmt = stmt.where(Products.is_active == True)
+        elif getattr(data, 'exclude_active', None) is True:
+            stmt = stmt.where(Products.is_active == False)
+        elif data.active is not None:
+            stmt = stmt.where(Products.is_active == data.active)
+
+        if getattr(data, 'exclude_tracking', None) is True:
+            stmt = stmt.where(Products.have_tracking == False)
+        elif getattr(data, 'exclude_non_tracking', None) is True:
             stmt = stmt.where(Products.have_tracking == True)
+        elif getattr(data, 'have_tracking', None) is not None:
+            stmt = stmt.where(Products.have_tracking == data.have_tracking)
+
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
 
@@ -757,7 +765,10 @@ class ProductRepo:
         res = (await self.session.execute(stmt)).scalars().one_or_none()
         if not res:
             return None
-        return self._map_product(res, data.include_serialno)
+        mapped = self._map_product(res, data.include_serialno)
+        if not filter_product_item(mapped, data):
+            return None
+        return mapped
 
     async def get_bulk_products_by_id(self, data: GetBulkProductsById):
         stmt = (
@@ -773,21 +784,19 @@ class ProductRepo:
             )
         )
 
-        if data.active is not None:
-            if data.active is True:
-                if getattr(data, 'exclude_tracking', False) is True:
-                    stmt = stmt.where(Products.is_active == True, Products.have_tracking == True)
-                else:
-                    stmt = stmt.where(
-                        or_(
-                            Products.is_active == True,
-                            Products.have_tracking == False
-                        )
-                    )
-            else:
-                stmt = stmt.where(Products.is_active == data.active)
-        elif getattr(data, 'exclude_tracking', False) is True:
+        if getattr(data, 'exclude_inactive', None) is True:
+            stmt = stmt.where(Products.is_active == True)
+        elif getattr(data, 'exclude_active', None) is True:
+            stmt = stmt.where(Products.is_active == False)
+        elif data.active is not None:
+            stmt = stmt.where(Products.is_active == data.active)
+
+        if getattr(data, 'exclude_tracking', None) is True:
+            stmt = stmt.where(Products.have_tracking == False)
+        elif getattr(data, 'exclude_non_tracking', None) is True:
             stmt = stmt.where(Products.have_tracking == True)
+        elif getattr(data, 'have_tracking', None) is not None:
+            stmt = stmt.where(Products.have_tracking == data.have_tracking)
 
         if data.visible_online is not None:
             stmt = stmt.where(Products.visible_online == data.visible_online)
@@ -797,7 +806,8 @@ class ProductRepo:
 
         stmt = stmt.execution_options(populate_existing=True)
         res = (await self.session.execute(stmt)).scalars().all()
-        return [self._map_product(product, data.include_serialno) for product in res]
+        mapped = [self._map_product(product, data.include_serialno) for product in res]
+        return [p for p in mapped if filter_product_item(p, data)]
 
     
 

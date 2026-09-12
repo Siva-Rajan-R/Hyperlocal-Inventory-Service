@@ -113,6 +113,20 @@ class GetAllProductSchema(BaseModel):
     stock_status:Optional[str]=None
     have_tracking:Optional[bool]=None
     exclude_tracking:Optional[bool]=None
+    exclude_non_tracking:Optional[bool]=None
+    exclude_inactive:Optional[bool]=None
+    exclude_active:Optional[bool]=None
+    exclude_stocks:Optional[bool]=None
+    exclude_in_stock:Optional[bool]=None
+    exclude_stock:Optional[bool]=None
+    exclude_outofstock:Optional[bool]=None
+    exclude_out_of_stock:Optional[bool]=None
+    exclude_outofstov:Optional[bool]=None
+    exclude_no_stock:Optional[bool]=None
+    exclude_low_stocks:Optional[bool]=None
+    exclude_low_stock:Optional[bool]=None
+    exclude_lowstocks:Optional[bool]=None
+    exclude_lowstock:Optional[bool]=None
 
 class GetProductsByShopId(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -131,23 +145,69 @@ class GetProductsByShopId(BaseModel):
     stock_status:Optional[str]=None
     have_tracking:Optional[bool]=None
     exclude_tracking:Optional[bool]=None
+    exclude_non_tracking:Optional[bool]=None
+    exclude_inactive:Optional[bool]=None
+    exclude_active:Optional[bool]=None
+    exclude_stocks:Optional[bool]=None
+    exclude_in_stock:Optional[bool]=None
+    exclude_stock:Optional[bool]=None
+    exclude_outofstock:Optional[bool]=None
+    exclude_out_of_stock:Optional[bool]=None
+    exclude_outofstov:Optional[bool]=None
+    exclude_no_stock:Optional[bool]=None
+    exclude_low_stocks:Optional[bool]=None
+    exclude_low_stock:Optional[bool]=None
+    exclude_lowstocks:Optional[bool]=None
+    exclude_lowstock:Optional[bool]=None
 
 class GetProductsById(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     shop_id:str
     id:str
     include_serialno:Optional[bool]=False
     active:Optional[bool]=None
     visible_online:Optional[bool]=None
+    have_tracking:Optional[bool]=None
     exclude_tracking:Optional[bool]=None
+    exclude_non_tracking:Optional[bool]=None
+    exclude_inactive:Optional[bool]=None
+    exclude_active:Optional[bool]=None
+    exclude_stocks:Optional[bool]=None
+    exclude_in_stock:Optional[bool]=None
+    exclude_stock:Optional[bool]=None
+    exclude_outofstock:Optional[bool]=None
+    exclude_out_of_stock:Optional[bool]=None
+    exclude_outofstov:Optional[bool]=None
+    exclude_no_stock:Optional[bool]=None
+    exclude_low_stocks:Optional[bool]=None
+    exclude_low_stock:Optional[bool]=None
+    exclude_lowstocks:Optional[bool]=None
+    exclude_lowstock:Optional[bool]=None
 
 
 class GetBulkProductsById(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
     shop_id:Optional[str]=None
     include_serialno:Optional[bool]=False
     active:Optional[bool]=None
     id:List[str]
     visible_online:Optional[bool]=None
+    have_tracking:Optional[bool]=None
     exclude_tracking:Optional[bool]=None
+    exclude_non_tracking:Optional[bool]=None
+    exclude_inactive:Optional[bool]=None
+    exclude_active:Optional[bool]=None
+    exclude_stocks:Optional[bool]=None
+    exclude_in_stock:Optional[bool]=None
+    exclude_stock:Optional[bool]=None
+    exclude_outofstock:Optional[bool]=None
+    exclude_out_of_stock:Optional[bool]=None
+    exclude_outofstov:Optional[bool]=None
+    exclude_no_stock:Optional[bool]=None
+    exclude_low_stocks:Optional[bool]=None
+    exclude_low_stock:Optional[bool]=None
+    exclude_lowstocks:Optional[bool]=None
+    exclude_lowstock:Optional[bool]=None
 
 
 
