@@ -10,7 +10,7 @@ from integrations.utility_service import get_shop_category, get_shop_unit
 from infras.primary_db.repos.product_repo import ProductRepo
 from infras.primary_db.main import AsyncInventoryLocalSession
 
-from core.utils.product_stock_filter import compute_product_stock_and_rop, filter_product_item, has_stock_filter
+from core.utils.product_stock_filter import compute_product_stock_and_rop, filter_product_item, has_stock_filter, is_truthy
 
 class ProdInvReadDbRepo:
 
@@ -237,22 +237,22 @@ class ProdInvReadDbRepo:
         from datetime import datetime
         query = dict(base_query) if base_query else {}
 
-        if getattr(data, 'exclude_inactive', None) is True:
+        if is_truthy(getattr(data, 'exclude_inactive', None)):
             query["is_active"] = True
-        elif getattr(data, 'exclude_active', None) is True:
+        elif is_truthy(getattr(data, 'exclude_active', None)):
             query["is_active"] = False
         elif getattr(data, 'active', None) is not None:
-            query["is_active"] = data.active
+            query["is_active"] = is_truthy(data.active)
 
-        if getattr(data, 'exclude_tracking', None) is True:
+        if is_truthy(getattr(data, 'exclude_tracking', None)):
             query["have_tracking"] = False
-        elif getattr(data, 'exclude_non_tracking', None) is True:
-            query["have_tracking"] = True
+        elif is_truthy(getattr(data, 'exclude_non_tracking', None)):
+            query["have_tracking"] = {"$ne": False}
         elif getattr(data, 'have_tracking', None) is not None:
-            query["have_tracking"] = data.have_tracking
+            query["have_tracking"] = is_truthy(data.have_tracking)
 
         if getattr(data, 'visible_online', None) is not None:
-            query["visible_online"] = data.visible_online
+            query["visible_online"] = is_truthy(data.visible_online)
 
         if getattr(data, 'category_id', None):
             if "$and" not in query:
