@@ -204,3 +204,10 @@ class UpdateAllProdInvSchema(BaseModel):
     purchase_id:Optional[str]=None
     order_id:Optional[str]=None
     create_stock_mov_adj:bool=False
+    added_by: Optional[str] = None
+    user_id: Optional[str] = None
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    user_role: Optional[str] = None
+    user_info: Optional[dict] = None
+    user_infos: Optional[dict] = None

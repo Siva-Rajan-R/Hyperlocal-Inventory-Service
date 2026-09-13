@@ -1,3 +1,4 @@
+from core.utils.user_context import current_user_ctx
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
@@ -208,13 +209,48 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
 
     mov_type = entity_name_val
 
-    # STEP-4: Package Transaction context for Saga Engine Orchestration
+        # STEP-4: Package Transaction context for Saga Engine Orchestration
+    user_info = {}
+    final_added_by = None
+    for d in (data or []):
+        if isinstance(d, dict):
+            u_info = d.get('user_infos') or d.get('user_info')
+            if u_info and isinstance(u_info, dict) and (u_info.get("email") or u_info.get("name") or u_info.get("user_name") or u_info.get("user_id")):
+                user_info = u_info
+            if d.get('added_by') and str(d.get('added_by')).strip() not in ("System", ""):
+                final_added_by = d.get('added_by')
+            if user_info and final_added_by:
+                break
+    if not user_info:
+        user_info = current_user_ctx.get() or {}
+
+    user_name = user_info.get("name") or user_info.get("user_name")
+    user_email = user_info.get("email", "")
+    user_role = user_info.get("role", "")
+    user_id = user_info.get("user_id") or user_info.get("id")
+
+    if not final_added_by:
+        if not user_name and user_email:
+            user_name = user_email.split("@")[0]
+        final_added_by = user_name or "System"
+        if user_email and final_added_by != user_email and f"- {user_email}" not in final_added_by:
+            final_added_by = f"{final_added_by} - {user_email}"
+        elif user_email and not user_name:
+            final_added_by = user_email
+
     stock_mov_adj_data = {
         'shop_id': shop_id,
         'type': mov_type,
         'date': adj_date.isoformat(),
         'description': desc_str,
-        'items': stock_mov_adj_items
+        'items': stock_mov_adj_items,
+        'added_by': final_added_by,
+        'user_id': user_id,
+        'user_name': user_name,
+        'user_email': user_email,
+        'user_role': user_role,
+        'user_info': user_info,
+        'user_infos': user_info
     }
 
     ic(stock_mov_adj_data)
@@ -225,7 +261,11 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
             id=saga_id,
             status=SagaStatusEnum.PENDING,
             type="STOCK_ADJUSTMENT",
-            data={'stock_mov_adj': stock_mov_adj_data},
+            data={
+                'stock_mov_adj': stock_mov_adj_data,
+                'user_infos': user_info,
+                'user_info': user_info
+            },
             steps={
                 'STOCK_ADJUSTMENT_CREATION': SagaStepsValueEnum.PENDING
             },
