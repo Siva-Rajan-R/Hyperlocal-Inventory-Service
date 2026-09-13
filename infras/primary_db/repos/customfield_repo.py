@@ -18,6 +18,7 @@ class CustomFieldsRepo:
     async def create_all_field(self, data: List[CreateCustomFieldDbSchema]) -> bool:
         field_toadd=[ProductCustomFields(**field.model_dump()) for field in data]
         self.session.add_all(field_toadd)
+        await self.session.commit()
         return True
     
 
@@ -30,15 +31,18 @@ class CustomFieldsRepo:
             .returning(ProductCustomFields.id)
         )
         res = (await self.session.execute(stmt)).scalar_one_or_none()
+        await self.session.commit()
         return res
 
     @start_db_transaction
-    async def delete_field(self,data:DeleteCustomFieldDbSchema) -> bool:
+    async def delete_field(self, data: DeleteCustomFieldDbSchema) -> bool:
+        target_id = data.id if hasattr(data, 'id') and data.id else getattr(data, 'field_id', None)
         stmt = delete(ProductCustomFields).where(
-            ProductCustomFields.id == data.id,
+            ProductCustomFields.id == target_id,
             ProductCustomFields.shop_id == data.shop_id
         )
         res = await self.session.execute(stmt)
+        await self.session.commit()
         return res.rowcount > 0
 
 
@@ -53,7 +57,7 @@ class CustomFieldsRepo:
         return None
     
 
-    async def get_bulk_fields(self,shop_id: str,ids: List[str]=[],names:List[str]=[]) -> Optional[dict]:
+    async def get_bulk_fields(self,shop_id: str,ids: List[str]=[],names:List[str]=[]) -> List[dict]:
         if not ids and not names:
             return []
         
@@ -61,7 +65,7 @@ class CustomFieldsRepo:
             or_(ProductCustomFields.id.in_(ids),ProductCustomFields.field_name.in_(names)), 
             ProductCustomFields.shop_id == shop_id
         )
-        res = (await self.session.execute(stmt)).mappings().all()
+        res = (await self.session.execute(stmt)).scalars().all()
         if res:
             return [{c.name: getattr(row, c.name) for c in row.__table__.columns} for row in res]
         return []
@@ -80,7 +84,25 @@ class CustomFieldsRepo:
     async def get_fields_by_shop_id(self, data:GetFieldByShopIdSchema) -> List[dict]:
         stmt = select(ProductCustomFields).where(ProductCustomFields.shop_id == data.shop_id)
         res = (await self.session.execute(stmt)).scalars().all()
-        return [{c.name: getattr(row, c.name) for c in row.__table__.columns} for row in res]
+        
+        field_ids = [row.id for row in res]
+        valued_field_ids = set()
+        if field_ids:
+            val_stmt = select(ProductCustomFieldsValues.field_id).where(
+                ProductCustomFieldsValues.field_id.in_(field_ids),
+                ProductCustomFieldsValues.shop_id == data.shop_id,
+                ProductCustomFieldsValues.value.isnot(None),
+                ProductCustomFieldsValues.value != ""
+            ).distinct()
+            val_res = (await self.session.execute(val_stmt)).scalars().all()
+            valued_field_ids = set(val_res)
+            
+        result = []
+        for row in res:
+            d = {c.name: getattr(row, c.name) for c in row.__table__.columns}
+            d["has_values"] = row.id in valued_field_ids
+            result.append(d)
+        return result
     
 
     async def get_fields(self) -> List[dict]:
@@ -113,6 +135,7 @@ class CustomFieldsRepo:
         # 4. Execute the batch operation efficiently in one database round-trip
         conn = await self.session.connection()
         res = await conn.execute(upsert_stmt, insert_mappings)
+        await self.session.commit()
         
         ic("Total rows handled (Inserted + Updated) => ", res.rowcount)
         return True
@@ -126,7 +149,11 @@ class CustomFieldsRepo:
                 ProductCustomFieldsValues.product_id,
                 ProductCustomFieldsValues.field_id,
                 ProductCustomFieldsValues.value,
-                ProductCustomFields.field_name
+                ProductCustomFields.field_name,
+                ProductCustomFields.label_name,
+                ProductCustomFields.type,
+                ProductCustomFields.required,
+                ProductCustomFields.visible_online,
             )
             .join(ProductCustomFields, ProductCustomFields.id == ProductCustomFieldsValues.field_id)
             .where(
@@ -150,3 +177,11 @@ class CustomFieldsRepo:
         res = (await self.session.execute(stmt)).mappings().all()
         return [{c.name: getattr(row, c.name) for c in row.__table__.columns} for row in res]
 
+
+    async def get_values_by_field_id(self, field_id: str, shop_id: str) -> List[dict]:
+        stmt = select(ProductCustomFieldsValues).where(
+            ProductCustomFieldsValues.field_id == field_id,
+            ProductCustomFieldsValues.shop_id == shop_id
+        )
+        res = (await self.session.execute(stmt)).scalars().all()
+        return [{c.name: getattr(row, c.name) for c in row.__table__.columns} for row in res]

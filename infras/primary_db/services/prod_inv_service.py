@@ -126,14 +126,11 @@ class ProductInventoryService:
                         )
                     )
 
-                    buy_price=None
-                    sell_price=None
-                    if not data.have_tracking:
-                        buy_price=variant.buy_price
-                        sell_price=variant.sell_price
+                    buy_price = variant.buy_price if variant.buy_price is not None else (data.buy_price or 0.0)
+                    sell_price = variant.sell_price if variant.sell_price is not None else (data.sell_price or 0.0)
 
-                    if buy_price and sell_price:
-                        inv_pricing_id=generate_uuid()
+                    if variant.buy_price is not None or variant.sell_price is not None or data.sell_price is not None or data.buy_price is not None:
+                        inv_pricing_id = generate_uuid()
                         pricing_toadd.append(
                             InventoryPricings(
                                 id=inv_pricing_id,
@@ -142,7 +139,7 @@ class ProductInventoryService:
                                 variant_id=variant_id,
                                 buy_price=buy_price,
                                 sell_price=sell_price,
-                                online_sell_price=variant.online_sell_price or 0.0
+                                online_sell_price=variant.online_sell_price if variant.online_sell_price is not None else (data.online_sell_price or 0.0)
                             )
                         )
 
@@ -186,15 +183,11 @@ class ProductInventoryService:
                 
             else:
                 
-                buy_price=None
-                sell_price=None
+                buy_price = data.buy_price or 0.0
+                sell_price = data.sell_price or 0.0
 
-                if not data.have_tracking:
-                    buy_price=data.buy_price
-                    sell_price=data.sell_price
-
-                if buy_price and sell_price:
-                    inv_pricing_id=generate_uuid()
+                if data.buy_price is not None or data.sell_price is not None:
+                    inv_pricing_id = generate_uuid()
                     pricing_toadd.append(
                         InventoryPricings(
                             id=inv_pricing_id,
@@ -481,27 +474,43 @@ class ProductInventoryService:
             has_variant = prod_get_res.get("type_infos", {}).get("has_variant")
             if has_variant and data.variant_infos:
                 from schemas.v1.product_schemas.db_schemas import UpdateProductVariantDbSchema
+                existing_variants = prod_get_res.get("variants") or {}
+                
                 for variant in data.variant_infos:
+                    existing_var_id = None
                     if variant.id:
+                        existing_var_id = variant.id
+                    elif isinstance(existing_variants, dict):
+                        for ev_id, ev_data in existing_variants.items():
+                            ev_name = ev_data.get("name") if isinstance(ev_data, dict) else getattr(ev_data, "name", None)
+                            ev_barcode = ev_data.get("barcode") if isinstance(ev_data, dict) else getattr(ev_data, "barcode", None)
+                            if ev_name and variant.name and ev_name.strip().lower() == variant.name.strip().lower():
+                                existing_var_id = ev_id
+                                break
+                            if ev_barcode and variant.barcode and ev_barcode == variant.barcode:
+                                existing_var_id = ev_id
+                                break
+
+                    if existing_var_id:
+                        var_id = existing_var_id
                         if variant.barcode:
-                            if not await validate_barcode_uniqueness(self.session, data.shop_id, variant.barcode, exclude_variant_id=variant.id):
+                            if not await validate_barcode_uniqueness(self.session, data.shop_id, variant.barcode, exclude_product_id=data.id, exclude_variant_id=var_id):
                                 raise ValueError(f"Product Barcode '{variant.barcode}' already exists.")
                         variants_toupdate.append(
                             UpdateProductVariantDbSchema(
-                                id=variant.id,
+                                id=var_id,
                                 name=variant.name,
                                 shop_id=data.shop_id,
                                 barcode=variant.barcode
                             )
                         )
-                        var_id = variant.id
                     else:
                         var_id = generate_uuid()
                         
                         # Variant SKU & Barcode Resolution for newly added variant
                         variant_sku = await generate_product_sku(self.session, data.shop_id, data.category_id or prod_get_res.get("category_id"), data.name or prod_get_res.get("name"), variant.name)
                         if variant.barcode:
-                            if not await validate_barcode_uniqueness(self.session, data.shop_id, variant.barcode):
+                            if not await validate_barcode_uniqueness(self.session, data.shop_id, variant.barcode, exclude_product_id=data.id):
                                 raise ValueError(f"Product Barcode '{variant.barcode}' already exists.")
                             variant_barcode = variant.barcode
                         else:
@@ -547,37 +556,37 @@ class ProductInventoryService:
                             name=variant.storage_location,
                             batch_id=None
                         ))
-                        
-            elif not has_variant:
-                if data.buy_price is not None or data.sell_price is not None or data.online_sell_price is not None:
-                    pricing_toupdate.append(UpdateInventoryPricingDbSchema(
-                        shop_id=data.shop_id,
-                        product_id=data.id,
-                        variant_id=None,
-                        batch_id=None,
-                        buy_price=data.buy_price,
-                        sell_price=data.sell_price,
-                        online_sell_price=data.online_sell_price
-                    ))
-                
-                if data.reorder_point is not None or data.online_reorder_point is not None:
-                    rop_toupdate.append(UpdateInventoryReorderPointDbSchema(
-                        shop_id=data.shop_id,
-                        product_id=data.id,
-                        variant_id=None,
-                        batch_id=None,
-                        reorder_point=data.reorder_point,
-                        online_reorder_point=data.online_reorder_point
-                    ))
-                
-                if data.storage_location is not None:
-                    stl_toupdate.append(UpdateInventoryStorageLocationDbSchema(
-                        shop_id=data.shop_id,
-                        product_id=data.id,
-                        variant_id=None,
-                        batch_id=None,
-                        name=data.storage_location
-                    ))
+
+            # Base product level pricing, ROP, and storage location (for non-variant products or base product fallback)
+            if data.buy_price is not None or data.sell_price is not None or data.online_sell_price is not None:
+                pricing_toupdate.append(UpdateInventoryPricingDbSchema(
+                    shop_id=data.shop_id,
+                    product_id=data.id,
+                    variant_id=None,
+                    batch_id=None,
+                    buy_price=data.buy_price,
+                    sell_price=data.sell_price,
+                    online_sell_price=data.online_sell_price
+                ))
+            
+            if data.reorder_point is not None or data.online_reorder_point is not None:
+                rop_toupdate.append(UpdateInventoryReorderPointDbSchema(
+                    shop_id=data.shop_id,
+                    product_id=data.id,
+                    variant_id=None,
+                    batch_id=None,
+                    reorder_point=data.reorder_point,
+                    online_reorder_point=data.online_reorder_point
+                ))
+            
+            if data.storage_location is not None:
+                stl_toupdate.append(UpdateInventoryStorageLocationDbSchema(
+                    shop_id=data.shop_id,
+                    product_id=data.id,
+                    variant_id=None,
+                    batch_id=None,
+                    name=data.storage_location
+                ))
 
             # Rest of the updates and syncing
             existing_cf = prod_get_res.get("custom_fields") if isinstance(prod_get_res, dict) and isinstance(prod_get_res.get("custom_fields"), dict) else {}
@@ -626,6 +635,8 @@ class ProductInventoryService:
                 )
 
             # Sync to Read DB Pipeline
+            await self.session.flush()
+            self.session.expire_all()
             try:
                 read_db_res = await ProdInvReadDbRepo.add_updatereaddb(
                     shop_id=data.shop_id,

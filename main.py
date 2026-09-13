@@ -71,6 +71,7 @@ app=FastAPI(
 # Routes to include
 app.include_router(prod_inv_routes.router)
 app.include_router(customfield_router.router)
+app.include_router(customfield_router.router, prefix="/inventories")
 
 
 

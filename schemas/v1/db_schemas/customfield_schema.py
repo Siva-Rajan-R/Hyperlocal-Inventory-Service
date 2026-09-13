@@ -23,8 +23,8 @@ class UpdateCustomFieldDbSchema(BaseModel):
     shop_id:str
     label_name: Optional[str]=None
     type: Optional[str]=None
-    required: Optional[bool] = False
-    visible_online: Optional[bool] = False
+    required: Optional[bool] = None
+    visible_online: Optional[bool] = None
 
 class DeleteCustomFieldDbSchema(BaseModel):
     id:str

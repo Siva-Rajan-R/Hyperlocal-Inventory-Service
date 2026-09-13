@@ -17,7 +17,8 @@ class CreateCustomFieldSchema(BaseModel):
     
 
 class UpdateCustomFieldSchema(BaseModel):
-    field_id:str
+    id: Optional[str] = None
+    field_id: Optional[str] = None
     shop_id: str
     label_name: Optional[str] = None
     type: Optional[str] = None
@@ -50,7 +51,8 @@ class CustomFieldValueInfos(BaseModel):
 class CreateCustomFieldValueSchema(BaseModel):
     shop_id: str
     product_id: str
-    value_infos:List[CustomFieldValueInfos]
+    value_infos: Optional[List[CustomFieldValueInfos]] = None
+    values: Optional[List[CustomFieldValueInfos]] = None
 
 class UpdateCustomFieldValueSchema(BaseModel):
     value: str

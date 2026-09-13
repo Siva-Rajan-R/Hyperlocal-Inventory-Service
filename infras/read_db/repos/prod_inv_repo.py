@@ -24,6 +24,9 @@ class ProdInvReadDbRepo:
             from sqlalchemy import select, text
             from infras.primary_db.models.product_model import ProductSerialNumbers
 
+            # Expire session cache to ensure fresh relationships (pricings, stocks, variants, etc.) are loaded from DB
+            session.expire_all()
+
             # Fetch products from Primary DB (without serialno to avoid ORM relationship cache)
             primary_repo = ProductRepo(session=session)
             request_data = GetBulkProductsById(

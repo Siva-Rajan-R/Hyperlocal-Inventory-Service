@@ -70,6 +70,9 @@ async def validate_sku_uniqueness(
     exclude_product_id: Optional[str] = None,
     exclude_variant_id: Optional[str] = None
 ) -> bool:
+    if not sku:
+        return True
+
     # Check Products table
     prod_query = select(Products.id).where(Products.shop_id == shop_id, Products.sku == sku)
     if exclude_product_id:
@@ -82,6 +85,8 @@ async def validate_sku_uniqueness(
     var_query = select(ProductVariants.id).where(ProductVariants.shop_id == shop_id, ProductVariants.sku == sku)
     if exclude_variant_id:
         var_query = var_query.where(ProductVariants.id != exclude_variant_id)
+    if exclude_product_id:
+        var_query = var_query.where(ProductVariants.product_id != exclude_product_id)
     var_exists = (await session.execute(var_query)).scalars().first()
     if var_exists:
         return False
@@ -127,6 +132,8 @@ async def validate_barcode_uniqueness(
     var_query = select(ProductVariants.id).where(ProductVariants.shop_id == shop_id, ProductVariants.barcode == barcode)
     if exclude_variant_id:
         var_query = var_query.where(ProductVariants.id != exclude_variant_id)
+    if exclude_product_id:
+        var_query = var_query.where(ProductVariants.product_id != exclude_product_id)
     var_exists = (await session.execute(var_query)).scalars().first()
     if var_exists:
         return False

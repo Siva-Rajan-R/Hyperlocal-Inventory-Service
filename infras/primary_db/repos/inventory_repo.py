@@ -177,126 +177,121 @@ class InventoryRepo:
         return sync_data
     
     @start_db_transaction
-    async def update_bulk_pricing(self,data:List[UpdateInventoryPricingDbSchema]):
+    async def update_bulk_pricing(self, data: List[UpdateInventoryPricingDbSchema]):
         if not data:
             return True
         
-        stmt = (
-            update(InventoryPricings)
-            .where(
-                InventoryPricings.shop_id == bindparam("b_shop_id"),
-                InventoryPricings.product_id == bindparam("b_product_id"),
-                InventoryPricings.variant_id.is_not_distinct_from(bindparam("b_variant_id")),
-                InventoryPricings.batch_id.is_not_distinct_from(bindparam("b_batch_id")),
-            )
-            .values(
-                buy_price=bindparam("buy_price"),
-                sell_price=bindparam("sell_price"),
-                online_sell_price=bindparam("online_sell_price")
-            )
-            .execution_options(synchronize_session=False)
-        )
-        conn = await self.session.connection()
-        res=(
-            await conn.execute(
-                stmt,
-                [
-                    {
-                        "b_shop_id":d.shop_id,
-                        "b_product_id":d.product_id,
-                        "b_variant_id":d.variant_id,
-                        "b_batch_id":d.batch_id,
-                        "buy_price":d.buy_price,
-                        "sell_price":d.sell_price,
-                        "online_sell_price":d.online_sell_price,
-                    }
-                    for d in data
-                ]
-            )
-        )
+        from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
 
-        ic(res)
+        to_insert = []
+        for d in data:
+            stmt = select(InventoryPricings).where(
+                InventoryPricings.shop_id == d.shop_id,
+                InventoryPricings.product_id == d.product_id,
+                InventoryPricings.variant_id.is_not_distinct_from(d.variant_id),
+                InventoryPricings.batch_id.is_not_distinct_from(d.batch_id),
+            )
+            res = await self.session.execute(stmt)
+            existing = res.scalars().first()
+            if existing:
+                if d.buy_price is not None:
+                    existing.buy_price = d.buy_price
+                if d.sell_price is not None:
+                    existing.sell_price = d.sell_price
+                if d.online_sell_price is not None:
+                    existing.online_sell_price = d.online_sell_price
+            else:
+                to_insert.append(
+                    InventoryPricings(
+                        id=generate_uuid(),
+                        shop_id=d.shop_id,
+                        product_id=d.product_id,
+                        variant_id=d.variant_id,
+                        batch_id=d.batch_id,
+                        buy_price=d.buy_price or 0.0,
+                        sell_price=d.sell_price or 0.0,
+                        online_sell_price=d.online_sell_price or 0.0
+                    )
+                )
+        if to_insert:
+            self.session.add_all(to_insert)
+        await self.session.flush()
         return True
 
-
     @start_db_transaction
-    async def update_bulk_storage_location(self,data:List[UpdateInventoryStorageLocationDbSchema]):
+    async def update_bulk_storage_location(self, data: List[UpdateInventoryStorageLocationDbSchema]):
         if not data:
             return True
         
-        stmt = (
-            update(InventoryStoragelocations)
-            .where(
-                InventoryStoragelocations.shop_id == bindparam("b_shop_id"),
-                InventoryStoragelocations.product_id == bindparam("b_product_id"),
-                InventoryStoragelocations.variant_id.is_not_distinct_from(bindparam("b_variant_id")),
-                InventoryStoragelocations.batch_id.is_not_distinct_from(bindparam("b_batch_id")),
-            )
-            .values(
-                name=bindparam("name"),
-                
-            )
-            .execution_options(synchronize_session=False)
-        )
-        conn = await self.session.connection()
-        res=(
-            await conn.execute(
-                stmt,
-                [
-                    {
-                        "b_shop_id":d.shop_id,
-                        "b_product_id":d.product_id,
-                        "b_variant_id":d.variant_id,
-                        "b_batch_id":d.batch_id,
-                        "name":d.name,
-                    }
-                    for d in data
-                ]
-            )
-        )
+        from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
 
-        ic(res)
+        to_insert = []
+        for d in data:
+            stmt = select(InventoryStoragelocations).where(
+                InventoryStoragelocations.shop_id == d.shop_id,
+                InventoryStoragelocations.product_id == d.product_id,
+                InventoryStoragelocations.variant_id.is_not_distinct_from(d.variant_id),
+                InventoryStoragelocations.batch_id.is_not_distinct_from(d.batch_id),
+            )
+            res = await self.session.execute(stmt)
+            existing = res.scalars().first()
+            if existing:
+                if d.name is not None:
+                    existing.name = d.name
+            else:
+                if d.name:
+                    to_insert.append(
+                        InventoryStoragelocations(
+                            id=generate_uuid(),
+                            shop_id=d.shop_id,
+                            product_id=d.product_id,
+                            variant_id=d.variant_id,
+                            batch_id=d.batch_id,
+                            name=d.name
+                        )
+                    )
+        if to_insert:
+            self.session.add_all(to_insert)
+        await self.session.flush()
         return True
-    
 
     @start_db_transaction
-    async def update_bulk_reorder_point(self,data:List[UpdateInventoryReorderPointDbSchema]):
+    async def update_bulk_reorder_point(self, data: List[UpdateInventoryReorderPointDbSchema]):
         if not data:
             return True
 
-        stmt = (
-            update(InventoryReorderPoint)
-            .where(
-                InventoryReorderPoint.shop_id == bindparam("b_shop_id"),
-                InventoryReorderPoint.product_id == bindparam("b_product_id"),
-                InventoryReorderPoint.variant_id.is_not_distinct_from(bindparam("b_variant_id")),
-                InventoryReorderPoint.batch_id.is_not_distinct_from(bindparam("b_batch_id")),
-            )
-            .values(
-                reorder_point=bindparam("reorder_point"),
-                online_reorder_point=bindparam("online_reorder_point"),
-            )
-            .execution_options(synchronize_session=False)
-        )
-        conn = await self.session.connection()
-        res=(
-            await conn.execute(
-                stmt,
-                [
-                    {
-                        "b_shop_id":d.shop_id,
-                        "b_product_id":d.product_id,
-                        "b_variant_id":d.variant_id,
-                        "b_batch_id":d.batch_id,
-                        "reorder_point":d.reorder_point,
-                        "online_reorder_point":d.online_reorder_point,
-                    }
-                    for d in data
-                ]
-            )
-        )
+        from hyperlocal_platform.core.utils.uuid_generator import generate_uuid
 
-        ic(res)
+        to_insert = []
+        for d in data:
+            stmt = select(InventoryReorderPoint).where(
+                InventoryReorderPoint.shop_id == d.shop_id,
+                InventoryReorderPoint.product_id == d.product_id,
+                InventoryReorderPoint.variant_id.is_not_distinct_from(d.variant_id),
+                InventoryReorderPoint.batch_id.is_not_distinct_from(d.batch_id),
+            )
+            res = await self.session.execute(stmt)
+            existing = res.scalars().first()
+            if existing:
+                if d.reorder_point is not None:
+                    existing.reorder_point = d.reorder_point
+                if d.online_reorder_point is not None:
+                    existing.online_reorder_point = d.online_reorder_point
+            else:
+                to_insert.append(
+                    InventoryReorderPoint(
+                        id=generate_uuid(),
+                        shop_id=d.shop_id,
+                        product_id=d.product_id,
+                        variant_id=d.variant_id,
+                        batch_id=d.batch_id,
+                        reorder_point=d.reorder_point or 1,
+                        online_reorder_point=d.online_reorder_point or 0.0
+                    )
+                )
+        if to_insert:
+            self.session.add_all(to_insert)
+        await self.session.flush()
         return True
     
 

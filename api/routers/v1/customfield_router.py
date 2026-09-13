@@ -25,16 +25,20 @@ async def get_field(field_id: str, shop_id: str, session:PG_ASYNC_SESSION):
     return await CustomFieldsHandler.get_field_by_id(data=GetFieldById(shop_id=shop_id,id=field_id), session=session)
 
 @router.put("")
-async def update_field(data: UpdateCustomFieldSchema, session:PG_ASYNC_SESSION):
+async def update_field(data: UpdateCustomFieldSchema, session: PG_ASYNC_SESSION):
     return await CustomFieldsHandler.update_field(data=data, session=session)
 
 @router.delete("/{shop_id}/{field_id}")
-async def delete_field(field_id: str, shop_id: str, session:PG_ASYNC_SESSION):
-    return await CustomFieldsHandler.delete_field(field_id=field_id, shop_id=shop_id, session=session)
+async def delete_field(field_id: str, shop_id: str, session: PG_ASYNC_SESSION):
+    return await CustomFieldsHandler.delete_field(data=DeleteCustomFieldSchema(id=field_id, shop_id=shop_id), session=session)
 
 
 @router.post("/values")
 async def upsert_value(data: CreateCustomFieldValueSchema, session:PG_ASYNC_SESSION):
+    return await CustomFieldsHandler.upsert_value(data=data, session=session)
+
+@router.post("/values/bulk")
+async def bulk_upsert_values(data: CreateCustomFieldValueSchema, session:PG_ASYNC_SESSION):
     return await CustomFieldsHandler.upsert_value(data=data, session=session)
 
 @router.get("/values/{shop_id}/{product_id}")
