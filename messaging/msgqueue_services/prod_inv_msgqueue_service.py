@@ -288,8 +288,23 @@ class MessagingQueueProductInvService:
             return res
         
 
-    async def update_bulk_prodinv(self,data:Union[List[UpdateAllProdInvSchema],dict]):
-        if data and isinstance(data[0], dict):
+    async def update_bulk_prodinv(self,data:Union[List[UpdateAllProdInvSchema],dict,str]):
+        if isinstance(data, str):
+            import json
+            try:
+                data = json.loads(data)
+            except Exception:
+                pass
+        if isinstance(data, dict) and "body" in data:
+            data = data["body"]
+            if isinstance(data, str):
+                import json
+                try:
+                    data = json.loads(data)
+                except Exception:
+                    pass
+
+        if data and isinstance(data, list) and isinstance(data[0], dict):
             data = [UpdateAllProdInvSchema(**d) for d in data]
 
         async with AsyncInventoryLocalSession() as session:
