@@ -192,14 +192,18 @@ class InventoryRepo:
                 InventoryPricings.batch_id.is_not_distinct_from(d.batch_id),
             )
             res = await self.session.execute(stmt)
-            existing = res.scalars().first()
-            if existing:
-                if d.buy_price is not None:
-                    existing.buy_price = d.buy_price
-                if d.sell_price is not None:
-                    existing.sell_price = d.sell_price
-                if d.online_sell_price is not None:
-                    existing.online_sell_price = d.online_sell_price
+            existing_list = res.scalars().all()
+            if existing_list:
+                for idx, existing in enumerate(existing_list):
+                    if idx == 0:
+                        if d.buy_price is not None:
+                            existing.buy_price = d.buy_price
+                        if d.sell_price is not None:
+                            existing.sell_price = d.sell_price
+                        if d.online_sell_price is not None:
+                            existing.online_sell_price = d.online_sell_price
+                    else:
+                        await self.session.delete(existing)
             else:
                 to_insert.append(
                     InventoryPricings(
@@ -234,10 +238,14 @@ class InventoryRepo:
                 InventoryStoragelocations.batch_id.is_not_distinct_from(d.batch_id),
             )
             res = await self.session.execute(stmt)
-            existing = res.scalars().first()
-            if existing:
-                if d.name is not None:
-                    existing.name = d.name
+            existing_list = res.scalars().all()
+            if existing_list:
+                for idx, existing in enumerate(existing_list):
+                    if idx == 0:
+                        if d.name is not None:
+                            existing.name = d.name
+                    else:
+                        await self.session.delete(existing)
             else:
                 if d.name:
                     to_insert.append(
@@ -271,12 +279,16 @@ class InventoryRepo:
                 InventoryReorderPoint.batch_id.is_not_distinct_from(d.batch_id),
             )
             res = await self.session.execute(stmt)
-            existing = res.scalars().first()
-            if existing:
-                if d.reorder_point is not None:
-                    existing.reorder_point = d.reorder_point
-                if d.online_reorder_point is not None:
-                    existing.online_reorder_point = d.online_reorder_point
+            existing_list = res.scalars().all()
+            if existing_list:
+                for idx, existing in enumerate(existing_list):
+                    if idx == 0:
+                        if d.reorder_point is not None:
+                            existing.reorder_point = d.reorder_point
+                        if d.online_reorder_point is not None:
+                            existing.online_reorder_point = d.online_reorder_point
+                    else:
+                        await self.session.delete(existing)
             else:
                 to_insert.append(
                     InventoryReorderPoint(

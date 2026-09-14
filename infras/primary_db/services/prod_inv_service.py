@@ -259,6 +259,7 @@ class ProductInventoryService:
                 await inv_repo_obj.create_bulk_pricing(data=pricing_toadd)
                 await inv_repo_obj.create_bulk_storage_location(data=storage_location_toadd)
                 await inv_repo_obj.create_bulk_reorder_point(data=rop_toadd)
+                await self.session.flush()
 
                 if data.custom_fields:
                     cust_obj=await CustomFieldsService(session=self.session).upsert_values(

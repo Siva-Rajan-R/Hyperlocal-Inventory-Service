@@ -384,9 +384,9 @@ class ProductRepo:
                         final_key = combined_id + batch.id
                         
                         stock = stocks.get(final_key)
-                        pricing = pricings.get(final_key)
-                        rop = rops.get(final_key)
-                        stl = stls.get(final_key)
+                        pricing = pricings.get(final_key) or pricings.get(combined_id + "")
+                        rop = rops.get(final_key) or rops.get(combined_id + "")
+                        stl = stls.get(final_key) or stls.get(combined_id + "")
                         sn_list = [
                             {"id": sn.id, "name": sn.name, "status": sn.status, "visible_online": sn.visible_online}
                             for sn in serialnos.get(final_key, [])
@@ -415,6 +415,17 @@ class ProductRepo:
                             "serialno_infos": sn_list
                         }
                         variant_infos[variant_id]["batch_infos"].append(b_info)
+                    
+                    base_pricing = pricings.get(combined_id + "")
+                    if base_pricing:
+                        variant_infos[variant_id]["pricing_infos"] = {
+                            "id": base_pricing.id,
+                            "sell_price": base_pricing.sell_price,
+                            "buy_price": base_pricing.buy_price,
+                            "online_sell_price": base_pricing.online_sell_price,
+                        }
+                    elif variant_infos[variant_id]["batch_infos"]:
+                        variant_infos[variant_id]["pricing_infos"] = variant_infos[variant_id]["batch_infos"][0].get("pricing_infos", {})
                 
                 # Resolve No-Batch Variant Metrics
                 else:
@@ -489,9 +500,9 @@ class ProductRepo:
                     final_key = combined_id + batch.id
                     
                     stock = stocks.get(final_key)
-                    pricing = pricings.get(final_key)
-                    rop = rops.get(final_key)
-                    stl = stls.get(final_key)
+                    pricing = pricings.get(final_key) or pricings.get(combined_id + "")
+                    rop = rops.get(final_key) or rops.get(combined_id + "")
+                    stl = stls.get(final_key) or stls.get(combined_id + "")
                     sn_list = [
                         {"id": sn.id, "name": sn.name, "status": sn.status, "visible_online": sn.visible_online}
                         for sn in serialnos.get(final_key, [])
@@ -520,6 +531,17 @@ class ProductRepo:
                         "serialno_infos": sn_list
                     }
                     batch_infos.append(b_info)
+                
+                base_pricing = pricings.get(combined_id + "")
+                if base_pricing:
+                    pricing_infos = {
+                        "id": base_pricing.id,
+                        "sell_price": base_pricing.sell_price,
+                        "buy_price": base_pricing.buy_price,
+                        "online_sell_price": base_pricing.online_sell_price,
+                    }
+                elif batch_infos:
+                    pricing_infos = batch_infos[0].get("pricing_infos", {})
             else:
                 final_key = combined_id + ""
                 stock = stocks.get(final_key)

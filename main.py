@@ -36,15 +36,17 @@ async def inventory_service_lifespan(app:FastAPI):
         ic(f"Error : Starting inventory service => {e}")
 
     finally:
-        app.state.worker_task.cancel()
-        app.state.cleanup_task.cancel()
+        tasks = []
+        if hasattr(app.state, "worker_task") and app.state.worker_task:
+            app.state.worker_task.cancel()
+            tasks.append(app.state.worker_task)
+        if hasattr(app.state, "cleanup_task") and app.state.cleanup_task:
+            app.state.cleanup_task.cancel()
+            tasks.append(app.state.cleanup_task)
 
-        await asyncio.gather(
-            app.state.worker_task,
-            app.state.cleanup_task,
-            return_exceptions=True,
-        )
-        ic("...Stoping inventory Servcie...")
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        ic("...Stopping inventory Service...")
 
 debug=False
 openapi_url=None
