@@ -219,6 +219,15 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
                 user_info = u_info
             if d.get('added_by') and str(d.get('added_by')).strip() not in ("System", ""):
                 final_added_by = d.get('added_by')
+            if not user_info and (d.get('user_name') or d.get('user_email') or d.get('user_id')):
+                user_info = {
+                    "name": d.get('user_name'),
+                    "user_name": d.get('user_name'),
+                    "email": d.get('user_email', ''),
+                    "role": d.get('user_role', ''),
+                    "user_id": d.get('user_id') or d.get('id'),
+                    "id": d.get('user_id') or d.get('id')
+                }
             if user_info and final_added_by:
                 break
     if not user_info:
@@ -229,7 +238,7 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
     user_role = user_info.get("role", "")
     user_id = user_info.get("user_id") or user_info.get("id")
 
-    if not final_added_by:
+    if not final_added_by or str(final_added_by).strip() in ("System", ""):
         if not user_name and user_email:
             user_name = user_email.split("@")[0]
         final_added_by = user_name or "System"

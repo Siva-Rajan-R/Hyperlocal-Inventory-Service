@@ -648,15 +648,22 @@ class InventoryRepo:
             # no InventoryStocks row. Use stocks=0 before/after for those.
             stock_adj_mov_data.append(
                 {
-                    "shop_id":res.shop_id,
-                    "product_id":res.product_id,
-                    "variant_id":res.variant_id,
-                    "batch_id":res.batch_id,
-                    "seriano_numbers":res.serialno_infos,
-                    "type":"DECREMENT",
-                    "stocks":res.qty,
-                    "entity_name":data.entity_name,
-                    "entity_id":getattr(data, "entity_id", None)
+                    "shop_id": res.shop_id,
+                    "product_id": res.product_id,
+                    "variant_id": res.variant_id,
+                    "batch_id": res.batch_id,
+                    "seriano_numbers": res.serialno_infos,
+                    "type": "DECREMENT",
+                    "stocks": res.qty,
+                    "entity_name": data.entity_name,
+                    "entity_id": getattr(data, "entity_id", None),
+                    "added_by": getattr(data, "added_by", None),
+                    "user_id": getattr(data, "user_id", None),
+                    "user_name": getattr(data, "user_name", None),
+                    "user_email": getattr(data, "user_email", None),
+                    "user_role": getattr(data, "user_role", None),
+                    "user_info": getattr(data, "user_info", None) or getattr(data, "user_infos", None),
+                    "user_infos": getattr(data, "user_infos", None) or getattr(data, "user_info", None)
                 }
             )
 

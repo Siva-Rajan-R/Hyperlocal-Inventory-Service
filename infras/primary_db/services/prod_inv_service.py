@@ -1673,7 +1673,14 @@ class ProductInventoryService:
                         'entity_id': inc_item.get('entity_id') if isinstance(inc_item, dict) else getattr(inc_item, 'entity_id', None),
                         'ui_id': inc_item.get('ui_id') if isinstance(inc_item, dict) else getattr(inc_item, 'ui_id', None),
                         'purchase_id': inc_item.get('purchase_id') if isinstance(inc_item, dict) else getattr(inc_item, 'purchase_id', None),
-                        'order_id': inc_item.get('order_id') if isinstance(inc_item, dict) else getattr(inc_item, 'order_id', None)
+                        'order_id': inc_item.get('order_id') if isinstance(inc_item, dict) else getattr(inc_item, 'order_id', None),
+                        'added_by': inc_item.get('added_by') if isinstance(inc_item, dict) else getattr(inc_item, 'added_by', None),
+                        'user_id': inc_item.get('user_id') if isinstance(inc_item, dict) else getattr(inc_item, 'user_id', None),
+                        'user_name': inc_item.get('user_name') if isinstance(inc_item, dict) else getattr(inc_item, 'user_name', None),
+                        'user_email': inc_item.get('user_email') if isinstance(inc_item, dict) else getattr(inc_item, 'user_email', None),
+                        'user_role': inc_item.get('user_role') if isinstance(inc_item, dict) else getattr(inc_item, 'user_role', None),
+                        'user_info': inc_item.get('user_info') if isinstance(inc_item, dict) else getattr(inc_item, 'user_info', None),
+                        'user_infos': inc_item.get('user_infos') if isinstance(inc_item, dict) else getattr(inc_item, 'user_infos', None),
                     })
 
                     product_toupdate.append(
