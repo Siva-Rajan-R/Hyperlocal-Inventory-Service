@@ -238,7 +238,7 @@ class ProductInventoryService:
             product_toadd=CreateProductDbSchema(
                 id=product_id,
                 ui_id=ui_id,
-                is_active=False,
+                is_active=True,
                 sku=product_sku,
                 barcode=product_barcode,
                 brand=data.brand or None,
