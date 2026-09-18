@@ -21,7 +21,7 @@ class CreateProductDbSchema(BaseModel):
     description:str
     type_infos:ProductTypeInfosType
     have_tracking:bool
-    is_active:bool
+    is_active:bool = False
     visible_online:bool = False
     additional_infos:Optional[dict]=None
 

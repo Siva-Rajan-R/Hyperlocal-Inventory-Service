@@ -65,6 +65,7 @@ class CreateProdInvSchema(BaseModel):
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
     stocks: Optional[float] = None
+    is_active: Optional[bool] = False
 
 
 

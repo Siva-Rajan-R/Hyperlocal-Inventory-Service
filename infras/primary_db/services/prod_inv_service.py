@@ -238,12 +238,12 @@ class ProductInventoryService:
             product_toadd=CreateProductDbSchema(
                 id=product_id,
                 ui_id=ui_id,
-                is_active=True,
+                is_active=data.is_active if getattr(data, 'is_active', None) is not None else False,
                 sku=product_sku,
                 barcode=product_barcode,
                 brand=data.brand or None,
                 additional_infos=cf_data,
-                **data.model_dump(exclude=["stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields","additional_infos"])
+                **data.model_dump(exclude=["stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields","additional_infos","is_active"])
             )
 
             product_repo_obj=ProductRepo(session=self.session)

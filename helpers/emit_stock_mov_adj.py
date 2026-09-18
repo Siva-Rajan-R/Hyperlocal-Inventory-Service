@@ -194,6 +194,7 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
             desc_str = "Opening stock initialized"
     else:
         desc_entity = entity_name_val.replace("_", " ").lower() if entity_name_val else "adjustment"
+        desc_entity = desc_entity.replace("offline ", "").strip()
             
         if update_type_val == "INCREMENT":
             action_text = "Stock increase"
