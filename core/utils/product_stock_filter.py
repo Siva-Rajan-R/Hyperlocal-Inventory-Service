@@ -177,25 +177,29 @@ def filter_product_item(d: dict, data: Any) -> bool:
         is_out_of_stock = (total_stock <= 0)
         is_low_stock = (total_stock > 0 and total_stock <= total_rop)
         is_in_stock = (total_stock > total_rop and total_stock > 0)
+    else:
+        is_out_of_stock = False
+        is_low_stock = False
+        is_in_stock = True
 
-        if exclude_stocks and is_in_stock:
-            return False
-        if exclude_outofstock and is_out_of_stock:
-            return False
-        if exclude_low_stocks and is_low_stock:
-            return False
+    if exclude_stocks and is_in_stock:
+        return False
+    if exclude_outofstock and is_out_of_stock:
+        return False
+    if exclude_low_stocks and is_low_stock:
+        return False
 
-        if stock_status:
-            status_val = str(stock_status).lower().strip()
-            if status_val in ["no", "no_stock", "out_of_stock", "outofstock"]:
-                if not is_out_of_stock:
-                    return False
-            elif status_val in ["low", "low_stock", "lowstock", "low_stocks"]:
-                if not is_low_stock:
-                    return False
-            elif status_val in ["in_stock", "instock", "stock", "stocks"]:
-                if not is_in_stock:
-                    return False
+    if stock_status:
+        status_val = str(stock_status).lower().strip()
+        if status_val in ["no", "no_stock", "out_of_stock", "outofstock"]:
+            if not is_out_of_stock:
+                return False
+        elif status_val in ["low", "low_stock", "lowstock", "low_stocks"]:
+            if not is_low_stock:
+                return False
+        elif status_val in ["in_stock", "instock", "stock", "stocks"]:
+            if not is_in_stock:
+                return False
 
     return True
 

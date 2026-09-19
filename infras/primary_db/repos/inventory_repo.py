@@ -669,6 +669,8 @@ class InventoryRepo:
                     "stocks": res.qty,
                     "entity_name": data.entity_name,
                     "entity_id": getattr(data, "entity_id", None),
+                    "order_ui_id": getattr(data, "entity_id", None),
+                    "sale_ui_id": getattr(data, "entity_id", None),
                     "added_by": getattr(data, "added_by", None),
                     "user_id": getattr(data, "user_id", None),
                     "user_name": getattr(data, "user_name", None),

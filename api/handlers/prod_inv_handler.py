@@ -64,6 +64,26 @@ class HandleProdInvRequest:
             )
 
         
+        # Check if opening stock is provided and if initial stock import is already completed
+        has_stock = False
+        if data.type_infos and data.type_infos.has_variant and data.variant_infos:
+            has_stock = any(v.stocks is not None and float(v.stocks) > 0 for v in data.variant_infos)
+        elif data.stocks is not None and float(data.stocks) > 0:
+            has_stock = True
+
+        if has_stock:
+            from integrations.shop_service import is_initial_stock_imported
+            if await is_initial_stock_imported(data.shop_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail=ErrorResponseTypDict(
+                        msg="Initial Stock Import Completed",
+                        description="Initial stock import has already been completed for this shop. Products cannot be created with opening stock. Please add stock via Purchases or Stock Adjustments.",
+                        success=False,
+                        status_code=400
+                    )
+                )
+        
         cust_field_obj=CustomFieldsService(session=self.session)
         fields=await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
         
@@ -95,23 +115,37 @@ class HandleProdInvRequest:
         )
 
     async def create_bulk(self, data: List[CreateProdInvSchema], executing_user_id: Optional[str] = None):
+        # Check if any item has opening stocks and shop has completed initial stock import
+        shops_to_check = set(item.shop_id for item in data)
+        from integrations.shop_service import is_initial_stock_imported
+        for shop_id in shops_to_check:
+            shop_items = [item for item in data if item.shop_id == shop_id]
+            has_opening_stock = False
+            for item in shop_items:
+                if item.type_infos and item.type_infos.has_variant and item.variant_infos:
+                    if any(v.stocks is not None and float(v.stocks) > 0 for v in item.variant_infos):
+                        has_opening_stock = True
+                        break
+                elif item.stocks is not None and float(item.stocks) > 0:
+                    has_opening_stock = True
+                    break
+
+            if has_opening_stock and await is_initial_stock_imported(shop_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail=ErrorResponseTypDict(
+                        msg="Initial Stock Import Completed",
+                        description="Initial stock import has already been completed for this shop. Products cannot be imported or created with opening stock directly. Please add stock via Purchases or Stock Adjustments.",
+                        success=False,
+                        status_code=400
+                    )
+                )
+
         valid_items = []
         cust_field_obj = CustomFieldsService(session=self.session)
         for item in data:
             if item.type_infos.has_variant and not item.variant_infos:
                 continue
-            
-            # Skip ANY product during bulk creation if stocks is missing or <= 0
-            if item.type_infos.has_variant and item.variant_infos:
-                has_valid_stock = any((getattr(v, 'stocks', None) is not None and float(v.stocks) > 0) for v in item.variant_infos)
-                if not has_valid_stock:
-                    ic(f"Skipping variant product '{item.name}' during bulk create because stock is 0.")
-                    continue
-            else:
-                stock_val = getattr(item, 'stocks', None)
-                if stock_val is None or float(stock_val) <= 0:
-                    ic(f"Skipping product '{item.name}' during bulk create because stock is 0.")
-                    continue
 
             fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=item.shop_id))
             valid_custom_fields = validate_and_filter_custom_fields(item.custom_fields, fields)
