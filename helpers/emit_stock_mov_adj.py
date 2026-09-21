@@ -178,18 +178,20 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
                         if item_entity_id:
                             break
 
-            if item_entity_name == "OPENING_STOCK":
-                item_desc = f"Opening stock initialized ({item_entity_id})" if item_entity_id else "Opening stock initialized"
-            else:
-                desc_entity = item_entity_name.replace("_", " ").lower() if item_entity_name else "adjustment"
-                desc_entity = desc_entity.replace("offline ", "").replace("online ", "").strip()
-                if update_type == "INCREMENT":
-                    action_text = "Stock increase"
-                elif update_type == "DECREMENT":
-                    action_text = "Stock decrease"
+            item_desc = val.get('description')
+            if not item_desc:
+                if item_entity_name == "OPENING_STOCK":
+                    item_desc = f"Opening stock initialized ({item_entity_id})" if item_entity_id else "Opening stock initialized"
                 else:
-                    action_text = "Stock adjusted"
-                item_desc = f"{action_text} via {desc_entity} ({item_entity_id})" if item_entity_id else f"{action_text} via {desc_entity}"
+                    desc_entity = item_entity_name.replace("_", " ").lower() if item_entity_name else "adjustment"
+                    desc_entity = desc_entity.replace("offline ", "").replace("online ", "").strip()
+                    if update_type == "INCREMENT":
+                        action_text = "Stock increase"
+                    elif update_type == "DECREMENT":
+                        action_text = "Stock decrease"
+                    else:
+                        action_text = "Stock adjusted"
+                    item_desc = f"{action_text} via {desc_entity} ({item_entity_id})" if item_entity_id else f"{action_text} via {desc_entity}"
 
             stock_mov_adj_items.append({
                 'product_id': product_id,

@@ -1682,6 +1682,7 @@ class ProductInventoryService:
                         'user_role': inc_item.get('user_role') if isinstance(inc_item, dict) else getattr(inc_item, 'user_role', None),
                         'user_info': inc_item.get('user_info') if isinstance(inc_item, dict) else getattr(inc_item, 'user_info', None),
                         'user_infos': inc_item.get('user_infos') if isinstance(inc_item, dict) else getattr(inc_item, 'user_infos', None),
+                        'description': inc_item.get('description') if isinstance(inc_item, dict) else getattr(inc_item, 'description', None),
                     })
 
                     product_toupdate.append(
