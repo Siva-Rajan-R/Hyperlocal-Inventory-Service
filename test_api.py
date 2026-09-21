@@ -57,7 +57,7 @@ def test():
         return
     p1_data = p1_res.get("data", {})
     p1_id = p1_data.get("id")
-    print(f"✅ Product 1 Created with ID: {p1_id} and Barcode: BARCODE-P1")
+    print(f"[OK] Product 1 Created with ID: {p1_id} and Barcode: BARCODE-P1")
 
     # 2. Create Product 2
     p2_payload = {
@@ -84,7 +84,7 @@ def test():
         return
     p2_data = p2_res.get("data", {})
     p2_id = p2_data.get("id")
-    print(f"✅ Product 2 Created with ID: {p2_id} and Barcode: BARCODE-P2")
+    print(f"[OK] Product 2 Created with ID: {p2_id} and Barcode: BARCODE-P2")
 
     # 3. Update Product 1 barcode to BARCODE-P2 (should fail)
     upd1_payload = {
@@ -96,7 +96,7 @@ def test():
     print(f"\nUpdate Product 1 (Duplicate Barcode) Response: {status}")
     if status == 400:
         detail = upd1_res.get("detail") if isinstance(upd1_res, dict) else upd1_res
-        print(f"✅ PASSED: Successfully caught duplicate barcode validation error: {detail}")
+        print(f"[OK] PASSED: Successfully caught duplicate barcode validation error: {detail}")
     else:
         print(f"❌ FAILED: Expected 400 error but got {status}. Response: {upd1_res}")
 
@@ -109,7 +109,7 @@ def test():
     status, upd2_res = make_request("PUT", BASE_URL, upd2_payload)
     print(f"\nUpdate Product 1 (Valid Barcode) Response: {status}")
     if status == 200:
-        print(f"✅ PASSED: Successfully updated Product 1 to a new valid barcode!")
+        print(f"[OK] PASSED: Successfully updated Product 1 to a new valid barcode!")
     else:
         print(f"❌ FAILED: Expected 200 success but got {status}. Response: {upd2_res}")
 

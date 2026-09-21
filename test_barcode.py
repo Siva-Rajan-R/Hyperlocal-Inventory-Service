@@ -62,7 +62,7 @@ async def test_barcode_update():
             await service.update(data=upd1_data, executing_user_id="test_user")
             print("❌ Test 3 FAILED: Expected ValueError for duplicate barcode but got success.")
         except ValueError as e:
-            print(f"✅ Test 3 PASSED: Caught expected ValueError: {e}")
+            print(f"[OK] Test 3 PASSED: Caught expected ValueError: {e}")
 
         print("\n--- Test 4: Attempt to update Product 1 to have barcode B3 (Should Succeed) ---")
         upd2_data = UpdateProdInvSchema(
@@ -71,7 +71,7 @@ async def test_barcode_update():
             barcode="BARCODE-B3"
         )
         await service.update(data=upd2_data, executing_user_id="test_user")
-        print("✅ Test 4 PASSED: Successfully updated Product 1 to BARCODE-B3")
+        print("[OK] Test 4 PASSED: Successfully updated Product 1 to BARCODE-B3")
 
     except Exception as e:
         print(f"An error occurred: {e}")

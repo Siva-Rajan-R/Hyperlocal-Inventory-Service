@@ -31,7 +31,7 @@ async def generate_product_sku(
     name_clean = re.sub(r'[^A-Z]', '', main_word.upper())
     name_code = name_clean[:4] if len(name_clean) >= 3 else (name_clean + "XXX")[:3]
 
-    # 3. varCode = variant attribute → uppercase, remove spaces/symbols
+    # 3. varCode = variant attribute -> uppercase, remove spaces/symbols
     var_code = None
     if variant_name:
         var_clean = re.sub(r'[^A-Z0-9]', '', variant_name.upper())
