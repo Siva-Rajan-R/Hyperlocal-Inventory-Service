@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +34,74 @@ class HandleProdInvRequest:
     async def create(self,data:CreateProdInvSchema, executing_user_id: Optional[str] = None):
         """
         Instead of creation, we need to trigger the event that event will handle the adding
-        """ 
+        """
+        # Check Subscription status and SKU limit
+        from integrations.shop_service import get_shop_subscription
+        sub_info = await get_shop_subscription(data.shop_id)
+        if sub_info.get("status") == "expired" or sub_info.get("is_expired") is True:
+            raise HTTPException(
+                status_code=403,
+                detail=ErrorResponseTypDict(
+                    msg="Subscription Expired",
+                    description="Your subscription has expired. Creating products is paused until renewed.",
+                    success=False,
+                    status_code=403
+                )
+            )
+
+        max_skus = sub_info.get("limits", {}).get("max_skus", 500)
+        
+        # Calculate live SKU count using fast MongoDB aggregation
+        current_skus = 0
+        try:
+            from infras.read_db.main import MONGO_CLIENT
+            pipeline = [
+                {"$match": {"shop_id": data.shop_id}},
+                {
+                    "$project": {
+                        "sku_count": {
+                            "$cond": {
+                                "if": {
+                                    "$and": [
+                                        {"$ne": ["$variants", None]},
+                                        {"$gt": [{"$size": {"$ifNull": [{"$objectToArray": "$variants"}, []]}}, 0]}
+                                    ]
+                                },
+                                "then": {"$size": {"$objectToArray": "$variants"}},
+                                "else": 1
+                            }
+                        }
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": None,
+                        "total_skus": {"$sum": "$sku_count"}
+                    }
+                }
+            ]
+            agg_res = await MONGO_CLIENT["InventoryServiceReadDb"]["ProdInvCollections"].aggregate(pipeline).to_list(1)
+            if agg_res:
+                current_skus = agg_res[0].get("total_skus", 0)
+        except Exception:
+            # Fallback to Primary DB count
+            from infras.primary_db.models.product_model import Products, Variants
+            prod_count = (await self.session.execute(select(func.count(Products.id)).where(Products.shop_id == data.shop_id))).scalar() or 0
+            var_count = (await self.session.execute(select(func.count(Variants.id)).where(Variants.shop_id == data.shop_id))).scalar() or 0
+            var_prod_count = (await self.session.execute(select(func.count(Products.id)).where(Products.shop_id == data.shop_id, Products.type_infos.op("->>")("has_variant") == "true"))).scalar() or 0
+            current_skus = max(0, prod_count - var_prod_count) + var_count
+
+        new_skus = len(data.variant_infos) if (data.type_infos and data.type_infos.has_variant and data.variant_infos) else 1
+        if current_skus + new_skus > max_skus:
+            raise HTTPException(
+                status_code=403,
+                detail=ErrorResponseTypDict(
+                    msg="SKU Limit Reached",
+                    description=f"Catalogue limit of {max_skus} SKUs reached ({current_skus}/{max_skus}). Upgrade your plan or add SKU expansion packs.",
+                    success=False,
+                    status_code=403
+                )
+            ) 
         if data.type_infos.has_variant and not data.variant_infos:
             raise HTTPException(
                 status_code=400,

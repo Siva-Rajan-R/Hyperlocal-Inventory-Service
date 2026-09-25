@@ -44,3 +44,36 @@ async def is_initial_stock_imported(shop_id: str) -> bool:
         ic(f"Error checking is_initial_stock_imported via HTTP: {e}")
 
     return False
+
+async def get_shop_subscription(shop_id: str) -> Dict[str, Any]:
+    mock_expired = os.getenv("MOCK_SUBSCRIPTION_EXPIRED", "false").lower() in ("true", "1", "yes")
+    if mock_expired:
+        return {
+            "status": "expired",
+            "is_expired": True,
+            "limits": {"max_skus": 500, "max_users": 2, "max_locations": 1}
+        }
+    
+    # 1. Check MongoDB
+    try:
+        shops_sub_collection = MONGO_CLIENT["ShopEmpDb"]["ShopSubscriptionsCollection"]
+        doc = await shops_sub_collection.find_one({"shop_id": shop_id}, {"_id": 0})
+        if doc:
+            return doc
+    except Exception as e:
+        ic(f"Error checking subscription via Mongo: {e}")
+
+    # 2. Check HTTP ShopEmp Service
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(f"{SHOPEMP_SERVICE_URL}/shops/subscriptions/current/{shop_id}")
+            if resp.status_code == 200:
+                return resp.json()
+    except Exception as e:
+        ic(f"Error checking subscription via HTTP: {e}")
+
+    return {
+        "status": "active",
+        "is_expired": False,
+        "limits": {"max_skus": 500, "max_users": 2, "max_locations": 1}
+    }
