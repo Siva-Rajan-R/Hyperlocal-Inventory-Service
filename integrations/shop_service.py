@@ -54,6 +54,14 @@ async def get_shop_subscription(shop_id: str) -> Dict[str, Any]:
             "limits": {"max_skus": 500, "max_users": 2, "max_locations": 1}
         }
     
+    sub_env = (os.getenv("SUBSCRIPTION_ENVIRONMENT") or os.getenv("ENVIRONMENT") or "development").strip().lower()
+    if sub_env in ("development", "dev"):
+        return {
+            "status": "active",
+            "is_expired": False,
+            "limits": {"max_skus": 999999, "max_users": 999999, "max_locations": 999999}
+        }
+    
     # 1. Check MongoDB
     try:
         shops_sub_collection = MONGO_CLIENT["ShopEmpDb"]["ShopSubscriptionsCollection"]

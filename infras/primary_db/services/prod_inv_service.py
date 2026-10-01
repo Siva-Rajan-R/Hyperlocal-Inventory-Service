@@ -234,6 +234,10 @@ class ProductInventoryService:
             v_types = data.variant_types or (cf_data.get("variant_types") if isinstance(cf_data, dict) else None)
             if v_types:
                 cf_data["variant_types"] = [vt.model_dump() if hasattr(vt, 'model_dump') else vt for vt in v_types]
+            ret_pol = getattr(data, "return_policy", None) or (cf_data.get("return_policy") if isinstance(cf_data, dict) else None)
+            if ret_pol is not None:
+                cf_data["return_policy"] = ret_pol
+                cf_data.pop("refund_policy", None)
 
             product_toadd=CreateProductDbSchema(
                 id=product_id,
@@ -243,7 +247,7 @@ class ProductInventoryService:
                 barcode=product_barcode,
                 brand=data.brand or None,
                 additional_infos=cf_data,
-                **data.model_dump(exclude=["stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields","additional_infos","is_active"])
+                **data.model_dump(exclude=["stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields","additional_infos","is_active","return_policy"])
             )
 
             product_repo_obj=ProductRepo(session=self.session)
@@ -456,7 +460,7 @@ class ProductInventoryService:
             sent_fields = data.model_dump(exclude_unset=True)
             
             for field in ["name", "description", "category_id", "unit_id", "gst", "sku", "barcode", "brand", "visible_online"]:
-                if field in sent_fields:
+                if field in sent_fields and sent_fields[field] is not None:
                     if field == "sku":
                         if not await validate_sku_uniqueness(self.session, data.shop_id, sent_fields["sku"], exclude_product_id=data.id):
                             raise ValueError(f"Product SKU '{sent_fields['sku']}' already exists.")
@@ -590,7 +594,11 @@ class ProductInventoryService:
                 ))
 
             # Rest of the updates and syncing
-            existing_cf = prod_get_res.get("custom_fields") if isinstance(prod_get_res, dict) and isinstance(prod_get_res.get("custom_fields"), dict) else {}
+            existing_cf = prod_get_res.get("additional_infos") or prod_get_res.get("custom_fields") or {}
+            if not isinstance(existing_cf, dict):
+                existing_cf = {}
+            else:
+                existing_cf = dict(existing_cf)
             if data.custom_fields and isinstance(data.custom_fields, dict):
                 existing_cf.update(data.custom_fields)
 
@@ -598,7 +606,12 @@ class ProductInventoryService:
             if v_types:
                 existing_cf["variant_types"] = [vt.model_dump() if hasattr(vt, 'model_dump') else vt for vt in v_types]
 
-            if v_types or (data.custom_fields and isinstance(data.custom_fields, dict)):
+            ret_pol = getattr(data, "return_policy", None) or (data.custom_fields.get("return_policy") if isinstance(data.custom_fields, dict) else None)
+            if ret_pol is not None:
+                existing_cf["return_policy"] = ret_pol
+                existing_cf.pop("refund_policy", None)
+
+            if v_types or (data.custom_fields and isinstance(data.custom_fields, dict)) or ret_pol is not None:
                 update_fields["additional_infos"] = existing_cf
 
             if update_fields:

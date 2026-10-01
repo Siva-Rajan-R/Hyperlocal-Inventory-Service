@@ -26,6 +26,7 @@ from schemas.v1.inventory_schemas.request_schemas import ReserveInventorySchema,
 from core.utils.validate_custom_fields import validate_and_filter_custom_fields
 from schemas.v1.request_schemas.customfield_schema import BulkCreateCustomFieldValuesSchema
 # [InventoryGetResponseSchema(**r) for r in res] if res else []
+import os
 
 class HandleProdInvRequest:
     def __init__(self,session:AsyncSession):
@@ -38,70 +39,76 @@ class HandleProdInvRequest:
         # Check Subscription status and SKU limit
         from integrations.shop_service import get_shop_subscription
         sub_info = await get_shop_subscription(data.shop_id)
-        if sub_info.get("status") == "expired" or sub_info.get("is_expired") is True:
-            raise HTTPException(
-                status_code=403,
-                detail=ErrorResponseTypDict(
-                    msg="Subscription Expired",
-                    description="Your subscription has expired. Creating products is paused until renewed.",
-                    success=False,
-                    status_code=403
-                )
-            )
 
-        max_skus = sub_info.get("limits", {}).get("max_skus", 500)
-        
-        # Calculate live SKU count using fast MongoDB aggregation
-        current_skus = 0
-        try:
-            from infras.read_db.main import MONGO_CLIENT
-            pipeline = [
-                {"$match": {"shop_id": data.shop_id}},
-                {
-                    "$project": {
-                        "sku_count": {
-                            "$cond": {
-                                "if": {
-                                    "$and": [
-                                        {"$ne": ["$variants", None]},
-                                        {"$gt": [{"$size": {"$ifNull": [{"$objectToArray": "$variants"}, []]}}, 0]}
-                                    ]
-                                },
-                                "then": {"$size": {"$objectToArray": "$variants"}},
-                                "else": 1
+        # Check subscription environment: in development, creation is unlimited
+        sub_env = (os.getenv("SUBSCRIPTION_ENVIRONMENT") or os.getenv("ENVIRONMENT") or "development").strip().lower()
+        is_dev = sub_env in ("development", "dev")
+
+        if not is_dev:
+            if sub_info.get("status") == "expired" or sub_info.get("is_expired") is True:
+                raise HTTPException(
+                    status_code=403,
+                    detail=ErrorResponseTypDict(
+                        msg="Subscription Expired",
+                        description="Your subscription has expired. Creating products is paused until renewed.",
+                        success=False,
+                        status_code=403
+                    )
+                )
+
+            max_skus = sub_info.get("limits", {}).get("max_skus", 500)
+            
+            # Calculate live SKU count using fast MongoDB aggregation
+            current_skus = 0
+            try:
+                from infras.read_db.main import MONGO_CLIENT
+                pipeline = [
+                    {"$match": {"shop_id": data.shop_id}},
+                    {
+                        "$project": {
+                            "sku_count": {
+                                "$cond": {
+                                    "if": {
+                                        "$and": [
+                                            {"$ne": ["$variants", None]},
+                                            {"$gt": [{"$size": {"$ifNull": [{"$objectToArray": "$variants"}, []]}}, 0]}
+                                        ]
+                                    },
+                                    "then": {"$size": {"$objectToArray": "$variants"}},
+                                    "else": 1
+                                }
                             }
                         }
+                    },
+                    {
+                        "$group": {
+                            "_id": None,
+                            "total_skus": {"$sum": "$sku_count"}
+                        }
                     }
-                },
-                {
-                    "$group": {
-                        "_id": None,
-                        "total_skus": {"$sum": "$sku_count"}
-                    }
-                }
-            ]
-            agg_res = await MONGO_CLIENT["InventoryServiceReadDb"]["ProdInvCollections"].aggregate(pipeline).to_list(1)
-            if agg_res:
-                current_skus = agg_res[0].get("total_skus", 0)
-        except Exception:
-            # Fallback to Primary DB count
-            from infras.primary_db.models.product_model import Products, Variants
-            prod_count = (await self.session.execute(select(func.count(Products.id)).where(Products.shop_id == data.shop_id))).scalar() or 0
-            var_count = (await self.session.execute(select(func.count(Variants.id)).where(Variants.shop_id == data.shop_id))).scalar() or 0
-            var_prod_count = (await self.session.execute(select(func.count(Products.id)).where(Products.shop_id == data.shop_id, Products.type_infos.op("->>")("has_variant") == "true"))).scalar() or 0
-            current_skus = max(0, prod_count - var_prod_count) + var_count
+                ]
+                agg_res = await MONGO_CLIENT["InventoryServiceReadDb"]["ProdInvCollections"].aggregate(pipeline).to_list(1)
+                if agg_res:
+                    current_skus = agg_res[0].get("total_skus", 0)
+            except Exception:
+                # Fallback to Primary DB count
+                from infras.primary_db.models.product_model import Products, Variants
+                prod_count = (await self.session.execute(select(func.count(Products.id)).where(Products.shop_id == data.shop_id))).scalar() or 0
+                var_count = (await self.session.execute(select(func.count(Variants.id)).where(Variants.shop_id == data.shop_id))).scalar() or 0
+                var_prod_count = (await self.session.execute(select(func.count(Products.id)).where(Products.shop_id == data.shop_id, Products.type_infos.op("->>")("has_variant") == "true"))).scalar() or 0
+                current_skus = max(0, prod_count - var_prod_count) + var_count
 
-        new_skus = len(data.variant_infos) if (data.type_infos and data.type_infos.has_variant and data.variant_infos) else 1
-        if current_skus + new_skus > max_skus:
-            raise HTTPException(
-                status_code=403,
-                detail=ErrorResponseTypDict(
-                    msg="SKU Limit Reached",
-                    description=f"Catalogue limit of {max_skus} SKUs reached ({current_skus}/{max_skus}). Upgrade your plan or add SKU expansion packs.",
-                    success=False,
-                    status_code=403
-                )
-            ) 
+            new_skus = len(data.variant_infos) if (data.type_infos and data.type_infos.has_variant and data.variant_infos) else 1
+            if current_skus + new_skus > max_skus:
+                raise HTTPException(
+                    status_code=403,
+                    detail=ErrorResponseTypDict(
+                        msg="SKU Limit Reached",
+                        description=f"Catalogue limit of {max_skus} SKUs reached ({current_skus}/{max_skus}). Upgrade your plan or add SKU expansion packs.",
+                        success=False,
+                        status_code=403
+                    )
+                ) 
         if data.type_infos.has_variant and not data.variant_infos:
             raise HTTPException(
                 status_code=400,
@@ -253,12 +260,22 @@ class HandleProdInvRequest:
                     status_code=400
                 ),
             )
-        cust_field_obj=CustomFieldsService(session=self.session)
-        fields=await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
+        valid_custom_fields = None
+        if data.custom_fields is not None:
+            cust_field_obj = CustomFieldsService(session=self.session)
+            fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
+            valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
         
-        valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
-        
-        res=await ProductInventoryService(session=self.session).update(data=UpdateProdInvSchema(custom_fields=valid_custom_fields,**data.model_dump(exclude=['custom_fields'])), executing_user_id=executing_user_id)
+        dumped_data = data.model_dump(exclude_unset=True)
+        if valid_custom_fields is not None:
+            dumped_data["custom_fields"] = valid_custom_fields
+        elif "custom_fields" in dumped_data and data.custom_fields is None:
+            dumped_data.pop("custom_fields", None)
+
+        res = await ProductInventoryService(session=self.session).update(
+            data=UpdateProdInvSchema(**dumped_data),
+            executing_user_id=executing_user_id
+        )
         ic(res)
         if res:
              await self.session.commit()

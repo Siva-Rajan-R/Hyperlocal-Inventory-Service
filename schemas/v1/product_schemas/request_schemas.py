@@ -32,8 +32,8 @@ class UpdateProductSchema(BaseModel):
     description:Optional[str]=None
     type_infos:Optional[ProductTypeInfosType]=None
     have_tracking:Optional[bool]=None
-    reorder_point:Optional[float]=0
-    gst:Optional[str]="0%"
+    reorder_point:Optional[float]=None
+    gst:Optional[str]=None
     visible_online:Optional[bool]=None
     sku: Optional[str] = None
 

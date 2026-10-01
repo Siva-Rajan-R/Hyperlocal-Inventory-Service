@@ -278,6 +278,11 @@ class ProductRepo:
     
 
     def _map_product(self, product, include_serialno: bool) -> dict:
+        add_infos = dict(product.additional_infos or {}) if isinstance(product.additional_infos, dict) else {}
+        ret_policy = add_infos.get("return_policy") or add_infos.pop("refund_policy", None)
+        if ret_policy:
+            add_infos["return_policy"] = ret_policy
+        add_infos.pop("refund_policy", None)
         res_toadd = {
             "id": product.id,
             "shop_id": product.shop_id,
@@ -297,6 +302,9 @@ class ProductRepo:
             "gst": product.gst,
             "visible_online": product.visible_online,
             "image_url": product.image_url,
+            "additional_infos": add_infos,
+            "custom_fields": add_infos,
+            "return_policy": ret_policy,
         }
 
         # Build Lookups

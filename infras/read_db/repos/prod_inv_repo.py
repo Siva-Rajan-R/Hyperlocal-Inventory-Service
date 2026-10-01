@@ -12,6 +12,25 @@ from infras.primary_db.main import AsyncInventoryLocalSession
 
 from core.utils.product_stock_filter import compute_product_stock_and_rop, filter_product_item, has_stock_filter, is_truthy
 
+def _clean_doc(d: dict) -> dict:
+    if not isinstance(d, dict):
+        return d
+    ret_pol = d.get("return_policy") or d.pop("refund_policy", None)
+    if ret_pol:
+        d["return_policy"] = ret_pol
+    d.pop("refund_policy", None)
+    if isinstance(d.get("additional_infos"), dict):
+        ret_add = d["additional_infos"].get("return_policy") or d["additional_infos"].pop("refund_policy", None)
+        if ret_add:
+            d["additional_infos"]["return_policy"] = ret_add
+        d["additional_infos"].pop("refund_policy", None)
+    if isinstance(d.get("custom_fields"), dict):
+        ret_cf = d["custom_fields"].get("return_policy") or d["custom_fields"].pop("refund_policy", None)
+        if ret_cf:
+            d["custom_fields"]["return_policy"] = ret_cf
+        d["custom_fields"].pop("refund_policy", None)
+    return d
+
 class ProdInvReadDbRepo:
 
     compute_product_stock_and_rop = staticmethod(compute_product_stock_and_rop)
@@ -207,13 +226,23 @@ class ProdInvReadDbRepo:
                             existing_cf[v["field_name"]] = v["value"]
                 except Exception as e:
                     ic(f"Error fetching custom fields for read db: {e}")
+                # Clean up legacy refund_policy
+                _clean_doc(p_data)
+                existing_cf.pop("refund_policy", None)
                 p_data["custom_fields"] = existing_cf
                 
                 # Prepare bulk operation
                 bulk_ops.append(
                     UpdateOne(
                         {"id": prod_id, "shop_id": shop_id},
-                        {"$set": p_data},
+                        {
+                            "$set": p_data,
+                            "$unset": {
+                                "refund_policy": "",
+                                "additional_infos.refund_policy": "",
+                                "custom_fields.refund_policy": ""
+                            }
+                        },
                         upsert=True
                     )
                 )
@@ -391,12 +420,14 @@ class ProdInvReadDbRepo:
                 data_res = await cursor.to_list(length=None)
                 for d in data_res:
                     d["_id"] = str(d["_id"])
+                    _clean_doc(d)
                 return data_res
 
             data_res = await cursor.to_list(length=None)
             filtered_res = []
             for d in data_res:
                 d["_id"] = str(d["_id"])
+                _clean_doc(d)
                 if cls.filter_product_item(d, data):
                     filtered_res.append(d)
 
@@ -428,12 +459,14 @@ class ProdInvReadDbRepo:
                 data_res = await cursor.to_list(length=None)
                 for d in data_res:
                     d["_id"] = str(d["_id"])
+                    _clean_doc(d)
                 return data_res
 
             data_res = await cursor.to_list(length=None)
             filtered_res = []
             for d in data_res:
                 d["_id"] = str(d["_id"])
+                _clean_doc(d)
                 if cls.filter_product_item(d, data):
                     filtered_res.append(d)
 
@@ -458,6 +491,7 @@ class ProdInvReadDbRepo:
             doc = await PROD_INV_COLLECTION.find_one(query)
             if doc:
                 doc["_id"] = str(doc["_id"])
+                _clean_doc(doc)
                 if cls.filter_product_item(doc, data):
                     return doc
 
@@ -486,7 +520,7 @@ class ProdInvReadDbRepo:
             )
 
             docs = await cursor.to_list(length=len(data.id))
-            return [d for d in docs if cls.filter_product_item(d, data)]
+            return [_clean_doc(d) for d in docs if cls.filter_product_item(d, data)]
 
         except Exception as e:
             ic(f"Error in get_bulk_by_id: {e}")

@@ -62,6 +62,7 @@ class CreateProdInvSchema(BaseModel):
     reorder_point:Optional[float]=5
     online_reorder_point:Optional[float]=0.0
     custom_fields:Optional[dict]={}
+    return_policy:Optional[dict]=None
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
     stocks: Optional[float] = None
@@ -85,11 +86,12 @@ class UpdateProdInvSchema(BaseModel):
     buy_price: Optional[float] = None
     sell_price: Optional[float] = None
     online_sell_price: Optional[float] = None
-    reorder_point: Optional[float] = 5
+    reorder_point: Optional[float] = None
     online_reorder_point: Optional[float] = None
-    custom_fields: Optional[dict] = {}
+    custom_fields: Optional[dict] = None
+    return_policy: Optional[dict] = None
     visible_online: Optional[bool] = None
-    gst:Optional[str]="0%"
+    gst: Optional[str] = None
     barcode: Optional[str] = None
 
 
@@ -158,7 +160,7 @@ class UpdateInventoryAll(BaseModel):
     product_id:str
     variant_id:Optional[str]=None
     batch_id:Optional[str]=None
-    gst:Optional[str]="0%"
+    gst:Optional[str]=None
     stocks_infos:Optional[CreateInvAllStocksInfosType]=None
     pricing_infos:Optional[CreateInvAllPricingInfosType]=None
     storage_location_infos:Optional[CreateInvAllStlInfosType]=None
