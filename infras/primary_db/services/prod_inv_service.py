@@ -265,18 +265,22 @@ class ProductInventoryService:
                 await inv_repo_obj.create_bulk_reorder_point(data=rop_toadd)
                 await self.session.flush()
 
-                if data.custom_fields:
-                    cust_obj=await CustomFieldsService(session=self.session).upsert_values(
-                    data=CreateCustomFieldValueSchema(
-                            shop_id=data.shop_id,
-                            product_id=product_id,
-                            value_infos=[
-                                {'field_id':id,"value":value}
-                                for id,value in data.custom_fields.items()
-                            ]
+                if data.custom_fields and isinstance(data.custom_fields, dict):
+                    reserved_keys = {"return_policy", "refund_policy", "variant_types", "is_active", "visible_online"}
+                    cf_entries = [
+                        {'field_id': k, "value": v}
+                        for k, v in data.custom_fields.items()
+                        if k not in reserved_keys and isinstance(v, (str, int, float, bool))
+                    ]
+                    if cf_entries:
+                        cust_obj = await CustomFieldsService(session=self.session).upsert_values(
+                            data=CreateCustomFieldValueSchema(
+                                shop_id=data.shop_id,
+                                product_id=product_id,
+                                value_infos=cf_entries
+                            )
                         )
-                    )
-                    ic(cust_obj)
+                        ic(cust_obj)
                 
                 # Handle initial opening stock update if provided (> 0)
                 stock_update_payloads = []

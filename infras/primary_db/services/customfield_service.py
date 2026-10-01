@@ -8,7 +8,7 @@ from schemas.v1.request_schemas.customfield_schema import (
 )
 from schemas.v1.db_schemas.customfield_schema import CreateCustomFieldDbSchema, CreateCustomFieldValueDbSchema,DeleteCustomFieldDbSchema,UpdateCustomFieldDbSchema
 from ..repos.customfield_repo import CustomFieldsRepo
-from typing import List
+from typing import List,Any
 
 class CustomFieldsService:
     def __init__(self, session: AsyncSession):
@@ -112,20 +112,49 @@ class CustomFieldsService:
         data_toadd=[]  
         shop_id=data.shop_id
         product_id=data.product_id
-        items = data.value_infos or data.values or []
+        items = data.value_infos or getattr(data, 'values', None) or []
+        if not items:
+            return {"success": True}
+
+        # Validate that field_id actually exists in custom_fields table for this shop
+        existing_fields = await self.repo.get_fields_by_shop_id(GetFieldByShopIdSchema(shop_id=shop_id))
+        valid_field_ids = {f.get("id") for f in existing_fields} if existing_fields else set()
+
+        import json
         for d in items:
+            f_id = getattr(d, 'field_id', None) if not isinstance(d, dict) else d.get('field_id')
+            f_val = getattr(d, 'value', None) if not isinstance(d, dict) else d.get('value')
+            if not f_id or f_id not in valid_field_ids:
+                continue
+
+            # Ensure value is converted to a string format suitable for the db column
+            if isinstance(f_val, (dict, list)):
+                f_val_str = json.dumps(f_val)
+            else:
+                f_val_str = str(f_val) if f_val is not None else ""
+
             value_id = generate_uuid()
             data_toadd.append(CreateCustomFieldValueDbSchema(
                 id=value_id,
                 shop_id=shop_id,
                 product_id=product_id,
-                field_id=d.field_id,
-                value=d.value
+                field_id=f_id,
+                value=f_val_str
             ))
         
         if data_toadd:
             await self.repo.upsert_field_value(data=data_toadd)
         return {"success": True}
+
+    async def bulk_upsert_values(self, data: Any) -> dict:
+        if isinstance(data, CreateCustomFieldValueSchema):
+            return await self.upsert_values(data=data)
+        schema_data = CreateCustomFieldValueSchema(
+            shop_id=getattr(data, 'shop_id', ''),
+            product_id=getattr(data, 'product_id', ''),
+            value_infos=getattr(data, 'values', []) or getattr(data, 'value_infos', [])
+        )
+        return await self.upsert_values(data=schema_data)
 
     async def get_values_by_purchase(self,data:GetvaluesByProductId) -> list:
         return await self.repo.get_values_by_purchase_id(data=data)

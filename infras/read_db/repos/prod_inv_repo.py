@@ -238,9 +238,7 @@ class ProdInvReadDbRepo:
                         {
                             "$set": p_data,
                             "$unset": {
-                                "refund_policy": "",
-                                "additional_infos.refund_policy": "",
-                                "custom_fields.refund_policy": ""
+                                "refund_policy": ""
                             }
                         },
                         upsert=True
