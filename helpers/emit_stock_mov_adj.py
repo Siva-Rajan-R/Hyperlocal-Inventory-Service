@@ -73,6 +73,7 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
         for val in strut_prod_res:
             b_info_val = val.get('batch_infos')
             batch_id = val.get('batch_id') or (b_info_val.get('id') if isinstance(b_info_val, dict) else None)
+            batch_name = (b_info_val.get('name') if isinstance(b_info_val, dict) else None) or val.get('batch_name')
             variant_id = val.get('variant_id')
             update_type = val.get('type')
             entity_name = val.get('entity_name') or val.get('type_name') or entity_name
@@ -98,12 +99,14 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
                 if variant_data:
                     variant_name = variant_data.get('name', '')
                     
-                    if has_batch and batch_id:
+                    if has_batch:
                         batches_list = variant_data.get('batch_infos', []) or []
                         for batch in batches_list:
-                            if batch.get('id') == batch_id or batch.get('name') == batch_id:
+                            if (batch_id and batch.get('id') == batch_id) or (batch_name and batch.get('name') == batch_name) or (batch_id and batch.get('name') == batch_id):
                                 batch_infos = batch
                                 break
+                        if not batch_infos and batches_list:
+                            batch_infos = batches_list[-1]
                         stock_infos = batch_infos.get('stock_infos', {}) if batch_infos else {}
                         serialno_infos = batch_infos.get('serialno_infos', []) if (batch_infos and has_serialno) else []
                     else:
@@ -114,12 +117,14 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
 
             # --- Pathway B: Standard Product Strategy ---
             else:
-                if has_batch and batch_id:
+                if has_batch:
                     batches_list = prod_db.get('batch_infos', []) or []
                     for batch in batches_list:
-                        if batch.get('id') == batch_id or batch.get('name') == batch_id:
+                        if (batch_id and batch.get('id') == batch_id) or (batch_name and batch.get('name') == batch_name) or (batch_id and batch.get('name') == batch_id):
                             batch_infos = batch
                             break
+                    if not batch_infos and batches_list:
+                        batch_infos = batches_list[-1]
                     stock_infos = batch_infos.get('stock_infos', {}) if batch_infos else {}
                     serialno_infos = batch_infos.get('serialno_infos', []) if (batch_infos and has_serialno) else []
                 else:
@@ -133,11 +138,11 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
             else:
                 current_physical = float(stock_infos.get('physical_stocks', 0))
                 if update_type == "INCREMENT":
-                    stock_before = current_physical - stocks_adjusted
+                    stock_before = max(0.0, current_physical - stocks_adjusted)
                     stock_after = current_physical
                 else:
                     stock_before = current_physical + stocks_adjusted
-                    stock_after = current_physical
+                    stock_after = max(0.0, current_physical)
 
             raw_serials = val.get('serial_numbers') or val.get('serialno_infos') or []
             extracted_serials = []
@@ -193,6 +198,11 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
                         action_text = "Stock adjusted"
                     item_desc = f"{action_text} via {desc_entity} ({item_entity_id})" if item_entity_id else f"{action_text} via {desc_entity}"
 
+            b_id = (batch_infos.get('id') if batch_infos else None) or batch_id or (b_info_val.get('id') if isinstance(b_info_val, dict) else None)
+            b_name = (batch_infos.get('name') if batch_infos else None) or batch_name or (b_info_val.get('name') if isinstance(b_info_val, dict) else None)
+            exp_d = (batch_infos.get('expiry_date') if batch_infos else None) or (b_info_val.get('expiry_date') if isinstance(b_info_val, dict) else None)
+            mfg_d = (batch_infos.get('manufacturing_date') if batch_infos else None) or (b_info_val.get('manufacturing_date') if isinstance(b_info_val, dict) else None)
+
             stock_mov_adj_items.append({
                 'product_id': product_id,
                 'name': product_name,
@@ -203,10 +213,10 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
                 'unit_name': unit_name or "",
                 'variant_id': variant_id,
                 'variant_name': variant_name,
-                'batch_id': batch_infos.get('id') if batch_infos else batch_id,
-                'batch_name': batch_infos.get('name') if batch_infos else None,
-                'exp_date': batch_infos.get('expiry_date') if batch_infos else None,
-                'mfg_date': batch_infos.get('manufacturing_date') if batch_infos else None,
+                'batch_id': b_id,
+                'batch_name': b_name,
+                'exp_date': exp_d,
+                'mfg_date': mfg_d,
                 'serial_numbers': extracted_serials if extracted_serials else None,
                 'type': update_type,
                 'entity_name': item_entity_name,

@@ -1288,12 +1288,47 @@ class ProductInventoryService:
             prod_checked_results = await prod_repo_obj.get_bulk_products_by_id(
                 data=GetBulkProductsById(id=product_tocheck, shop_id=shop_id, include_serialno=True)
             )
+            prod_checked_results = prod_checked_results or []
             ic(prod_checked_results)
             ic(product_tocheck)
 
-            if len(product_tocheck) != len(prod_checked_results):
-                ic("Mismatched product count from DB verification.")
-                raise ValueError("Mismatched product count from DB verification.")
+            found_product_ids = {p['id'] for p in prod_checked_results}
+            missing_ids = [pid for pid in product_tocheck if pid not in found_product_ids]
+
+            if missing_ids:
+                # Check if any missing IDs are variant IDs passed as product_id
+                stmt_var = select(ProductVariants.id, ProductVariants.product_id).where(ProductVariants.id.in_(missing_ids))
+                var_rows = (await self.session.execute(stmt_var)).all()
+                if var_rows:
+                    var_to_parent = {r[0]: r[1] for r in var_rows}
+                    new_parent_ids = []
+                    for v_id, p_id in var_to_parent.items():
+                        if v_id in validated_data:
+                            items_to_move = validated_data.pop(v_id)
+                            for itm in items_to_move:
+                                itm['product_id'] = p_id
+                                if not itm.get('variant_id'):
+                                    itm['variant_id'] = v_id
+                            validated_data.setdefault(p_id, []).extend(items_to_move)
+                        if v_id in product_tocheck:
+                            product_tocheck.remove(v_id)
+                        if p_id not in product_tocheck and p_id not in found_product_ids:
+                            product_tocheck.append(p_id)
+                            new_parent_ids.append(p_id)
+
+                    if new_parent_ids:
+                        extra_prods = await prod_repo_obj.get_bulk_products_by_id(
+                            data=GetBulkProductsById(id=new_parent_ids, shop_id=shop_id, include_serialno=True)
+                        )
+                        if extra_prods:
+                            prod_checked_results.extend(extra_prods)
+
+            found_product_ids = {p['id'] for p in prod_checked_results}
+            still_missing = [pid for pid in product_tocheck if pid not in found_product_ids]
+
+            if len(product_tocheck) != len(prod_checked_results) or still_missing:
+                ic("Mismatched product count from DB verification.", still_missing, product_tocheck)
+                raise ValueError(f"Mismatched product count from DB verification. Missing IDs: {still_missing}")
 
             # State tracking arrays for database operations
             batch_toadd = []
@@ -1407,6 +1442,9 @@ class ProductInventoryService:
                                 if inc_batch_infos['id'] == exc_batch['id']:
                                     is_batch_exists = True
                                     inc_batch_id = exc_batch['id']
+                                    inc_item['batch_id'] = inc_batch_id
+                                    if 'batch_infos' in inc_item and isinstance(inc_item['batch_infos'], dict):
+                                        inc_item['batch_infos']['id'] = inc_batch_id
                                     existing_stock_infos = exc_batch.get('stock_infos') or {}
                                     existing_pricing_infos = exc_batch.get('pricing_infos') or {}
                                     existing_stl_info = exc_batch.get('storage_location_infos') or {}
@@ -1424,6 +1462,11 @@ class ProductInventoryService:
 
                         if not is_batch_exists:
                             inc_batch_id = generate_uuid()
+                            if isinstance(inc_batch_infos, dict):
+                                inc_batch_infos['id'] = inc_batch_id
+                            inc_item['batch_id'] = inc_batch_id
+                            if 'batch_infos' in inc_item and isinstance(inc_item['batch_infos'], dict):
+                                inc_item['batch_infos']['id'] = inc_batch_id
                             batch_toadd.append(
                                 ProductBatches(
                                     id=inc_batch_id,
@@ -1456,6 +1499,26 @@ class ProductInventoryService:
                     is_pricing_exists = bool(existing_pricing_infos)
                     is_stl_exists = bool(existing_stl_info)
                     is_rop_exists = bool(existing_rop_info)
+
+                    # Calculate exact stocks_before and stocks_after
+                    old_physical = float(existing_stock_infos.get('physical_stocks', 0)) if is_stock_exists else 0.0
+                    stk_count = float(inc_stocks or 0)
+                    if inc_item.get("entity_name") == "OPENING_STOCK":
+                        inc_item["stocks_before"] = 0.0
+                        inc_item["stocks_after"] = stk_count
+                    elif not is_stock_exists:
+                        inc_item["stocks_before"] = 0.0
+                        inc_item["stocks_after"] = stk_count
+                    else:
+                        if inc_update_type == "INCREMENT":
+                            inc_item["stocks_before"] = old_physical
+                            inc_item["stocks_after"] = old_physical + stk_count
+                        elif inc_update_type == "DECREMENT":
+                            inc_item["stocks_before"] = old_physical
+                            inc_item["stocks_after"] = max(0.0, old_physical - stk_count)
+                        else:
+                            inc_item["stocks_before"] = old_physical
+                            inc_item["stocks_after"] = stk_count
 
                     # Stock Append Management
                     if inc_stocks:
@@ -1788,24 +1851,12 @@ class ProductInventoryService:
                 for items_list in validated_data.values():
                     for item in items_list:
                         item_copy = dict(item)
-                        # Derive exact stocks_before and stocks_after for stock movement logging
-                        p_id = item_copy.get("product_id")
-                        v_id = item_copy.get("variant_id")
-                        b_id = (item_copy.get("batch_infos") or {}).get("id") if isinstance(item_copy.get("batch_infos"), dict) else item_copy.get("batch_id")
-                        
-                        # Find matching stock entry from stock_toupdate / stock_toadd
+                        # Ensure stocks_before and stocks_after are explicitly passed
                         stk_qty = float(item_copy.get("stocks") or 0)
-                        u_type = item_copy.get("type", "INCREMENT")
-                        
-                        # For opening stock / initial allocation: stock_before=0, stock_after=stk_qty
-                        if item_copy.get("entity_name") == "OPENING_STOCK":
-                            item_copy["stocks_before"] = 0.0
-                            item_copy["stocks_after"] = stk_qty
-                        else:
-                            # Let emit_stock_mov_adj calculate exact stocks_before and stocks_after based on post-update physical stocks
-                            item_copy.pop("stocks_before", None)
-                            item_copy.pop("stocks_after", None)
-                        
+                        if item_copy.get("stocks_before") is None:
+                            if item_copy.get("entity_name") == "OPENING_STOCK":
+                                item_copy["stocks_before"] = 0.0
+                                item_copy["stocks_after"] = stk_qty
                         stock_mov_adj_data.append(item_copy)
 
                 await emit_stock_mov_adj(session=self.session, data=stock_mov_adj_data)
