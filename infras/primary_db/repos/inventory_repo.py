@@ -202,9 +202,29 @@ class InventoryRepo:
                             existing.sell_price = d.sell_price
                         if d.online_sell_price is not None:
                             existing.online_sell_price = d.online_sell_price
+                        
+                        add_infos = dict(existing.additional_infos or {}) if isinstance(existing.additional_infos, dict) else {}
+                        if d.additional_infos and isinstance(d.additional_infos, dict):
+                            add_infos.update(d.additional_infos)
+                        if d.mrp is not None:
+                            add_infos["mrp"] = d.mrp
+                        if d.discount_percent is not None:
+                            add_infos["discount_percent"] = d.discount_percent
+                        if d.offer_valid_until is not None:
+                            add_infos["offer_valid_until"] = str(d.offer_valid_until) if d.offer_valid_until else None
+                        if add_infos:
+                            existing.additional_infos = add_infos
                     else:
                         await self.session.delete(existing)
             else:
+                new_add_infos = dict(d.additional_infos or {}) if isinstance(d.additional_infos, dict) else {}
+                if d.mrp is not None:
+                    new_add_infos["mrp"] = d.mrp
+                if d.discount_percent is not None:
+                    new_add_infos["discount_percent"] = d.discount_percent
+                if d.offer_valid_until is not None:
+                    new_add_infos["offer_valid_until"] = str(d.offer_valid_until) if d.offer_valid_until else None
+
                 to_insert.append(
                     InventoryPricings(
                         id=generate_uuid(),
@@ -214,7 +234,8 @@ class InventoryRepo:
                         batch_id=d.batch_id,
                         buy_price=d.buy_price or 0.0,
                         sell_price=d.sell_price or 0.0,
-                        online_sell_price=d.online_sell_price or 0.0
+                        online_sell_price=d.online_sell_price or 0.0,
+                        additional_infos=new_add_infos or None
                     )
                 )
         if to_insert:

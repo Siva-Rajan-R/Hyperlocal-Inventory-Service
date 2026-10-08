@@ -13,6 +13,9 @@ class CreateProdInvVariantType(BaseModel):
     buy_price:Optional[float]=None
     sell_price:Optional[float]=None
     online_sell_price:Optional[float]=None
+    mrp:Optional[float]=None
+    discount_percent:Optional[float]=None
+    offer_valid_until:Optional[Union[str, date]]=None
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
     barcode: Optional[str] = None
@@ -27,6 +30,9 @@ class UpdateProdInvVariantType(BaseModel):
     buy_price: Optional[float] = None
     sell_price: Optional[float] = None
     online_sell_price: Optional[float] = None
+    mrp: Optional[float] = None
+    discount_percent: Optional[float] = None
+    offer_valid_until: Optional[Union[str, date]] = None
     storage_location: Optional[str] = None
     reorder_point: Optional[float] = None
     online_reorder_point: Optional[float] = None
@@ -59,9 +65,13 @@ class CreateProdInvSchema(BaseModel):
     gst:Optional[str]="0%"
     sell_price:Optional[float]=None
     online_sell_price:Optional[float]=None
+    mrp:Optional[float]=None
+    discount_percent:Optional[float]=None
+    offer_valid_until:Optional[Union[str, date]]=None
     reorder_point:Optional[float]=5
     online_reorder_point:Optional[float]=0.0
     custom_fields:Optional[dict]={}
+    additional_infos:Optional[dict]=None
     return_policy:Optional[dict]=None
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
@@ -86,9 +96,13 @@ class UpdateProdInvSchema(BaseModel):
     buy_price: Optional[float] = None
     sell_price: Optional[float] = None
     online_sell_price: Optional[float] = None
+    mrp: Optional[float] = None
+    discount_percent: Optional[float] = None
+    offer_valid_until: Optional[Union[str, date]] = None
     reorder_point: Optional[float] = None
     online_reorder_point: Optional[float] = None
     custom_fields: Optional[dict] = None
+    additional_infos: Optional[dict] = None
     return_policy: Optional[dict] = None
     visible_online: Optional[bool] = None
     gst: Optional[str] = None

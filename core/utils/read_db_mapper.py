@@ -85,10 +85,18 @@ def map_to_inventory_read_model(product_dict: Dict[str, Any]) -> ProdInvReadMode
         
         # Pricing
         pricing_infos = unit.get("pricing_infos")
+        pricing_add_infos = get_field(pricing_infos, "additional_infos", {}) or {}
+        p_mrp = get_field(pricing_infos, "mrp") or (pricing_add_infos.get("mrp") if isinstance(pricing_add_infos, dict) else None) or product_dict.get("mrp") or product_dict.get("additional_infos", {}).get("mrp") or product_dict.get("custom_fields", {}).get("mrp")
+        p_disc = get_field(pricing_infos, "discount_percent") if get_field(pricing_infos, "discount_percent") is not None else ((pricing_add_infos.get("discount_percent") if isinstance(pricing_add_infos, dict) else None) or product_dict.get("discount_percent") or product_dict.get("additional_infos", {}).get("discount_percent") or product_dict.get("custom_fields", {}).get("discount_percent") or 0.0)
+        p_offer = get_field(pricing_infos, "offer_valid_until") or (pricing_add_infos.get("offer_valid_until") if isinstance(pricing_add_infos, dict) else None) or product_dict.get("offer_valid_until") or product_dict.get("additional_infos", {}).get("offer_valid_until") or product_dict.get("custom_fields", {}).get("offer_valid_until")
+
         pricing_rm = ProdInvReadModelPricingInfosType(
             id=str(get_field(pricing_infos, "id", "")),
             buy_price=float(get_field(pricing_infos, "buy_price", 0.0)),
-            sell_price=float(get_field(pricing_infos, "sell_price", 0.0))
+            sell_price=float(get_field(pricing_infos, "sell_price", 0.0)),
+            mrp=float(p_mrp) if p_mrp is not None else None,
+            discount_percent=float(p_disc) if p_disc is not None else 0.0,
+            offer_valid_until=p_offer
         )
         
         # Storage Location - build_inventory_units returns a list for storage_location_infos

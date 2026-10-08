@@ -400,6 +400,7 @@ class ProductRepo:
                             for sn in serialnos.get(final_key, [])
                         ]
 
+                        p_add = pricing.additional_infos if (pricing and isinstance(pricing.additional_infos, dict)) else {}
                         b_info = {
                             "id": batch.id,
                             "name": batch.name,
@@ -419,6 +420,9 @@ class ProductRepo:
                                 "sell_price": pricing.sell_price,
                                 "buy_price": pricing.buy_price,
                                 "online_sell_price": pricing.online_sell_price,
+                                "mrp": p_add.get("mrp") if p_add.get("mrp") is not None else add_infos.get("mrp"),
+                                "discount_percent": p_add.get("discount_percent") if p_add.get("discount_percent") is not None else (add_infos.get("discount_percent") or 0.0),
+                                "offer_valid_until": p_add.get("offer_valid_until") if p_add.get("offer_valid_until") is not None else add_infos.get("offer_valid_until"),
                             } if pricing else {},
                             "serialno_infos": sn_list
                         }
@@ -426,11 +430,15 @@ class ProductRepo:
                     
                     base_pricing = pricings.get(combined_id + "")
                     if base_pricing:
+                        bp_add = base_pricing.additional_infos if isinstance(base_pricing.additional_infos, dict) else {}
                         variant_infos[variant_id]["pricing_infos"] = {
                             "id": base_pricing.id,
                             "sell_price": base_pricing.sell_price,
                             "buy_price": base_pricing.buy_price,
                             "online_sell_price": base_pricing.online_sell_price,
+                            "mrp": bp_add.get("mrp") if bp_add.get("mrp") is not None else add_infos.get("mrp"),
+                            "discount_percent": bp_add.get("discount_percent") if bp_add.get("discount_percent") is not None else (add_infos.get("discount_percent") or 0.0),
+                            "offer_valid_until": bp_add.get("offer_valid_until") if bp_add.get("offer_valid_until") is not None else add_infos.get("offer_valid_until"),
                         }
                     elif variant_infos[variant_id]["batch_infos"]:
                         variant_infos[variant_id]["pricing_infos"] = variant_infos[variant_id]["batch_infos"][0].get("pricing_infos", {})
@@ -457,11 +465,16 @@ class ProductRepo:
                             "reserved_stocks": stock.reserved_stocks
                         }
                     if pricing:
+                        p_add = pricing.additional_infos if isinstance(pricing.additional_infos, dict) else {}
+                        v_add = val.additional_infos if (val and isinstance(val.additional_infos, dict)) else {}
                         variant_infos[variant_id]["pricing_infos"] = {
                             "id": pricing.id,
                             "sell_price": pricing.sell_price,
                             "buy_price": pricing.buy_price,
                             "online_sell_price": pricing.online_sell_price,
+                            "mrp": p_add.get("mrp") if p_add.get("mrp") is not None else (v_add.get("mrp") if v_add.get("mrp") is not None else add_infos.get("mrp")),
+                            "discount_percent": p_add.get("discount_percent") if p_add.get("discount_percent") is not None else (v_add.get("discount_percent") if v_add.get("discount_percent") is not None else (add_infos.get("discount_percent") or 0.0)),
+                            "offer_valid_until": p_add.get("offer_valid_until") if p_add.get("offer_valid_until") is not None else (v_add.get("offer_valid_until") if v_add.get("offer_valid_until") is not None else add_infos.get("offer_valid_until")),
                         }
                     if rop:
                         variant_infos[variant_id]["reorder_point_infos"] = {
@@ -516,6 +529,7 @@ class ProductRepo:
                         for sn in serialnos.get(final_key, [])
                     ]
 
+                    p_add = pricing.additional_infos if (pricing and isinstance(pricing.additional_infos, dict)) else {}
                     b_info = {
                         "id": batch.id,
                         "name": batch.name,
@@ -535,6 +549,9 @@ class ProductRepo:
                             "sell_price": pricing.sell_price,
                             "buy_price": pricing.buy_price,
                             "online_sell_price": pricing.online_sell_price,
+                            "mrp": p_add.get("mrp") if p_add.get("mrp") is not None else add_infos.get("mrp"),
+                            "discount_percent": p_add.get("discount_percent") if p_add.get("discount_percent") is not None else (add_infos.get("discount_percent") or 0.0),
+                            "offer_valid_until": p_add.get("offer_valid_until") if p_add.get("offer_valid_until") is not None else add_infos.get("offer_valid_until"),
                         } if pricing else {},
                         "serialno_infos": sn_list
                     }
@@ -542,11 +559,15 @@ class ProductRepo:
                 
                 base_pricing = pricings.get(combined_id + "")
                 if base_pricing:
+                    bp_add = base_pricing.additional_infos if isinstance(base_pricing.additional_infos, dict) else {}
                     pricing_infos = {
                         "id": base_pricing.id,
                         "sell_price": base_pricing.sell_price,
                         "buy_price": base_pricing.buy_price,
                         "online_sell_price": base_pricing.online_sell_price,
+                        "mrp": bp_add.get("mrp") if bp_add.get("mrp") is not None else add_infos.get("mrp"),
+                        "discount_percent": bp_add.get("discount_percent") if bp_add.get("discount_percent") is not None else (add_infos.get("discount_percent") or 0.0),
+                        "offer_valid_until": bp_add.get("offer_valid_until") if bp_add.get("offer_valid_until") is not None else add_infos.get("offer_valid_until"),
                     }
                 elif batch_infos:
                     pricing_infos = batch_infos[0].get("pricing_infos", {})
@@ -571,11 +592,15 @@ class ProductRepo:
                         "reserved_stocks": stock.reserved_stocks
                     }
                 if pricing:
+                    p_add = pricing.additional_infos if isinstance(pricing.additional_infos, dict) else {}
                     pricing_infos = {
                         "id": pricing.id,
                         "sell_price": pricing.sell_price,
                         "buy_price": pricing.buy_price,
                         "online_sell_price": pricing.online_sell_price,
+                        "mrp": p_add.get("mrp") if p_add.get("mrp") is not None else add_infos.get("mrp"),
+                        "discount_percent": p_add.get("discount_percent") if p_add.get("discount_percent") is not None else (add_infos.get("discount_percent") or 0.0),
+                        "offer_valid_until": p_add.get("offer_valid_until") if p_add.get("offer_valid_until") is not None else add_infos.get("offer_valid_until"),
                     }
                 if rop:
                     reorder_point_infos = {
@@ -600,6 +625,9 @@ class ProductRepo:
                 }
             )
 
+        res_toadd["mrp"] = res_toadd.get("pricing_infos", {}).get("mrp") if isinstance(res_toadd.get("pricing_infos"), dict) and res_toadd.get("pricing_infos", {}).get("mrp") is not None else add_infos.get("mrp")
+        res_toadd["discount_percent"] = res_toadd.get("pricing_infos", {}).get("discount_percent") if isinstance(res_toadd.get("pricing_infos"), dict) and res_toadd.get("pricing_infos", {}).get("discount_percent") is not None else (add_infos.get("discount_percent") or 0.0)
+        res_toadd["offer_valid_until"] = res_toadd.get("pricing_infos", {}).get("offer_valid_until") if isinstance(res_toadd.get("pricing_infos"), dict) and res_toadd.get("pricing_infos", {}).get("offer_valid_until") is not None else add_infos.get("offer_valid_until")
         res_toadd["custom_fields"] = getattr(product, 'custom_fields', None) or getattr(product, 'additional_infos', None) or {}
         return res_toadd
 

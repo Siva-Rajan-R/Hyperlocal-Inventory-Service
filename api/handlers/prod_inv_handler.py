@@ -162,9 +162,11 @@ class HandleProdInvRequest:
         cust_field_obj=CustomFieldsService(session=self.session)
         fields=await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
         
+        raw_cf = dict(data.custom_fields) if data.custom_fields and isinstance(data.custom_fields, dict) else {}
         valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
+        merged_custom_fields = {**raw_cf, **valid_custom_fields}
         
-        res=await ProductInventoryService(session=self.session).create(data=CreateProdInvSchema(custom_fields=valid_custom_fields,**data.model_dump(exclude=['custom_fields'])), executing_user_id=executing_user_id)
+        res=await ProductInventoryService(session=self.session).create(data=CreateProdInvSchema(custom_fields=merged_custom_fields,**data.model_dump(exclude=['custom_fields'])), executing_user_id=executing_user_id)
         ic(res)
         
         if res:
@@ -223,9 +225,10 @@ class HandleProdInvRequest:
                 continue
 
             fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=item.shop_id))
+            raw_cf = dict(item.custom_fields) if item.custom_fields and isinstance(item.custom_fields, dict) else {}
             valid_custom_fields = validate_and_filter_custom_fields(item.custom_fields, fields)
             item_data = item.model_dump()
-            item_data["custom_fields"] = valid_custom_fields
+            item_data["custom_fields"] = {**raw_cf, **valid_custom_fields}
             valid_items.append(CreateProdInvSchema(**item_data))
             
         res = await ProductInventoryService(session=self.session).create_bulk_prodinv_items(data=valid_items, executing_user_id=executing_user_id)
@@ -261,14 +264,15 @@ class HandleProdInvRequest:
                 ),
             )
         valid_custom_fields = None
+        raw_cf = dict(data.custom_fields) if data.custom_fields and isinstance(data.custom_fields, dict) else None
         if data.custom_fields is not None:
             cust_field_obj = CustomFieldsService(session=self.session)
             fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
             valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
         
         dumped_data = data.model_dump(exclude_unset=True)
-        if valid_custom_fields is not None:
-            dumped_data["custom_fields"] = valid_custom_fields
+        if raw_cf is not None:
+            dumped_data["custom_fields"] = {**raw_cf, **(valid_custom_fields or {})}
         elif "custom_fields" in dumped_data and data.custom_fields is None:
             dumped_data.pop("custom_fields", None)
 

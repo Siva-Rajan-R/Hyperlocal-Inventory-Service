@@ -129,7 +129,23 @@ class ProductInventoryService:
                     buy_price = variant.buy_price if variant.buy_price is not None else (data.buy_price or 0.0)
                     sell_price = variant.sell_price if variant.sell_price is not None else (data.sell_price or 0.0)
 
-                    if variant.buy_price is not None or variant.sell_price is not None or data.sell_price is not None or data.buy_price is not None:
+                    if variant.buy_price is not None or variant.sell_price is not None or data.sell_price is not None or data.buy_price is not None or variant.mrp is not None or data.mrp is not None:
+                        var_pricing_add = {}
+                        if variant.mrp is not None:
+                            var_pricing_add["mrp"] = variant.mrp
+                        elif data.mrp is not None:
+                            var_pricing_add["mrp"] = data.mrp
+
+                        if variant.discount_percent is not None:
+                            var_pricing_add["discount_percent"] = variant.discount_percent
+                        elif data.discount_percent is not None:
+                            var_pricing_add["discount_percent"] = data.discount_percent
+
+                        if variant.offer_valid_until is not None:
+                            var_pricing_add["offer_valid_until"] = str(variant.offer_valid_until) if variant.offer_valid_until else None
+                        elif data.offer_valid_until is not None:
+                            var_pricing_add["offer_valid_until"] = str(data.offer_valid_until) if data.offer_valid_until else None
+
                         inv_pricing_id = generate_uuid()
                         pricing_toadd.append(
                             InventoryPricings(
@@ -139,7 +155,8 @@ class ProductInventoryService:
                                 variant_id=variant_id,
                                 buy_price=buy_price,
                                 sell_price=sell_price,
-                                online_sell_price=variant.online_sell_price if variant.online_sell_price is not None else (data.online_sell_price or 0.0)
+                                online_sell_price=variant.online_sell_price if variant.online_sell_price is not None else (data.online_sell_price or 0.0),
+                                additional_infos=var_pricing_add or None
                             )
                         )
 
@@ -186,7 +203,15 @@ class ProductInventoryService:
                 buy_price = data.buy_price or 0.0
                 sell_price = data.sell_price or 0.0
 
-                if data.buy_price is not None or data.sell_price is not None:
+                if data.buy_price is not None or data.sell_price is not None or data.mrp is not None:
+                    pricing_additional_infos = {}
+                    if data.mrp is not None:
+                        pricing_additional_infos["mrp"] = data.mrp
+                    if data.discount_percent is not None:
+                        pricing_additional_infos["discount_percent"] = data.discount_percent
+                    if data.offer_valid_until is not None:
+                        pricing_additional_infos["offer_valid_until"] = str(data.offer_valid_until) if data.offer_valid_until else None
+
                     inv_pricing_id = generate_uuid()
                     pricing_toadd.append(
                         InventoryPricings(
@@ -195,7 +220,8 @@ class ProductInventoryService:
                             shop_id=data.shop_id,
                             buy_price=buy_price,
                             sell_price=sell_price,
-                            online_sell_price=data.online_sell_price or 0.0
+                            online_sell_price=data.online_sell_price or 0.0,
+                            additional_infos=pricing_additional_infos or None
                         )
                     )
 
@@ -231,6 +257,13 @@ class ProductInventoryService:
             ui_id=f"{ui_id_res.get("prefix")}-{ui_id_res.get("current_number")}"
             ic(ui_id)
             cf_data = data.custom_fields or {}
+            if data.mrp is not None:
+                cf_data["mrp"] = data.mrp
+            if data.discount_percent is not None:
+                cf_data["discount_percent"] = data.discount_percent
+            if data.offer_valid_until is not None:
+                cf_data["offer_valid_until"] = str(data.offer_valid_until) if data.offer_valid_until else None
+
             v_types = data.variant_types or (cf_data.get("variant_types") if isinstance(cf_data, dict) else None)
             if v_types:
                 cf_data["variant_types"] = [vt.model_dump() if hasattr(vt, 'model_dump') else vt for vt in v_types]
@@ -247,7 +280,7 @@ class ProductInventoryService:
                 barcode=product_barcode,
                 brand=data.brand or None,
                 additional_infos=cf_data,
-                **data.model_dump(exclude=["stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields","additional_infos","is_active","return_policy"])
+                **data.model_dump(exclude=["stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields","additional_infos","is_active","return_policy","mrp","discount_percent","offer_valid_until"])
             )
 
             product_repo_obj=ProductRepo(session=self.session)
@@ -536,7 +569,21 @@ class ProductInventoryService:
                             )
                         )
                         
-                    if variant.buy_price is not None or variant.sell_price is not None or variant.online_sell_price is not None:
+                    if variant.buy_price is not None or variant.sell_price is not None or variant.online_sell_price is not None or variant.mrp is not None or data.mrp is not None:
+                        var_pricing_add = {}
+                        if variant.mrp is not None:
+                            var_pricing_add["mrp"] = variant.mrp
+                        elif data.mrp is not None:
+                            var_pricing_add["mrp"] = data.mrp
+                        if variant.discount_percent is not None:
+                            var_pricing_add["discount_percent"] = variant.discount_percent
+                        elif data.discount_percent is not None:
+                            var_pricing_add["discount_percent"] = data.discount_percent
+                        if variant.offer_valid_until is not None:
+                            var_pricing_add["offer_valid_until"] = str(variant.offer_valid_until) if variant.offer_valid_until else None
+                        elif data.offer_valid_until is not None:
+                            var_pricing_add["offer_valid_until"] = str(data.offer_valid_until) if data.offer_valid_until else None
+
                         pricing_toupdate.append(UpdateInventoryPricingDbSchema(
                             shop_id=data.shop_id,
                             product_id=data.id,
@@ -544,6 +591,10 @@ class ProductInventoryService:
                             buy_price=variant.buy_price,
                             sell_price=variant.sell_price,
                             online_sell_price=variant.online_sell_price,
+                            additional_infos=var_pricing_add or None,
+                            mrp=var_pricing_add.get("mrp"),
+                            discount_percent=var_pricing_add.get("discount_percent"),
+                            offer_valid_until=var_pricing_add.get("offer_valid_until"),
                             batch_id=None
                         ))
                     
@@ -567,7 +618,15 @@ class ProductInventoryService:
                         ))
 
             # Base product level pricing, ROP, and storage location (for non-variant products or base product fallback)
-            if data.buy_price is not None or data.sell_price is not None or data.online_sell_price is not None:
+            base_pricing_add = {}
+            if data.mrp is not None:
+                base_pricing_add["mrp"] = data.mrp
+            if data.discount_percent is not None:
+                base_pricing_add["discount_percent"] = data.discount_percent
+            if data.offer_valid_until is not None:
+                base_pricing_add["offer_valid_until"] = str(data.offer_valid_until) if data.offer_valid_until else None
+
+            if data.buy_price is not None or data.sell_price is not None or data.online_sell_price is not None or base_pricing_add:
                 pricing_toupdate.append(UpdateInventoryPricingDbSchema(
                     shop_id=data.shop_id,
                     product_id=data.id,
@@ -575,7 +634,11 @@ class ProductInventoryService:
                     batch_id=None,
                     buy_price=data.buy_price,
                     sell_price=data.sell_price,
-                    online_sell_price=data.online_sell_price
+                    online_sell_price=data.online_sell_price,
+                    additional_infos=base_pricing_add or None,
+                    mrp=base_pricing_add.get("mrp"),
+                    discount_percent=base_pricing_add.get("discount_percent"),
+                    offer_valid_until=base_pricing_add.get("offer_valid_until")
                 ))
             
             if data.reorder_point is not None or data.online_reorder_point is not None:
@@ -606,6 +669,13 @@ class ProductInventoryService:
             if data.custom_fields and isinstance(data.custom_fields, dict):
                 existing_cf.update(data.custom_fields)
 
+            if data.mrp is not None:
+                existing_cf["mrp"] = data.mrp
+            if data.discount_percent is not None:
+                existing_cf["discount_percent"] = data.discount_percent
+            if data.offer_valid_until is not None:
+                existing_cf["offer_valid_until"] = str(data.offer_valid_until) if data.offer_valid_until else None
+
             v_types = data.variant_types or (data.custom_fields.get("variant_types") if isinstance(data.custom_fields, dict) else None)
             if v_types:
                 existing_cf["variant_types"] = [vt.model_dump() if hasattr(vt, 'model_dump') else vt for vt in v_types]
@@ -615,7 +685,7 @@ class ProductInventoryService:
                 existing_cf["return_policy"] = ret_pol
                 existing_cf.pop("refund_policy", None)
 
-            if v_types or (data.custom_fields and isinstance(data.custom_fields, dict)) or ret_pol is not None:
+            if v_types or (data.custom_fields and isinstance(data.custom_fields, dict)) or ret_pol is not None or data.mrp is not None or data.discount_percent is not None or data.offer_valid_until is not None:
                 update_fields["additional_infos"] = existing_cf
 
             if update_fields:

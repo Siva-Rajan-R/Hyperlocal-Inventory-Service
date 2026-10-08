@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional,List
+from typing import Optional,List,Union
 from datetime import date,datetime
 
 class ProdInvReadModelCategoryInfosType(BaseModel):
@@ -33,6 +33,9 @@ class ProdInvReadModelPricingInfosType(BaseModel):
     id:str
     buy_price:float
     sell_price:float
+    mrp:Optional[float]=None
+    discount_percent:Optional[float]=0.0
+    offer_valid_until:Optional[Union[str, date]]=None
 
 class ProdInvReadModelStorageLocationInfosType(BaseModel):
     id:str

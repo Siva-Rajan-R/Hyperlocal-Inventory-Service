@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import date
-from typing import Optional,List,Dict
+from typing import Optional,List,Dict,Union
 
 
 # STOCKS
@@ -36,6 +36,10 @@ class CreateInventoryPricingDbSchema(BaseModel):
     buy_price:float
     sell_price:float
     online_sell_price:float = 0.0
+    additional_infos:Optional[dict]=None
+    mrp:Optional[float]=None
+    discount_percent:Optional[float]=None
+    offer_valid_until:Optional[Union[str, date]]=None
 
 class UpdateInventoryPricingDbSchema(BaseModel):
     shop_id:str
@@ -45,6 +49,10 @@ class UpdateInventoryPricingDbSchema(BaseModel):
     buy_price:Optional[float]=None
     sell_price:Optional[float]=None
     online_sell_price:Optional[float]=None
+    additional_infos:Optional[dict]=None
+    mrp:Optional[float]=None
+    discount_percent:Optional[float]=None
+    offer_valid_until:Optional[Union[str, date]]=None
 
 
 
