@@ -43,9 +43,11 @@ class GetFieldByName(BaseModel):
     name:str
     shop_id:str
 
+from typing import Optional, List, Union, Any
+
 class CustomFieldValueInfos(BaseModel):
     field_id:str
-    value:str
+    value:Union[str, int, float, bool, Any]
 
 # --- Custom Fields Values (Assignments) ---
 class CreateCustomFieldValueSchema(BaseModel):
@@ -55,7 +57,7 @@ class CreateCustomFieldValueSchema(BaseModel):
     values: Optional[List[CustomFieldValueInfos]] = None
 
 class UpdateCustomFieldValueSchema(BaseModel):
-    value: str
+    value: Union[str, int, float, bool, Any]
 
 class GetValueByIdName(BaseModel):
     id:Optional[str]=None

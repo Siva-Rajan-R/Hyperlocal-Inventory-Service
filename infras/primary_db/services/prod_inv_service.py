@@ -301,19 +301,22 @@ class ProductInventoryService:
                 if data.custom_fields and isinstance(data.custom_fields, dict):
                     reserved_keys = {"return_policy", "refund_policy", "variant_types", "is_active", "visible_online"}
                     cf_entries = [
-                        {'field_id': k, "value": v}
+                        {'field_id': k, "value": str(v) if not isinstance(v, str) else v}
                         for k, v in data.custom_fields.items()
                         if k not in reserved_keys and isinstance(v, (str, int, float, bool))
                     ]
                     if cf_entries:
-                        cust_obj = await CustomFieldsService(session=self.session).upsert_values(
-                            data=CreateCustomFieldValueSchema(
-                                shop_id=data.shop_id,
-                                product_id=product_id,
-                                value_infos=cf_entries
+                        try:
+                            cust_obj = await CustomFieldsService(session=self.session).upsert_values(
+                                data=CreateCustomFieldValueSchema(
+                                    shop_id=data.shop_id,
+                                    product_id=product_id,
+                                    value_infos=cf_entries
+                                )
                             )
-                        )
-                        ic(cust_obj)
+                            ic(cust_obj)
+                        except Exception as cf_err:
+                            ic(f"Warning: Failed to upsert custom fields: {cf_err}")
                 
                 # Handle initial opening stock update if provided (> 0)
                 stock_update_payloads = []
