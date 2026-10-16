@@ -1,5 +1,5 @@
 from fastapi import APIRouter,Depends,Query,HTTPException,UploadFile,File,Form
-from schemas.v1.prod_inv_schemas.request_schemas import CreateProdInvSchema,UpdateProdInvSchema,DeleteProdInvSchema
+from schemas.v1.prod_inv_schemas.request_schemas import CreateProdInvSchema,UpdateProdInvSchema,DeleteProdInvSchema,UpdateAllProdInvSchema
 from schemas.v1.inventory_schemas.request_schemas import ReserveInventorySchema,ReleaseInventorySchema,CommitInventorySchema,ReleaseItemInventorySchema
 from infras.primary_db.repos.inventory_repo import InventoryRepo
 from infras.primary_db.repos.product_repo import ProductRepo
@@ -201,7 +201,10 @@ async def reserve_stock(data:ReserveInventorySchema, session:PG_ASYNC_SESSION):
     # For non-tracking products, skip stock reservation (no stock rows exist)
     # but still create a reservation record so commit can create stock adj entry
     have_tracking = is_prod_exists.get('have_tracking', True)
-    res = await repo.reserve_stock(data=data, skip_stock_check=not have_tracking)
+    try:
+        res = await repo.reserve_stock(data=data, skip_stock_check=not have_tracking)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     return SuccessResponseTypDict(detail=BaseResponseTypDict(status_code=200, success=res, msg="Stock reserved"))
 
 
@@ -222,3 +225,13 @@ async def commit_reservations(data:CommitInventorySchema, session:PG_ASYNC_SESSI
     repo = InventoryRepo(session=session)
     res = await repo.commit_reservations(data=data)
     return SuccessResponseTypDict(detail=BaseResponseTypDict(status_code=200, success=res, msg="Reservations committed"))
+
+
+@router.post('/bulk-update')
+async def bulk_update_prodinv(data: List[UpdateAllProdInvSchema], session: PG_ASYNC_SESSION, user_id: Optional[str] = Depends(get_current_user_id)):
+    from infras.primary_db.services.prod_inv_service import ProductInventoryService
+    service = ProductInventoryService(session=session)
+    res = await service.update_all(data=data, executing_user_id=user_id)
+    if res:
+        await session.commit()
+    return SuccessResponseTypDict(detail=BaseResponseTypDict(status_code=200, success=bool(res), msg="Inventory updated successfully"))

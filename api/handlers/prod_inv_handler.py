@@ -139,6 +139,53 @@ class HandleProdInvRequest:
             )
 
         
+        # Validate selling price vs MRP
+        if data.mrp is not None and float(data.mrp) > 0:
+            if data.sell_price is not None and float(data.sell_price) > float(data.mrp):
+                raise HTTPException(
+                    status_code=400,
+                    detail=ErrorResponseTypDict(
+                        msg="Invalid Pricing",
+                        description=f"Selling price ({data.sell_price}) cannot exceed MRP ({data.mrp}).",
+                        success=False,
+                        status_code=400
+                    )
+                )
+            if data.online_sell_price is not None and float(data.online_sell_price) > float(data.mrp):
+                raise HTTPException(
+                    status_code=400,
+                    detail=ErrorResponseTypDict(
+                        msg="Invalid Pricing",
+                        description=f"Online selling price ({data.online_sell_price}) cannot exceed MRP ({data.mrp}).",
+                        success=False,
+                        status_code=400
+                    )
+                )
+        if data.variant_infos:
+            for variant in data.variant_infos:
+                v_mrp = variant.mrp if (variant.mrp is not None and float(variant.mrp) > 0) else data.mrp
+                if v_mrp is not None and float(v_mrp) > 0:
+                    if variant.sell_price is not None and float(variant.sell_price) > float(v_mrp):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=ErrorResponseTypDict(
+                                msg="Invalid Pricing",
+                                description=f"Variant '{variant.name}' selling price ({variant.sell_price}) cannot exceed MRP ({v_mrp}).",
+                                success=False,
+                                status_code=400
+                            )
+                        )
+                    if variant.online_sell_price is not None and float(variant.online_sell_price) > float(v_mrp):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=ErrorResponseTypDict(
+                                msg="Invalid Pricing",
+                                description=f"Variant '{variant.name}' online selling price ({variant.online_sell_price}) cannot exceed MRP ({v_mrp}).",
+                                success=False,
+                                status_code=400
+                            )
+                        )
+
         # Check if opening stock is provided and if initial stock import is already completed
         has_stock = False
         if data.type_infos and data.type_infos.has_variant and data.variant_infos:
@@ -218,6 +265,54 @@ class HandleProdInvRequest:
                     )
                 )
 
+        # Validate selling price vs MRP in bulk items
+        for item in data:
+            if item.mrp is not None and float(item.mrp) > 0:
+                if item.sell_price is not None and float(item.sell_price) > float(item.mrp):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=ErrorResponseTypDict(
+                            msg="Invalid Pricing",
+                            description=f"Selling price ({item.sell_price}) cannot exceed MRP ({item.mrp}) for product '{item.name}'.",
+                            success=False,
+                            status_code=400
+                        )
+                    )
+                if item.online_sell_price is not None and float(item.online_sell_price) > float(item.mrp):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=ErrorResponseTypDict(
+                            msg="Invalid Pricing",
+                            description=f"Online selling price ({item.online_sell_price}) cannot exceed MRP ({item.mrp}) for product '{item.name}'.",
+                            success=False,
+                            status_code=400
+                        )
+                    )
+            if item.variant_infos:
+                for variant in item.variant_infos:
+                    v_mrp = variant.mrp if (variant.mrp is not None and float(variant.mrp) > 0) else item.mrp
+                    if v_mrp is not None and float(v_mrp) > 0:
+                        if variant.sell_price is not None and float(variant.sell_price) > float(v_mrp):
+                            raise HTTPException(
+                                status_code=400,
+                                detail=ErrorResponseTypDict(
+                                    msg="Invalid Pricing",
+                                    description=f"Variant '{variant.name}' selling price ({variant.sell_price}) cannot exceed MRP ({v_mrp}).",
+                                    success=False,
+                                    status_code=400
+                                )
+                            )
+                        if variant.online_sell_price is not None and float(variant.online_sell_price) > float(v_mrp):
+                            raise HTTPException(
+                                status_code=400,
+                                detail=ErrorResponseTypDict(
+                                    msg="Invalid Pricing",
+                                    description=f"Variant '{variant.name}' online selling price ({variant.online_sell_price}) cannot exceed MRP ({v_mrp}).",
+                                    success=False,
+                                    status_code=400
+                                )
+                            )
+
         valid_items = []
         cust_field_obj = CustomFieldsService(session=self.session)
         for item in data:
@@ -263,6 +358,52 @@ class HandleProdInvRequest:
                     status_code=400
                 ),
             )
+        # Validate selling price vs MRP on update
+        if data.mrp is not None and float(data.mrp) > 0:
+            if data.sell_price is not None and float(data.sell_price) > float(data.mrp):
+                raise HTTPException(
+                    status_code=400,
+                    detail=ErrorResponseTypDict(
+                        msg="Invalid Pricing",
+                        description=f"Selling price ({data.sell_price}) cannot exceed MRP ({data.mrp}).",
+                        success=False,
+                        status_code=400
+                    )
+                )
+            if data.online_sell_price is not None and float(data.online_sell_price) > float(data.mrp):
+                raise HTTPException(
+                    status_code=400,
+                    detail=ErrorResponseTypDict(
+                        msg="Invalid Pricing",
+                        description=f"Online selling price ({data.online_sell_price}) cannot exceed MRP ({data.mrp}).",
+                        success=False,
+                        status_code=400
+                    )
+                )
+        if data.variant_infos:
+            for variant in data.variant_infos:
+                v_mrp = variant.mrp if (variant.mrp is not None and float(variant.mrp) > 0) else data.mrp
+                if v_mrp is not None and float(v_mrp) > 0:
+                    if variant.sell_price is not None and float(variant.sell_price) > float(v_mrp):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=ErrorResponseTypDict(
+                                msg="Invalid Pricing",
+                                description=f"Variant '{variant.name or variant.id}' selling price ({variant.sell_price}) cannot exceed MRP ({v_mrp}).",
+                                success=False,
+                                status_code=400
+                            )
+                        )
+                    if variant.online_sell_price is not None and float(variant.online_sell_price) > float(v_mrp):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=ErrorResponseTypDict(
+                                msg="Invalid Pricing",
+                                description=f"Variant '{variant.name or variant.id}' online selling price ({variant.online_sell_price}) cannot exceed MRP ({v_mrp}).",
+                                success=False,
+                                status_code=400
+                            )
+                        )
         valid_custom_fields = None
         raw_cf = dict(data.custom_fields) if data.custom_fields and isinstance(data.custom_fields, dict) else None
         if data.custom_fields is not None:

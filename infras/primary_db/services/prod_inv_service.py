@@ -749,22 +749,130 @@ class ProductInventoryService:
                     if isinstance(val, (dict, list, set, str, tuple)) and len(val) == 0: return True
                     return str(val).strip() in ("None", "{}", "[]", "", "null", "NoneType")
 
+                def _get_product_prev_val(res, k):
+                    if not isinstance(res, dict):
+                        return None
+                    if k in res and res[k] is not None:
+                        return res[k]
+                    p_info = res.get("pricing_infos") or {}
+                    if isinstance(p_info, dict) and k in p_info and p_info[k] is not None:
+                        return p_info[k]
+                    rop_info = res.get("reorder_point_infos") or {}
+                    if isinstance(rop_info, dict) and k in rop_info and rop_info[k] is not None:
+                        return rop_info[k]
+                    stl_info = res.get("storage_location_infos") or {}
+                    if isinstance(stl_info, dict) and k in stl_info and stl_info[k] is not None:
+                        return stl_info[k]
+                    add_info = res.get("additional_infos") or {}
+                    if isinstance(add_info, dict) and k in add_info and add_info[k] is not None:
+                        return add_info[k]
+                    return None
+
+                def _are_values_equal(v1, v2):
+                    if _is_empty_or_none(v1) and _is_empty_or_none(v2):
+                        return True
+                    if v1 == v2:
+                        return True
+                    try:
+                        if v1 is not None and v2 is not None and not isinstance(v1, bool) and not isinstance(v2, bool):
+                            if float(v1) == float(v2):
+                                return True
+                    except (ValueError, TypeError):
+                        pass
+                    if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
+                        return abs(float(v1) - float(v2)) < 0.0001
+                    if isinstance(v1, str) and isinstance(v2, str):
+                        return v1.strip().lower() == v2.strip().lower()
+                    if isinstance(v1, dict) and isinstance(v2, dict):
+                        c1 = {k: v for k, v in v1.items() if not _is_empty_or_none(v)}
+                        c2 = {k: v for k, v in v2.items() if not _is_empty_or_none(v)}
+                        if set(c1.keys()) != set(c2.keys()):
+                            return False
+                        return all(_are_values_equal(c1[k], c2[k]) for k in c1)
+                    if isinstance(v1, list) and isinstance(v2, list):
+                        if len(v1) != len(v2):
+                            return False
+                        return all(_are_values_equal(a, b) for a, b in zip(v1, v2))
+                    return str(v1).strip().lower() == str(v2).strip().lower()
+
                 dumped_updates = data.model_dump(exclude_unset=True, exclude_none=True)
                 changes = []
                 for key, new_val in dumped_updates.items():
                     if key in ["id", "shop_id", "user_id", "cur_user_id"]:
                         continue
-                    prev_val = prod_get_res.get(key)
-                    if _is_empty_or_none(prev_val) and _is_empty_or_none(new_val):
+                    if key in ["custom_fields", "additional_infos"]:
+                        prev_dict = _get_product_prev_val(prod_get_res, key) or {}
+                        if isinstance(prev_dict, dict) and isinstance(new_val, dict):
+                            skip_keys = {"mrp", "discount_percent", "offer_valid_until", "buy_price", "sell_price", "online_sell_price", "reorder_point", "online_reorder_point", "storage_location", "return_policy", "variant_types", "variant_type_name"}
+                            all_cf_keys = set(prev_dict.keys()) | set(new_val.keys())
+                            for cf_k in all_cf_keys:
+                                if cf_k in skip_keys:
+                                    continue
+                                cf_prev = prev_dict.get(cf_k)
+                                cf_new = new_val.get(cf_k)
+                                if not _are_values_equal(cf_prev, cf_new):
+                                    changes.append({
+                                        "field": cf_k,
+                                        "before": str(cf_prev) if cf_prev is not None else "None",
+                                        "after": str(cf_new) if cf_new is not None else "None"
+                                    })
                         continue
-                    if prev_val != new_val and str(prev_val).strip() != str(new_val).strip():
+                    if key == "unit_id":
+                        prev_val = _get_product_prev_val(prod_get_res, key)
+                        if _are_values_equal(prev_val, new_val):
+                            continue
+                        from integrations.utility_service import get_shop_unit
+                        prev_u = await get_shop_unit(data.shop_id, prev_val) if prev_val else {}
+                        new_u = await get_shop_unit(data.shop_id, new_val) if new_val else {}
+                        def _format_unit(u_data, fallback):
+                            if not u_data: return str(fallback) if fallback else "None"
+                            name = u_data.get("name") or u_data.get("value")
+                            short = u_data.get("short_name")
+                            if name and short and name.lower() != short.lower():
+                                return f"{name} ({short})"
+                            return name or short or str(fallback)
+                        prev_label = _format_unit(prev_u, prev_val)
+                        new_label = _format_unit(new_u, new_val)
                         changes.append({
-                            "field": key,
-                            "before": str(prev_val) if prev_val is not None else "None",
-                            "after": str(new_val) if new_val is not None else "None"
+                            "field": "unit",
+                            "before": str(prev_label) if prev_label is not None else "None",
+                            "after": str(new_label) if new_label is not None else "None"
                         })
+                        continue
+
+                    if key == "category_id":
+                        prev_val = _get_product_prev_val(prod_get_res, key)
+                        if _are_values_equal(prev_val, new_val):
+                            continue
+                        from integrations.utility_service import get_shop_category
+                        prev_c = await get_shop_category(data.shop_id, prev_val) if prev_val else {}
+                        new_c = await get_shop_category(data.shop_id, new_val) if new_val else {}
+                        prev_label = prev_c.get("name") or str(prev_val) if prev_val else "None"
+                        new_label = new_c.get("name") or str(new_val) if new_val else "None"
+                        changes.append({
+                            "field": "category",
+                            "before": str(prev_label) if prev_label is not None else "None",
+                            "after": str(new_label) if new_label is not None else "None"
+                        })
+                        continue
+
+                    prev_val = _get_product_prev_val(prod_get_res, key)
+                    if _are_values_equal(prev_val, new_val):
+                        continue
+                    field_name = key[:-3] if key.endswith("_id") else key
+                    changes.append({
+                        "field": field_name,
+                        "before": str(prev_val) if prev_val is not None else "None",
+                        "after": str(new_val) if new_val is not None else "None"
+                    })
 
                 effective_ui_id = prod_get_res.get("ui_id") or getattr(data, "ui_id", None) or str(data.id)
+                if changes:
+                    fields_list = ", ".join(c["field"].replace("_", " ") for c in changes)
+                    desc = f"Updated {fields_list}"
+                else:
+                    desc = f"Updated Product {prod_name} ({effective_ui_id})"
+
                 await rabbitmq_msg_obj.publish_event(
                     routing_key="activity_logs.routing.key",
                     exchange_name="activity_logs.exchange",
@@ -776,7 +884,7 @@ class ProductInventoryService:
                         "entity_type": "PRODUCTS",
                         "entity_id": str(effective_ui_id),
                         "entity_name": str(prod_name),
-                        "description": f"Updated Product {prod_name} ({effective_ui_id})",
+                        "description": desc,
                         "changes": changes
                     },
                     headers={}

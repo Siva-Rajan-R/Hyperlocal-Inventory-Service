@@ -188,8 +188,11 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
                 if item_entity_name == "OPENING_STOCK":
                     item_desc = f"Opening stock initialized ({item_entity_id})" if item_entity_id else "Opening stock initialized"
                 else:
-                    desc_entity = item_entity_name.replace("_", " ").lower() if item_entity_name else "adjustment"
-                    desc_entity = desc_entity.replace("offline ", "").replace("online ", "").strip()
+                    raw_entity = item_entity_name.replace("_", " ").lower() if item_entity_name else "adjustment"
+                    if "online" in str(item_entity_name).lower():
+                        desc_entity = "online sale"
+                    else:
+                        desc_entity = raw_entity.replace("offline ", "").replace("online ", "").strip()
                     if update_type == "INCREMENT":
                         action_text = "Stock increase"
                     elif update_type == "DECREMENT":
@@ -275,8 +278,11 @@ async def emit_stock_mov_adj(session: AsyncSession, data: List[dict]) -> bool:
         else:
             desc_str = "Opening stock initialized"
     else:
-        desc_entity = entity_name_val.replace("_", " ").lower() if entity_name_val else "adjustment"
-        desc_entity = desc_entity.replace("offline ", "").strip()
+        raw_entity = entity_name_val.replace("_", " ").lower() if entity_name_val else "adjustment"
+        if "online" in str(entity_name_val).lower():
+            desc_entity = "online sale"
+        else:
+            desc_entity = raw_entity.replace("offline ", "").replace("online ", "").strip()
             
         if update_type_val == "INCREMENT":
             action_text = "Stock increase"

@@ -41,6 +41,8 @@ async def service_main_controller(msg:AbstractIncomingMessage):
         entity_name:str=headers.get("entity_name")
         service_name:str=headers.get("service_name")
         body = headers.get("body")
+        if body is None and isinstance(payload, dict):
+            body = payload.get("body")
         # body may arrive as a JSON string (encoded for AMQP header compatibility)
         if isinstance(body, str):
             try:
@@ -51,23 +53,23 @@ async def service_main_controller(msg:AbstractIncomingMessage):
         saga_repo=SagaStatesRepo(session=session)
         ic(payload,headers,saga_id,reply_entity_name,reply_key,reply_exchange,entity_name,service_name,body)
         try:
-            
-            if not entity_name or not body or not saga_id or not reply_key or not reply_exchange or not reply_entity_name or not service_name:
-                ic("One or more required fields are missing in the message headers")
-                await saga_repo.update_status(
-                    status=SagaStatusEnum.CANCELED,
-                    saga_id=saga_id
-                )
-                await saga_repo.update_error(
-                    saga_id=saga_id,
-                    error=SagaStateErrorTypDict(
-                        code="BUSSINESS_ERROR",
-                        debug=f"entity_name, body, saga_id, reply_key, reply_exchange, reply_entity_name and service_name are required in the message headers ({entity_name}, {body}, {saga_id}, {reply_key}, {reply_exchange}, {reply_entity_name}, {service_name})",
-                        user_msg="One or more required fields are missing in the message headers"
+            is_saga = bool(saga_id and str(saga_id).lower() not in ("none", "") and reply_key and reply_exchange and reply_entity_name)
+            if not entity_name or not body or not service_name:
+                ic("One or more required fields (entity_name, body, service_name) are missing in the message headers")
+                if is_saga:
+                    await saga_repo.update_status(
+                        status=SagaStatusEnum.CANCELED,
+                        saga_id=saga_id
                     )
-                )
-                
-                await session.commit()
+                    await saga_repo.update_error(
+                        saga_id=saga_id,
+                        error=SagaStateErrorTypDict(
+                            code="BUSSINESS_ERROR",
+                            debug=f"entity_name, body and service_name are required in the message headers ({entity_name}, {body}, {service_name})",
+                            user_msg="One or more required fields are missing in the message headers"
+                        )
+                    )
+                    await session.commit()
 
                 return False
 
@@ -75,20 +77,20 @@ async def service_main_controller(msg:AbstractIncomingMessage):
             
             if not service:
                 ic(f"Service name '{service_name}' is not recognized")
-                await saga_repo.update_status(
-                    status=SagaStatusEnum.CANCELED,
-                    saga_id=saga_id
-                )
-                await saga_repo.update_error(
-                    saga_id=saga_id,
-                    error=SagaStateErrorTypDict(
-                        code="BUSSINESS_ERROR",
-                        debug=f"service_name '{service_name}' is not recognized",
-                        user_msg="Service name in the message headers is not recognized, please check and try again"
+                if is_saga:
+                    await saga_repo.update_status(
+                        status=SagaStatusEnum.CANCELED,
+                        saga_id=saga_id
                     )
-                )
-                
-                await session.commit()
+                    await saga_repo.update_error(
+                        saga_id=saga_id,
+                        error=SagaStateErrorTypDict(
+                            code="BUSSINESS_ERROR",
+                            debug=f"service_name '{service_name}' is not recognized",
+                            user_msg="Service name in the message headers is not recognized, please check and try again"
+                        )
+                    )
+                    await session.commit()
 
                 return False
             method = getattr(service(), entity_name, None)
@@ -96,20 +98,20 @@ async def service_main_controller(msg:AbstractIncomingMessage):
             ic(not method)
             if not method:
                 ic(f"Entity name '{entity_name}' is not recognized")
-                await saga_repo.update_status(
-                    status=SagaStatusEnum.CANCELED,
-                    saga_id=saga_id
-                )
-                await saga_repo.update_error(
-                    saga_id=saga_id,
-                    error=SagaStateErrorTypDict(
-                        code="BUSSINESS_ERROR",
-                        debug=f"Thambi entity_name '{entity_name}' is not recognized",
-                        user_msg="Entity name in the message headers is not recognized, please check and try again"
+                if is_saga:
+                    await saga_repo.update_status(
+                        status=SagaStatusEnum.CANCELED,
+                        saga_id=saga_id
                     )
-                )
-                
-                await session.commit()
+                    await saga_repo.update_error(
+                        saga_id=saga_id,
+                        error=SagaStateErrorTypDict(
+                            code="BUSSINESS_ERROR",
+                            debug=f"Thambi entity_name '{entity_name}' is not recognized",
+                            user_msg="Entity name in the message headers is not recognized, please check and try again"
+                        )
+                    )
+                    await session.commit()
 
                 return False
             
