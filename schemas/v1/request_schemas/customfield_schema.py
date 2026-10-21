@@ -8,6 +8,7 @@ class CustomFieldInfos(BaseModel):
     type: str
     required: bool = False
     visible_online: bool = False
+    category_id: Optional[str] = None
 
     
 # --- Custom Fields (Definitions) ---
@@ -24,6 +25,7 @@ class UpdateCustomFieldSchema(BaseModel):
     type: Optional[str] = None
     required: Optional[bool] = None
     visible_online: Optional[bool] = None
+    category_id: Optional[str] = None
 
 
 class DeleteCustomFieldSchema(BaseModel):
@@ -34,6 +36,7 @@ class DeleteCustomFieldSchema(BaseModel):
 
 class GetFieldByShopIdSchema(BaseModel):
     shop_id:str
+    category_id: Optional[str] = None
 
 class GetFieldById(BaseModel):
     id:str

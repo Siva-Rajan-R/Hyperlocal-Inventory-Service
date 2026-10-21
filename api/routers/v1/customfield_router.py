@@ -16,9 +16,11 @@ PG_ASYNC_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 async def create_field(data: CreateCustomFieldSchema, session:PG_ASYNC_SESSION):
     return await CustomFieldsHandler.create_field(data=data, session=session)
 
+from typing import Optional
+
 @router.get("/{shop_id}")
-async def get_all_fields(shop_id: str, session:PG_ASYNC_SESSION):
-    return await CustomFieldsHandler.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=shop_id), session=session)
+async def get_all_fields(shop_id: str, session:PG_ASYNC_SESSION, category_id: Optional[str] = None):
+    return await CustomFieldsHandler.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=shop_id, category_id=category_id), session=session)
 
 @router.get("/{shop_id}/{field_id}")
 async def get_field(field_id: str, shop_id: str, session:PG_ASYNC_SESSION):

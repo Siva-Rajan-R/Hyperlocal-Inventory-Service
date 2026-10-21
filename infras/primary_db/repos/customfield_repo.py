@@ -83,6 +83,14 @@ class CustomFieldsRepo:
 
     async def get_fields_by_shop_id(self, data:GetFieldByShopIdSchema) -> List[dict]:
         stmt = select(ProductCustomFields).where(ProductCustomFields.shop_id == data.shop_id)
+        if getattr(data, 'category_id', None):
+            stmt = stmt.where(
+                or_(
+                    ProductCustomFields.category_id == data.category_id,
+                    ProductCustomFields.category_id.is_(None),
+                    ProductCustomFields.category_id == ""
+                )
+            )
         res = (await self.session.execute(stmt)).scalars().all()
         
         field_ids = [row.id for row in res]
@@ -154,6 +162,7 @@ class CustomFieldsRepo:
                 ProductCustomFields.type,
                 ProductCustomFields.required,
                 ProductCustomFields.visible_online,
+                ProductCustomFields.category_id,
             )
             .join(ProductCustomFields, ProductCustomFields.id == ProductCustomFieldsValues.field_id)
             .where(

@@ -4,6 +4,7 @@ from typing import Optional
 class CreateCustomFieldDbSchema(BaseModel):
     id: str
     shop_id: str
+    category_id: Optional[str] = None
     field_name: str
     label_name: str
     type: str
@@ -21,6 +22,7 @@ class CreateCustomFieldValueDbSchema(BaseModel):
 class UpdateCustomFieldDbSchema(BaseModel):
     id:str
     shop_id:str
+    category_id: Optional[str] = None
     label_name: Optional[str]=None
     type: Optional[str]=None
     required: Optional[bool] = None

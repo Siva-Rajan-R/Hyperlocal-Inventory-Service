@@ -118,13 +118,25 @@ class CustomFieldsService:
 
         # Validate that field_id actually exists in custom_fields table for this shop
         existing_fields = await self.repo.get_fields_by_shop_id(GetFieldByShopIdSchema(shop_id=shop_id))
-        valid_field_ids = {f.get("id") for f in existing_fields} if existing_fields else set()
+        fields_by_id = {f.get("id"): f for f in existing_fields} if existing_fields else {}
+
+        # Look up product's category if product exists in DB
+        from infras.primary_db.models.product_model import Products
+        from sqlalchemy import select
+        cat_stmt = select(Products.category_id).where(Products.id == product_id, Products.shop_id == shop_id)
+        prod_cat_id = (await self.session.execute(cat_stmt)).scalar_one_or_none()
 
         import json
         for d in items:
             f_id = getattr(d, 'field_id', None) if not isinstance(d, dict) else d.get('field_id')
             f_val = getattr(d, 'value', None) if not isinstance(d, dict) else d.get('value')
-            if not f_id or f_id not in valid_field_ids:
+            if not f_id or f_id not in fields_by_id:
+                continue
+
+            field_def = fields_by_id[f_id]
+            field_cat = field_def.get("category_id")
+            # If the field is assigned to a specific category and product exists with a category, enforce match
+            if field_cat and prod_cat_id and str(field_cat).strip() != str(prod_cat_id).strip():
                 continue
 
             # Ensure value is converted to a string format suitable for the db column

@@ -9,6 +9,7 @@ class ProductCustomFields(BASE):
     __tablename__="product_custom_fields"
     id=Column(String,primary_key=True)
     shop_id=Column(String)
+    category_id=Column(String, nullable=True)
     field_name=Column(String)
     label_name=Column(String)
     type=Column(String)

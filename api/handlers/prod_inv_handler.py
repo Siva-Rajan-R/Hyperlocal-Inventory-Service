@@ -210,7 +210,7 @@ class HandleProdInvRequest:
         fields=await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
         
         raw_cf = dict(data.custom_fields) if data.custom_fields and isinstance(data.custom_fields, dict) else {}
-        valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
+        valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields, category_id=data.category_id)
         merged_custom_fields = {**raw_cf, **valid_custom_fields}
         
         res=await ProductInventoryService(session=self.session).create(data=CreateProdInvSchema(custom_fields=merged_custom_fields,**data.model_dump(exclude=['custom_fields'])), executing_user_id=executing_user_id)
@@ -321,7 +321,7 @@ class HandleProdInvRequest:
 
             fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=item.shop_id))
             raw_cf = dict(item.custom_fields) if item.custom_fields and isinstance(item.custom_fields, dict) else {}
-            valid_custom_fields = validate_and_filter_custom_fields(item.custom_fields, fields)
+            valid_custom_fields = validate_and_filter_custom_fields(item.custom_fields, fields, category_id=item.category_id)
             item_data = item.model_dump()
             item_data["custom_fields"] = {**raw_cf, **valid_custom_fields}
             valid_items.append(CreateProdInvSchema(**item_data))
@@ -409,7 +409,13 @@ class HandleProdInvRequest:
         if data.custom_fields is not None:
             cust_field_obj = CustomFieldsService(session=self.session)
             fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
-            valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields)
+            cat_id = data.category_id
+            if not cat_id:
+                from infras.primary_db.models.product_model import Products
+                from sqlalchemy import select
+                cat_stmt = select(Products.category_id).where(Products.id == data.id, Products.shop_id == data.shop_id)
+                cat_id = (await self.session.execute(cat_stmt)).scalar_one_or_none()
+            valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields, category_id=cat_id)
         
         dumped_data = data.model_dump(exclude_unset=True)
         if raw_cf is not None:
