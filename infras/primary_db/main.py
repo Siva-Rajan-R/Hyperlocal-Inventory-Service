@@ -18,6 +18,12 @@ async def init_inventory_pg_db():
             # await conn.run_sync(BASE.metadata.drop_all)
             await conn.run_sync(BASE.metadata.create_all)
             await conn.commit()
+
+        # Run safe migrations for existing tables
+        async with ENGINE.begin() as conn:
+            from sqlalchemy import text
+            await conn.execute(text("ALTER TABLE product_custom_fields ADD COLUMN IF NOT EXISTS category_id VARCHAR;"))
+
         ic("...Databse initialized successfully...")
     except Exception as e:
         ic(f"Error : initializing pg db => {e}")
