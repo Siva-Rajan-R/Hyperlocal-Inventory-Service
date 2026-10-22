@@ -625,9 +625,28 @@ class ProductRepo:
                 }
             )
 
-        res_toadd["mrp"] = res_toadd.get("pricing_infos", {}).get("mrp") if isinstance(res_toadd.get("pricing_infos"), dict) and res_toadd.get("pricing_infos", {}).get("mrp") is not None else add_infos.get("mrp")
-        res_toadd["discount_percent"] = res_toadd.get("pricing_infos", {}).get("discount_percent") if isinstance(res_toadd.get("pricing_infos"), dict) and res_toadd.get("pricing_infos", {}).get("discount_percent") is not None else (add_infos.get("discount_percent") or 0.0)
-        res_toadd["offer_valid_until"] = res_toadd.get("pricing_infos", {}).get("offer_valid_until") if isinstance(res_toadd.get("pricing_infos"), dict) and res_toadd.get("pricing_infos", {}).get("offer_valid_until") is not None else add_infos.get("offer_valid_until")
+        p_info = res_toadd.get("pricing_infos") or {}
+        if not isinstance(p_info, dict):
+            p_info = {}
+        
+        # If pricing_infos is empty, fallback to add_infos pricing
+        if not p_info and (add_infos.get("sell_price") is not None or add_infos.get("mrp") is not None):
+            p_info = {
+                "sell_price": add_infos.get("sell_price"),
+                "buy_price": add_infos.get("buy_price"),
+                "online_sell_price": add_infos.get("online_sell_price", 0.0),
+                "mrp": add_infos.get("mrp"),
+                "discount_percent": add_infos.get("discount_percent", 0.0),
+                "offer_valid_until": add_infos.get("offer_valid_until"),
+            }
+            res_toadd["pricing_infos"] = p_info
+
+        res_toadd["mrp"] = p_info.get("mrp") if p_info.get("mrp") is not None else add_infos.get("mrp")
+        res_toadd["discount_percent"] = p_info.get("discount_percent") if p_info.get("discount_percent") is not None else (add_infos.get("discount_percent") or 0.0)
+        res_toadd["offer_valid_until"] = p_info.get("offer_valid_until") if p_info.get("offer_valid_until") is not None else add_infos.get("offer_valid_until")
+        res_toadd["sell_price"] = p_info.get("sell_price") if p_info.get("sell_price") is not None else add_infos.get("sell_price")
+        res_toadd["buy_price"] = p_info.get("buy_price") if p_info.get("buy_price") is not None else add_infos.get("buy_price")
+        res_toadd["online_sell_price"] = p_info.get("online_sell_price") if p_info.get("online_sell_price") is not None else add_infos.get("online_sell_price", 0.0)
         res_toadd["custom_fields"] = getattr(product, 'custom_fields', None) or getattr(product, 'additional_infos', None) or {}
         return res_toadd
 

@@ -185,11 +185,21 @@ class InventoryRepo:
 
         to_insert = []
         for d in data:
+            v_match = (
+                or_(InventoryPricings.variant_id.is_not_distinct_from(d.variant_id), InventoryPricings.variant_id == "")
+                if (d.variant_id is None or d.variant_id == "")
+                else InventoryPricings.variant_id == d.variant_id
+            )
+            b_match = (
+                or_(InventoryPricings.batch_id.is_not_distinct_from(d.batch_id), InventoryPricings.batch_id == "")
+                if (d.batch_id is None or d.batch_id == "")
+                else InventoryPricings.batch_id == d.batch_id
+            )
             stmt = select(InventoryPricings).where(
                 InventoryPricings.shop_id == d.shop_id,
                 InventoryPricings.product_id == d.product_id,
-                InventoryPricings.variant_id.is_not_distinct_from(d.variant_id),
-                InventoryPricings.batch_id.is_not_distinct_from(d.batch_id),
+                v_match,
+                b_match,
             )
             res = await self.session.execute(stmt)
             existing_list = res.scalars().all()

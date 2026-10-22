@@ -499,7 +499,7 @@ class ProductInventoryService:
             update_fields = {}
             sent_fields = data.model_dump(exclude_unset=True)
             
-            for field in ["name", "description", "category_id", "unit_id", "gst", "sku", "barcode", "brand", "visible_online"]:
+            for field in ["name", "description", "category_id", "unit_id", "gst", "sku", "barcode", "brand", "visible_online", "have_tracking", "type_infos", "is_active"]:
                 if field in sent_fields and sent_fields[field] is not None:
                     if field == "sku":
                         if not await validate_sku_uniqueness(self.session, data.shop_id, sent_fields["sku"], exclude_product_id=data.id):
@@ -507,7 +507,10 @@ class ProductInventoryService:
                     if field == "barcode":
                         if not await validate_barcode_uniqueness(self.session, data.shop_id, sent_fields["barcode"], exclude_product_id=data.id):
                             raise ValueError(f"Product Barcode '{sent_fields['barcode']}' already exists.")
-                    update_fields[field] = sent_fields[field]
+                    if field == "type_infos":
+                        update_fields[field] = sent_fields[field].model_dump() if hasattr(sent_fields[field], 'model_dump') else sent_fields[field]
+                    else:
+                        update_fields[field] = sent_fields[field]
 
             # Process variants logic
             variants_toadd = []
@@ -672,6 +675,12 @@ class ProductInventoryService:
             if data.custom_fields and isinstance(data.custom_fields, dict):
                 existing_cf.update(data.custom_fields)
 
+            if data.sell_price is not None:
+                existing_cf["sell_price"] = data.sell_price
+            if data.buy_price is not None:
+                existing_cf["buy_price"] = data.buy_price
+            if data.online_sell_price is not None:
+                existing_cf["online_sell_price"] = data.online_sell_price
             if data.mrp is not None:
                 existing_cf["mrp"] = data.mrp
             if data.discount_percent is not None:
@@ -688,7 +697,7 @@ class ProductInventoryService:
                 existing_cf["return_policy"] = ret_pol
                 existing_cf.pop("refund_policy", None)
 
-            if v_types or (data.custom_fields and isinstance(data.custom_fields, dict)) or ret_pol is not None or data.mrp is not None or data.discount_percent is not None or data.offer_valid_until is not None:
+            if v_types or (data.custom_fields and isinstance(data.custom_fields, dict)) or ret_pol is not None or data.mrp is not None or data.discount_percent is not None or data.offer_valid_until is not None or data.sell_price is not None or data.buy_price is not None:
                 update_fields["additional_infos"] = existing_cf
 
             if update_fields:
