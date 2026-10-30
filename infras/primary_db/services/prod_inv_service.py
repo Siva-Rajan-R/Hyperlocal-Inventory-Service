@@ -523,6 +523,37 @@ class ProductInventoryService:
             if has_variant and data.variant_infos:
                 from schemas.v1.product_schemas.db_schemas import UpdateProductVariantDbSchema
                 existing_variants = prod_get_res.get("variants") or {}
+
+                # Validate that no omitted variant has active stock
+                sent_variant_ids = set()
+                for v in data.variant_infos:
+                    if v.id:
+                        sent_variant_ids.add(v.id)
+                    elif isinstance(existing_variants, dict):
+                        for ev_id, ev_data in existing_variants.items():
+                            ev_name = ev_data.get("name") if isinstance(ev_data, dict) else getattr(ev_data, "name", None)
+                            ev_barcode = ev_data.get("barcode") if isinstance(ev_data, dict) else getattr(ev_data, "barcode", None)
+                            if (ev_name and v.name and ev_name.strip().lower() == v.name.strip().lower()) or (ev_barcode and v.barcode and ev_barcode == v.barcode):
+                                sent_variant_ids.add(ev_id)
+                                break
+
+                if isinstance(existing_variants, dict):
+                    omitted_var_ids = [vid for vid in existing_variants.keys() if vid not in sent_variant_ids]
+                    if omitted_var_ids:
+                        stmt_stock = select(InventoryStocks).where(
+                            InventoryStocks.product_id == data.id,
+                            InventoryStocks.shop_id == data.shop_id,
+                            InventoryStocks.variant_id.in_(omitted_var_ids),
+                            InventoryStocks.available_stocks > 0
+                        )
+                        stock_res = (await self.session.execute(stmt_stock)).scalars().all()
+                        if stock_res:
+                            var_names = []
+                            for s in stock_res:
+                                v_data = existing_variants.get(s.variant_id, {})
+                                v_n = v_data.get("name") if isinstance(v_data, dict) else s.variant_id
+                                var_names.append(f"'{v_n}' ({s.available_stocks} in stock)")
+                            raise ValueError(f"Cannot disable variant: {', '.join(var_names)} has active stock.")
                 
                 for variant in data.variant_infos:
                     existing_var_id = None
@@ -770,8 +801,11 @@ class ProductInventoryService:
                     if isinstance(rop_info, dict) and k in rop_info and rop_info[k] is not None:
                         return rop_info[k]
                     stl_info = res.get("storage_location_infos") or {}
-                    if isinstance(stl_info, dict) and k in stl_info and stl_info[k] is not None:
-                        return stl_info[k]
+                    if isinstance(stl_info, dict):
+                        if k in stl_info and stl_info[k] is not None:
+                            return stl_info[k]
+                        if k == "storage_location" and stl_info.get("storage_location") is not None:
+                            return stl_info.get("storage_location")
                     add_info = res.get("additional_infos") or {}
                     if isinstance(add_info, dict) and k in add_info and add_info[k] is not None:
                         return add_info[k]
@@ -782,6 +816,11 @@ class ProductInventoryService:
                         return True
                     if v1 == v2:
                         return True
+                    str1 = str(v1).strip().lower()
+                    str2 = str(v2).strip().lower()
+                    bool_map = {"true": True, "yes": True, "1": True, "false": False, "no": False, "0": False}
+                    if str1 in bool_map and str2 in bool_map:
+                        return bool_map[str1] == bool_map[str2]
                     try:
                         if v1 is not None and v2 is not None and not isinstance(v1, bool) and not isinstance(v2, bool):
                             if float(v1) == float(v2):
@@ -791,7 +830,7 @@ class ProductInventoryService:
                     if isinstance(v1, (int, float)) and isinstance(v2, (int, float)):
                         return abs(float(v1) - float(v2)) < 0.0001
                     if isinstance(v1, str) and isinstance(v2, str):
-                        return v1.strip().lower() == v2.strip().lower()
+                        return str1 == str2
                     if isinstance(v1, dict) and isinstance(v2, dict):
                         c1 = {k: v for k, v in v1.items() if not _is_empty_or_none(v)}
                         c2 = {k: v for k, v in v2.items() if not _is_empty_or_none(v)}
@@ -802,30 +841,81 @@ class ProductInventoryService:
                         if len(v1) != len(v2):
                             return False
                         return all(_are_values_equal(a, b) for a, b in zip(v1, v2))
-                    return str(v1).strip().lower() == str(v2).strip().lower()
+                    return str1 == str2
 
                 dumped_updates = data.model_dump(exclude_unset=True, exclude_none=True)
                 changes = []
+                system_cf_keys = {
+                    "mrp", "discount_percent", "offer_valid_until", "buy_price", "sell_price",
+                    "online_sell_price", "reorder_point", "online_reorder_point", "storage_location",
+                    "return_policy", "refund_policy", "variant_types", "variant_type_name", "brand",
+                    "name", "description", "category_id", "unit_id", "barcode", "sku", "is_active",
+                    "opening_stock", "images", "supplier", "hsn", "low_stock_alert",
+                    "variant_attribute_map", "serial_numbers", "batch_info", "values", "gst",
+                    "have_tracking", "type_infos", "visible_online", "stocks", "cost_to_make",
+                    "discount_amount"
+                }
+
+                # Load defined custom fields for name resolution
+                id_to_name = {}
+                name_to_label = {}
+                try:
+                    from infras.primary_db.repos.customfield_repo import CustomFieldsRepo
+                    from schemas.v1.db_schemas.customfield_schema import GetFieldByShopIdSchema
+                    defined_fields = await CustomFieldsRepo(session=self.session).get_fields_by_shop_id(
+                        data=GetFieldByShopIdSchema(shop_id=data.shop_id)
+                    )
+                    for f in (defined_fields or []):
+                        if isinstance(f, dict):
+                            f_id = f.get("id")
+                            f_lbl = f.get("label_name") or f.get("field_name")
+                            f_name = f.get("field_name")
+                            if f_id and f_lbl:
+                                id_to_name[str(f_id)] = str(f_lbl)
+                            if f_name and f_lbl:
+                                name_to_label[str(f_name)] = str(f_lbl)
+                except Exception as cf_err:
+                    ic(f"Error fetching defined custom fields for product: {cf_err}")
+
+                def _normalize_custom_fields(cf_dict):
+                    norm = {}
+                    if not isinstance(cf_dict, dict):
+                        return norm
+                    for k, v in cf_dict.items():
+                        k_str = str(k).strip()
+                        k_lower = k_str.lower().replace(" ", "_")
+                        if k_lower in system_cf_keys or str(k).strip().lower() in system_cf_keys:
+                            continue
+                        label = id_to_name.get(k_str) or name_to_label.get(k_str) or k_str
+                        if isinstance(v, bool):
+                            val = "Yes" if v else "No"
+                        elif str(v).lower() in ("true", "false"):
+                            val = "Yes" if str(v).lower() == "true" else "No"
+                        else:
+                            val = v
+                        norm[label] = val
+                    return norm
+
                 for key, new_val in dumped_updates.items():
                     if key in ["id", "shop_id", "user_id", "cur_user_id"]:
                         continue
+
                     if key in ["custom_fields", "additional_infos"]:
                         prev_dict = _get_product_prev_val(prod_get_res, key) or {}
-                        if isinstance(prev_dict, dict) and isinstance(new_val, dict):
-                            skip_keys = {"mrp", "discount_percent", "offer_valid_until", "buy_price", "sell_price", "online_sell_price", "reorder_point", "online_reorder_point", "storage_location", "return_policy", "variant_types", "variant_type_name"}
-                            all_cf_keys = set(prev_dict.keys()) | set(new_val.keys())
-                            for cf_k in all_cf_keys:
-                                if cf_k in skip_keys:
-                                    continue
-                                cf_prev = prev_dict.get(cf_k)
-                                cf_new = new_val.get(cf_k)
-                                if not _are_values_equal(cf_prev, cf_new):
-                                    changes.append({
-                                        "field": cf_k,
-                                        "before": str(cf_prev) if cf_prev is not None else "None",
-                                        "after": str(cf_new) if cf_new is not None else "None"
-                                    })
+                        norm_prev = _normalize_custom_fields(prev_dict)
+                        norm_new = _normalize_custom_fields(new_val)
+                        all_cf_keys = set(norm_prev.keys()) | set(norm_new.keys())
+                        for cf_label in all_cf_keys:
+                            cf_prev = norm_prev.get(cf_label)
+                            cf_new = norm_new.get(cf_label)
+                            if not _are_values_equal(cf_prev, cf_new):
+                                changes.append({
+                                    "field": cf_label,
+                                    "before": str(cf_prev) if not _is_empty_or_none(cf_prev) else "None",
+                                    "after": str(cf_new) if not _is_empty_or_none(cf_new) else "None"
+                                })
                         continue
+
                     if key == "unit_id":
                         prev_val = _get_product_prev_val(prod_get_res, key)
                         if _are_values_equal(prev_val, new_val):

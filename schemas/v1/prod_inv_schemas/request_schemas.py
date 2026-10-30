@@ -19,6 +19,8 @@ class CreateProdInvVariantType(BaseModel):
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
     barcode: Optional[str] = None
+    sku: Optional[str] = None
+    is_active: Optional[bool] = None
     stocks: Optional[float] = None
 
     @model_validator(mode='after')

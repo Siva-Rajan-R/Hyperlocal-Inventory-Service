@@ -30,7 +30,7 @@ class ProductRepo:
             Products.id,Products.name,Products.category_id,Products.ui_id,Products.shop_id,
             Products.unit_id,Products.description,Products.type_infos,Products.is_active,Products.gst,
             Products.have_tracking,Products.created_at,Products.updated_at,Products.additional_infos,
-            Products.visible_online,Products.image_url,Products.brand
+            Products.visible_online,Products.image_url,Products.brand,Products.sku,Products.barcode
         )
         self.variant_cols = (
             ProductVariants.id,
