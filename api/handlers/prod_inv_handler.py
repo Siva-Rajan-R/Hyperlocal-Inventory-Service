@@ -139,31 +139,60 @@ class HandleProdInvRequest:
             )
 
         
+        # Validate cost to make (buy price) for untracked / off-the-track products
+        if data.have_tracking is False:
+            if data.type_infos and data.type_infos.has_variant and data.variant_infos:
+                for variant in data.variant_infos:
+                    if variant.buy_price is None or float(variant.buy_price) <= 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=ErrorResponseTypDict(
+                                msg="Validation Error",
+                                description=f"Cost to make (buy price) is mandatory for variant '{variant.name or 'variant'}' of untracked products.",
+                                success=False,
+                                status_code=400
+                            )
+                        )
+            else:
+                if data.buy_price is None or float(data.buy_price) <= 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=ErrorResponseTypDict(
+                            msg="Validation Error",
+                            description="Cost to make (buy price) is mandatory for untracked products.",
+                            success=False,
+                            status_code=400
+                        )
+                    )
+            # Untracked products do not have MRP
+            data.mrp = None
+
         # Validate selling price vs MRP
-        if data.mrp is not None and float(data.mrp) > 0:
-            if data.sell_price is not None and float(data.sell_price) > float(data.mrp):
+        effective_mrp = data.mrp
+        if effective_mrp is not None and float(effective_mrp) > 0:
+            if data.sell_price is not None and float(data.sell_price) > float(effective_mrp):
                 raise HTTPException(
                     status_code=400,
                     detail=ErrorResponseTypDict(
                         msg="Invalid Pricing",
-                        description=f"Selling price ({data.sell_price}) cannot exceed MRP ({data.mrp}).",
+                        description=f"Selling price ({data.sell_price}) cannot exceed MRP ({effective_mrp}).",
                         success=False,
                         status_code=400
                     )
                 )
-            if data.online_sell_price is not None and float(data.online_sell_price) > float(data.mrp):
+            if data.online_sell_price is not None and float(data.online_sell_price) > float(effective_mrp):
                 raise HTTPException(
                     status_code=400,
                     detail=ErrorResponseTypDict(
                         msg="Invalid Pricing",
-                        description=f"Online selling price ({data.online_sell_price}) cannot exceed MRP ({data.mrp}).",
+                        description=f"Online selling price ({data.online_sell_price}) cannot exceed MRP ({effective_mrp}).",
                         success=False,
                         status_code=400
                     )
                 )
         if data.variant_infos:
             for variant in data.variant_infos:
-                v_mrp = variant.mrp if (variant.mrp is not None and float(variant.mrp) > 0) else data.mrp
+                v_mrp = variant.mrp if (variant.mrp is not None and float(variant.mrp) > 0) else effective_mrp
                 if v_mrp is not None and float(v_mrp) > 0:
                     if variant.sell_price is not None and float(variant.sell_price) > float(v_mrp):
                         raise HTTPException(
@@ -358,31 +387,83 @@ class HandleProdInvRequest:
                     status_code=400
                 ),
             )
-        # Validate selling price vs MRP on update
-        if data.mrp is not None and float(data.mrp) > 0:
-            if data.sell_price is not None and float(data.sell_price) > float(data.mrp):
+        # Validate cost to make (buy price) for untracked / off-the-track products
+        is_untracked = data.have_tracking is False
+        if data.have_tracking is None:
+            try:
+                from infras.primary_db.models.product_model import Products
+                from sqlalchemy import select
+                p_stmt = select(Products.have_tracking).where(Products.id == data.id, Products.shop_id == data.shop_id)
+                existing_tracking = (await self.session.execute(p_stmt)).scalar_one_or_none()
+                if existing_tracking is False:
+                    is_untracked = True
+            except Exception:
+                pass
+
+        if is_untracked:
+            if data.type_infos and data.type_infos.has_variant and data.variant_infos:
+                for variant in data.variant_infos:
+                    if variant.buy_price is not None and float(variant.buy_price) <= 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=ErrorResponseTypDict(
+                                msg="Validation Error",
+                                description=f"Cost to make (buy price) is mandatory for variant '{variant.name or variant.id}' of untracked products.",
+                                success=False,
+                                status_code=400
+                            )
+                        )
+            elif data.buy_price is not None and float(data.buy_price) <= 0:
                 raise HTTPException(
                     status_code=400,
                     detail=ErrorResponseTypDict(
-                        msg="Invalid Pricing",
-                        description=f"Selling price ({data.sell_price}) cannot exceed MRP ({data.mrp}).",
+                        msg="Validation Error",
+                        description="Cost to make (buy price) cannot be zero or negative for untracked products.",
                         success=False,
                         status_code=400
                     )
                 )
-            if data.online_sell_price is not None and float(data.online_sell_price) > float(data.mrp):
+
+        # Validate selling price vs MRP on update
+        effective_mrp = data.mrp
+        if effective_mrp is None and (data.sell_price is not None or data.online_sell_price is not None or data.variant_infos):
+            try:
+                from infras.primary_db.models.inventory_model import InventoryPricings
+                from sqlalchemy import select
+                p_stmt = select(InventoryPricings.additional_infos).where(
+                    InventoryPricings.product_id == data.id,
+                    InventoryPricings.shop_id == data.shop_id,
+                    InventoryPricings.is_active == True
+                )
+                pricing_res = (await self.session.execute(p_stmt)).scalars().first()
+                if pricing_res and isinstance(pricing_res, dict):
+                    effective_mrp = pricing_res.get("mrp")
+            except Exception:
+                pass
+        if effective_mrp is not None and float(effective_mrp) > 0:
+            if data.sell_price is not None and float(data.sell_price) > float(effective_mrp):
                 raise HTTPException(
                     status_code=400,
                     detail=ErrorResponseTypDict(
                         msg="Invalid Pricing",
-                        description=f"Online selling price ({data.online_sell_price}) cannot exceed MRP ({data.mrp}).",
+                        description=f"Selling price ({data.sell_price}) cannot exceed MRP ({effective_mrp}).",
+                        success=False,
+                        status_code=400
+                    )
+                )
+            if data.online_sell_price is not None and float(data.online_sell_price) > float(effective_mrp):
+                raise HTTPException(
+                    status_code=400,
+                    detail=ErrorResponseTypDict(
+                        msg="Invalid Pricing",
+                        description=f"Online selling price ({data.online_sell_price}) cannot exceed MRP ({effective_mrp}).",
                         success=False,
                         status_code=400
                     )
                 )
         if data.variant_infos:
             for variant in data.variant_infos:
-                v_mrp = variant.mrp if (variant.mrp is not None and float(variant.mrp) > 0) else data.mrp
+                v_mrp = variant.mrp if (variant.mrp is not None and float(variant.mrp) > 0) else effective_mrp
                 if v_mrp is not None and float(v_mrp) > 0:
                     if variant.sell_price is not None and float(variant.sell_price) > float(v_mrp):
                         raise HTTPException(
