@@ -401,32 +401,12 @@ class HandleProdInvRequest:
                 pass
 
         if is_untracked:
-            if data.type_infos and data.type_infos.has_variant and data.variant_infos:
-                for variant in data.variant_infos:
-                    if variant.buy_price is not None and float(variant.buy_price) <= 0:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=ErrorResponseTypDict(
-                                msg="Validation Error",
-                                description=f"Cost to make (buy price) is mandatory for variant '{variant.name or variant.id}' of untracked products.",
-                                success=False,
-                                status_code=400
-                            )
-                        )
-            elif data.buy_price is not None and float(data.buy_price) <= 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail=ErrorResponseTypDict(
-                        msg="Validation Error",
-                        description="Cost to make (buy price) cannot be zero or negative for untracked products.",
-                        success=False,
-                        status_code=400
-                    )
-                )
+            # Untracked products do not track inventory or have mandatory MRP / buy price
+            data.mrp = None
 
-        # Validate selling price vs MRP on update
-        effective_mrp = data.mrp
-        if effective_mrp is None and (data.sell_price is not None or data.online_sell_price is not None or data.variant_infos):
+        # Validate selling price vs MRP on update (only for tracked products with MRP)
+        effective_mrp = data.mrp if not is_untracked else None
+        if not is_untracked and effective_mrp is None and (data.sell_price is not None or data.online_sell_price is not None or data.variant_infos):
             try:
                 from infras.primary_db.models.inventory_model import InventoryPricings
                 from sqlalchemy import select
