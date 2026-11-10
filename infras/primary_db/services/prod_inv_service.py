@@ -755,13 +755,14 @@ class ProductInventoryService:
             if stl_toupdate:
                 await inventory_repo_obj.update_bulk_storage_location(data=stl_toupdate)
 
-            if data.custom_fields and data.custom_fields.get("values"):
+            if data.custom_fields and (data.custom_fields.get("values") or data.custom_fields.get("value_infos")):
                 cust_field_obj = CustomFieldsService(session=self.session)
+                vals_to_upsert = data.custom_fields.get("values") or data.custom_fields.get("value_infos")
                 await cust_field_obj.bulk_upsert_values(
                     data=BulkCreateCustomFieldValuesSchema(
                         shop_id=data.shop_id,
                         product_id=data.id,
-                        values=data.custom_fields.get("values")
+                        values=vals_to_upsert
                     )
                 )
 

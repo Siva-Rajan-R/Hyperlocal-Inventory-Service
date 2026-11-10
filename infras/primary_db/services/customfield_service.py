@@ -109,38 +109,44 @@ class CustomFieldsService:
     # --- Values ---
 
     async def upsert_values(self, data: CreateCustomFieldValueSchema) -> dict: 
-        data_toadd=[]  
-        shop_id=data.shop_id
-        product_id=data.product_id
-        items = data.value_infos or getattr(data, 'values', None) or []
-        if not items:
+        data_toadd = []  
+        shop_id = data.shop_id
+        product_id = data.product_id
+
+        raw_items = list(data.value_infos or getattr(data, 'values', None) or [])
+        if getattr(data, 'field_id', None) and getattr(data, 'value', None) is not None:
+            raw_items.append({"field_id": data.field_id, "value": data.value})
+
+        if not raw_items:
             return {"success": True}
 
         # Validate that field_id actually exists in custom_fields table for this shop
         existing_fields = await self.repo.get_fields_by_shop_id(GetFieldByShopIdSchema(shop_id=shop_id))
         fields_by_id = {f.get("id"): f for f in existing_fields} if existing_fields else {}
-
-        # Look up product's category if product exists in DB
-        from infras.primary_db.models.product_model import Products
-        from sqlalchemy import select
-        cat_stmt = select(Products.category_id).where(Products.id == product_id, Products.shop_id == shop_id)
-        prod_cat_id = (await self.session.execute(cat_stmt)).scalar_one_or_none()
+        # Also map field_name to field in case field_name was passed
+        fields_by_name = {f.get("field_name"): f for f in existing_fields} if existing_fields else {}
 
         import json
-        for d in items:
-            f_id = getattr(d, 'field_id', None) if not isinstance(d, dict) else d.get('field_id')
+        for d in raw_items:
+            raw_f_id = getattr(d, 'field_id', None) if not isinstance(d, dict) else d.get('field_id')
             f_val = getattr(d, 'value', None) if not isinstance(d, dict) else d.get('value')
-            if not f_id or f_id not in fields_by_id:
+            
+            matched_field = fields_by_id.get(raw_f_id) or fields_by_name.get(raw_f_id)
+            if not matched_field:
                 continue
 
-            field_def = fields_by_id[f_id]
-            field_cat = field_def.get("category_id")
-            # If the field is assigned to a specific category and product exists with a category, enforce match
-            if field_cat and prod_cat_id and str(field_cat).strip() != str(prod_cat_id).strip():
-                continue
+            f_id = matched_field.get("id")
+            field_type = str(matched_field.get("type", "")).lower()
 
             # Ensure value is converted to a string format suitable for the db column
-            if isinstance(f_val, (dict, list)):
+            if field_type in ("boolean", "bool", "checkbox") or isinstance(f_val, bool):
+                if isinstance(f_val, bool):
+                    f_val_str = "true" if f_val else "false"
+                elif str(f_val).strip().lower() in ("true", "1", "yes"):
+                    f_val_str = "true"
+                else:
+                    f_val_str = "false"
+            elif isinstance(f_val, (dict, list)):
                 f_val_str = json.dumps(f_val)
             else:
                 f_val_str = str(f_val) if f_val is not None else ""
@@ -156,6 +162,43 @@ class CustomFieldsService:
         
         if data_toadd:
             await self.repo.upsert_field_value(data=data_toadd)
+
+            # Also sync custom field values into Products.additional_infos for immediate consistency
+            try:
+                from infras.primary_db.models.product_model import Products
+                from sqlalchemy import select, update
+                p_stmt = select(Products.additional_infos).where(Products.id == product_id, Products.shop_id == shop_id)
+                existing_add = (await self.session.execute(p_stmt)).scalar_one_or_none() or {}
+                if not isinstance(existing_add, dict):
+                    existing_add = {}
+                new_add = dict(existing_add)
+                for item in data_toadd:
+                    m_f = fields_by_id.get(item.field_id)
+                    new_add[item.field_id] = item.value
+                    if m_f and m_f.get("field_name"):
+                        new_add[m_f["field_name"]] = item.value
+                up_stmt = update(Products).where(Products.id == product_id, Products.shop_id == shop_id).values(additional_infos=new_add)
+                await self.session.execute(up_stmt)
+                try:
+                    await self.session.commit()
+                except Exception:
+                    await self.session.flush()
+
+                # Sync custom fields to Read DB Pipeline for real-time consistency
+                try:
+                    from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
+                    await ProdInvReadDbRepo.add_updatereaddb(
+                        shop_id=shop_id,
+                        product_ids=[product_id],
+                        session=self.session
+                    )
+                except Exception as sync_read_err:
+                    from icecream import ic
+                    ic("Failed to sync read db in customfield_service:", sync_read_err)
+            except Exception as sync_err:
+                from icecream import ic
+                ic("Failed to sync additional_infos on products table:", sync_err)
+
         return {"success": True}
 
     async def bulk_upsert_values(self, data: Any) -> dict:

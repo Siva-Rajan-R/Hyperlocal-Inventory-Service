@@ -119,7 +119,6 @@ class CustomFieldsRepo:
         return [{c.name: getattr(row, c.name) for c in row.__table__.columns} for row in res]
 
 
-    @start_db_transaction
     async def upsert_field_value(self, data: List[CreateCustomFieldValueDbSchema]) -> bool:
         if not data:
             return True
@@ -131,7 +130,7 @@ class CustomFieldsRepo:
         stmt = insert(ProductCustomFieldsValues)
         
         # 3. Construct the UPSERT (ON CONFLICT) logic
-        # Resolves on the unique combination of customer and field
+        # Resolves on the unique combination of product and field
         upsert_stmt = stmt.on_conflict_do_update(
             index_elements=["product_id", "field_id"],  
             set_={
@@ -141,11 +140,13 @@ class CustomFieldsRepo:
         )
 
         # 4. Execute the batch operation efficiently in one database round-trip
-        conn = await self.session.connection()
-        res = await conn.execute(upsert_stmt, insert_mappings)
-        await self.session.commit()
+        res = await self.session.execute(upsert_stmt, insert_mappings)
+        try:
+            await self.session.commit()
+        except Exception:
+            await self.session.flush()
         
-        ic("Total rows handled (Inserted + Updated) => ", res.rowcount)
+        ic("Total rows handled (Inserted + Updated) => ", getattr(res, "rowcount", None))
         return True
 
         

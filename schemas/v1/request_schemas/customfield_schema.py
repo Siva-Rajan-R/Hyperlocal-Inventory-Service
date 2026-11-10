@@ -56,6 +56,8 @@ class CustomFieldValueInfos(BaseModel):
 class CreateCustomFieldValueSchema(BaseModel):
     shop_id: str
     product_id: str
+    field_id: Optional[str] = None
+    value: Optional[Union[str, int, float, bool, Any]] = None
     value_infos: Optional[List[CustomFieldValueInfos]] = None
     values: Optional[List[CustomFieldValueInfos]] = None
 

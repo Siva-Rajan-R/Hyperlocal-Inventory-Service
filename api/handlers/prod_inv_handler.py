@@ -477,6 +477,9 @@ class HandleProdInvRequest:
                 cat_stmt = select(Products.category_id).where(Products.id == data.id, Products.shop_id == data.shop_id)
                 cat_id = (await self.session.execute(cat_stmt)).scalar_one_or_none()
             valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields, category_id=cat_id)
+            if valid_custom_fields and raw_cf is not None:
+                if "values" not in raw_cf or not raw_cf.get("values"):
+                    raw_cf["values"] = [{"field_id": fid, "value": fval} for fid, fval in valid_custom_fields.items()]
         
         dumped_data = data.model_dump(exclude_unset=True)
         if raw_cf is not None:
