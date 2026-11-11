@@ -5,6 +5,28 @@ from ..inventory_schemas.request_schemas import CreateInventoryPricingSchema,Cre
 from ..product_schemas.custom_types import ProductBatchExpirationInfosType,ProductTypeInfosType,VariantTypeDefinition
 from datetime import date
 
+def _validate_mrp_bounds(sell_price: Optional[float], online_sell_price: Optional[float], mrp: Optional[float], label: str = "") -> None:
+    if mrp is not None and float(mrp) > 0:
+        mrp_val = float(mrp)
+        if sell_price is not None and float(sell_price) > mrp_val:
+            raise ValueError(f"Selling price ({sell_price}) cannot exceed MRP ({mrp}){label}.")
+        if online_sell_price is not None and float(online_sell_price) > mrp_val:
+            raise ValueError(f"Online selling price ({online_sell_price}) cannot exceed MRP ({mrp}){label}.")
+
+
+def _extract_schema_mrp(mrp: Optional[float], custom_fields: Optional[dict] = None) -> Optional[float]:
+    if mrp is not None and float(mrp) > 0:
+        return float(mrp)
+    if isinstance(custom_fields, dict) and custom_fields.get("mrp") is not None:
+        try:
+            cf_mrp = float(custom_fields["mrp"])
+            if cf_mrp > 0:
+                return cf_mrp
+        except (TypeError, ValueError):
+            pass
+    return mrp
+
+
 class CreateProdInvVariantType(BaseModel):
     name:str
     storage_location:Optional[str]=None
@@ -25,11 +47,7 @@ class CreateProdInvVariantType(BaseModel):
 
     @model_validator(mode='after')
     def validate_prices(self):
-        if self.mrp is not None and self.mrp > 0:
-            if self.sell_price is not None and self.sell_price > self.mrp:
-                raise ValueError(f"Selling price ({self.sell_price}) cannot exceed MRP ({self.mrp}) for variant '{self.name}'.")
-            if self.online_sell_price is not None and self.online_sell_price > self.mrp:
-                raise ValueError(f"Online selling price ({self.online_sell_price}) cannot exceed MRP ({self.mrp}) for variant '{self.name}'.")
+        _validate_mrp_bounds(self.sell_price, self.online_sell_price, self.mrp, f" for variant '{self.name}'")
         return self
 
 class UpdateProdInvVariantType(BaseModel):
@@ -52,11 +70,7 @@ class UpdateProdInvVariantType(BaseModel):
 
     @model_validator(mode='after')
     def validate_prices(self):
-        if self.mrp is not None and self.mrp > 0:
-            if self.sell_price is not None and self.sell_price > self.mrp:
-                raise ValueError(f"Selling price ({self.sell_price}) cannot exceed MRP ({self.mrp}) for variant.")
-            if self.online_sell_price is not None and self.online_sell_price > self.mrp:
-                raise ValueError(f"Online selling price ({self.online_sell_price}) cannot exceed MRP ({self.mrp}) for variant.")
+        _validate_mrp_bounds(self.sell_price, self.online_sell_price, self.mrp, " for variant")
         return self
 
 
@@ -100,19 +114,12 @@ class CreateProdInvSchema(BaseModel):
 
     @model_validator(mode='after')
     def validate_prices(self):
-        if self.mrp is not None and self.mrp > 0:
-            if self.sell_price is not None and self.sell_price > self.mrp:
-                raise ValueError(f"Selling price ({self.sell_price}) cannot exceed MRP ({self.mrp}).")
-            if self.online_sell_price is not None and self.online_sell_price > self.mrp:
-                raise ValueError(f"Online selling price ({self.online_sell_price}) cannot exceed MRP ({self.mrp}).")
+        base_mrp = _extract_schema_mrp(self.mrp, self.custom_fields)
+        _validate_mrp_bounds(self.sell_price, self.online_sell_price, base_mrp)
         if self.variant_infos:
             for variant in self.variant_infos:
-                effective_mrp = variant.mrp if (variant.mrp is not None and variant.mrp > 0) else self.mrp
-                if effective_mrp is not None and effective_mrp > 0:
-                    if variant.sell_price is not None and variant.sell_price > effective_mrp:
-                        raise ValueError(f"Selling price ({variant.sell_price}) cannot exceed MRP ({effective_mrp}) for variant '{variant.name}'.")
-                    if variant.online_sell_price is not None and variant.online_sell_price > effective_mrp:
-                        raise ValueError(f"Online selling price ({variant.online_sell_price}) cannot exceed MRP ({effective_mrp}) for variant '{variant.name}'.")
+                effective_mrp = variant.mrp if (variant.mrp is not None and variant.mrp > 0) else base_mrp
+                _validate_mrp_bounds(variant.sell_price, variant.online_sell_price, effective_mrp, f" for variant '{variant.name}'")
         return self
 
 
@@ -147,19 +154,12 @@ class UpdateProdInvSchema(BaseModel):
 
     @model_validator(mode='after')
     def validate_prices(self):
-        if self.mrp is not None and self.mrp > 0:
-            if self.sell_price is not None and self.sell_price > self.mrp:
-                raise ValueError(f"Selling price ({self.sell_price}) cannot exceed MRP ({self.mrp}).")
-            if self.online_sell_price is not None and self.online_sell_price > self.mrp:
-                raise ValueError(f"Online selling price ({self.online_sell_price}) cannot exceed MRP ({self.mrp}).")
+        base_mrp = _extract_schema_mrp(self.mrp, self.custom_fields)
+        _validate_mrp_bounds(self.sell_price, self.online_sell_price, base_mrp)
         if self.variant_infos:
             for variant in self.variant_infos:
-                effective_mrp = variant.mrp if (variant.mrp is not None and variant.mrp > 0) else self.mrp
-                if effective_mrp is not None and effective_mrp > 0:
-                    if variant.sell_price is not None and variant.sell_price > effective_mrp:
-                        raise ValueError(f"Selling price ({variant.sell_price}) cannot exceed MRP ({effective_mrp}) for variant '{variant.name or variant.id}'.")
-                    if variant.online_sell_price is not None and variant.online_sell_price > effective_mrp:
-                        raise ValueError(f"Online selling price ({variant.online_sell_price}) cannot exceed MRP ({effective_mrp}) for variant '{variant.name or variant.id}'.")
+                effective_mrp = variant.mrp if (variant.mrp is not None and variant.mrp > 0) else base_mrp
+                _validate_mrp_bounds(variant.sell_price, variant.online_sell_price, effective_mrp, f" for variant '{variant.name or variant.id}'")
         return self
 
 
@@ -268,7 +268,13 @@ class UpdateAllProdInvSchema(BaseModel):
     buy_price:Optional[float]=None
     sell_price:Optional[float]=None
     online_sell_price:Optional[float]=None
+    mrp:Optional[float]=None
     type:str
+
+    @model_validator(mode='after')
+    def validate_prices(self):
+        _validate_mrp_bounds(self.sell_price, self.online_sell_price, self.mrp)
+        return self
     entity_name:str
     entity_id:Optional[str]=None
     ui_id:Optional[str]=None

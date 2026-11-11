@@ -229,6 +229,37 @@ async def commit_reservations(data:CommitInventorySchema, session:PG_ASYNC_SESSI
 
 @router.post('/bulk-update')
 async def bulk_update_prodinv(data: List[UpdateAllProdInvSchema], session: PG_ASYNC_SESSION, user_id: Optional[str] = Depends(get_current_user_id)):
+    from infras.primary_db.models.inventory_model import InventoryPricings
+    from infras.primary_db.models.product_model import Products
+
+    for item in data:
+        if item.sell_price is not None or item.online_sell_price is not None:
+            effective_mrp = item.mrp if (item.mrp is not None and float(item.mrp) > 0) else None
+            if effective_mrp is None:
+                p_stmt = select(InventoryPricings.additional_infos).where(
+                    InventoryPricings.product_id == item.product_id,
+                    InventoryPricings.shop_id == item.shop_id,
+                    InventoryPricings.is_active == True,
+                )
+                if item.variant_id:
+                    p_stmt = p_stmt.where(InventoryPricings.variant_id == item.variant_id)
+                pricing_add = (await session.execute(p_stmt)).scalars().first()
+                if isinstance(pricing_add, dict) and pricing_add.get("mrp"):
+                    effective_mrp = float(pricing_add["mrp"])
+                else:
+                    cf_stmt = select(Products.custom_fields).where(
+                        Products.id == item.product_id,
+                        Products.shop_id == item.shop_id,
+                    )
+                    cf = (await session.execute(cf_stmt)).scalar_one_or_none()
+                    if isinstance(cf, dict) and cf.get("mrp"):
+                        effective_mrp = float(cf["mrp"])
+
+            if effective_mrp is not None and effective_mrp > 0:
+                HandleProdInvRequest(session=session)._validate_pricing_against_mrp(
+                    item, fallback_mrp=effective_mrp
+                )
+
     from infras.primary_db.services.prod_inv_service import ProductInventoryService
     service = ProductInventoryService(session=session)
     res = await service.update_all(data=data, executing_user_id=user_id)
