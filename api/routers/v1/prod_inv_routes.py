@@ -266,3 +266,108 @@ async def bulk_update_prodinv(data: List[UpdateAllProdInvSchema], session: PG_AS
     if res:
         await session.commit()
     return SuccessResponseTypDict(detail=BaseResponseTypDict(status_code=200, success=bool(res), msg="Inventory updated successfully"))
+
+
+class SerialConsumeItemSchema(BaseModel):
+    order_item_id: Optional[str] = None
+    product_id: str
+    variant_id: Optional[str] = None
+    batch_id: Optional[str] = None
+    serials: List[str]
+
+
+class ConsumeSerialsRequestSchema(BaseModel):
+    shop_id: str
+    items: List[SerialConsumeItemSchema]
+
+
+@router.post('/serials/consume')
+async def consume_serials(
+    data: ConsumeSerialsRequestSchema,
+    session: Annotated[AsyncSession, Depends(get_pg_async_session)],
+):
+    """Validate and consume AVAILABLE serial numbers for an accepted online order without altering physical_stocks."""
+    from infras.primary_db.models.product_model import ProductSerialNumbers
+    from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
+    from core.data_formats.enums.product_enums import ProductSerialnoStatusEnums
+    from sqlalchemy import or_
+
+    if not data.items:
+        return {"detail": {"status_code": 200, "success": True, "msg": "No serials to consume"}, "assigned_items": []}
+
+    assigned_items = []
+    all_serial_ids_to_delete: List[str] = []
+    seen_serial_ids: set[str] = set()
+    affected_product_ids: set[str] = set()
+
+    for item in data.items:
+        requested = [str(s).strip() for s in (item.serials or []) if s is not None and str(s).strip()]
+        if not requested:
+            continue
+
+        if len(set(requested)) != len(requested):
+            raise HTTPException(status_code=400, detail="Duplicate serial numbers provided for an order item")
+
+        stmt = (
+            select(ProductSerialNumbers)
+            .where(
+                ProductSerialNumbers.shop_id == data.shop_id,
+                ProductSerialNumbers.product_id == item.product_id,
+                ProductSerialNumbers.status == ProductSerialnoStatusEnums.AVAILABLE.value,
+                or_(
+                    ProductSerialNumbers.id.in_(requested),
+                    ProductSerialNumbers.name.in_(requested),
+                ),
+            )
+            .with_for_update()
+        )
+        if item.variant_id:
+            stmt = stmt.where(ProductSerialNumbers.variant_id == item.variant_id)
+        if item.batch_id:
+            stmt = stmt.where(ProductSerialNumbers.batch_id == item.batch_id)
+
+        rows = (await session.execute(stmt)).scalars().all()
+        by_id = {str(r.id): r for r in rows}
+        by_name = {str(r.name): r for r in rows}
+
+        resolved = []
+        missing = []
+        for req in requested:
+            match = by_id.get(req) or by_name.get(req)
+            if not match:
+                missing.append(req)
+            elif str(match.id) in seen_serial_ids:
+                raise HTTPException(status_code=400, detail=f"Serial number '{match.name}' is selected multiple times in the same order")
+            else:
+                seen_serial_ids.add(str(match.id))
+                resolved.append({"id": str(match.id), "name": str(match.name)})
+                all_serial_ids_to_delete.append(str(match.id))
+
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Serial number(s) unavailable or invalid for product {item.product_id}: {', '.join(missing)}",
+            )
+
+        affected_product_ids.add(item.product_id)
+        assigned_items.append({
+            "order_item_id": item.order_item_id,
+            "product_id": item.product_id,
+            "variant_id": item.variant_id,
+            "batch_id": item.batch_id,
+            "serialno_infos": resolved,
+        })
+
+    if all_serial_ids_to_delete:
+        await ProductRepo(session=session).delete_bulk_serialno(data=all_serial_ids_to_delete)
+        await ProdInvReadDbRepo().add_updatereaddb(
+            shop_id=data.shop_id,
+            product_ids=list(affected_product_ids),
+            session=session,
+        )
+        await session.commit()
+
+    return {
+        "detail": {"status_code": 200, "success": True, "msg": "Serial numbers consumed successfully"},
+        "assigned_items": assigned_items,
+    }
