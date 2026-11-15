@@ -252,9 +252,15 @@ class ProductInventoryService:
                     )
                 )
 
-            ui_id_res=await get_ui_id(shop_id=data.shop_id)
+            ui_id_res = await get_ui_id(shop_id=data.shop_id)
             ic(ui_id_res)
-            ui_id=f"{ui_id_res.get("prefix")}-{ui_id_res.get("current_number")}"
+            if isinstance(ui_id_res, dict) and ui_id_res.get("prefix") and ui_id_res.get("current_number") is not None:
+                ui_id = f"{ui_id_res.get('prefix')}-{ui_id_res.get('current_number')}"
+            else:
+                from sqlalchemy import select, func
+                prod_count_stmt = select(func.count(Products.id)).where(Products.shop_id == data.shop_id)
+                count = (await self.session.execute(prod_count_stmt)).scalar() or 0
+                ui_id = f"PRD-{count + 1:05d}"
             ic(ui_id)
             cf_data = data.custom_fields or {}
             if data.mrp is not None:
@@ -340,6 +346,7 @@ class ProductInventoryService:
                                 'buy_price': v_item.buy_price or 0.0,
                                 'sell_price': v_item.sell_price or 0.0,
                                 'online_sell_price': v_item.online_sell_price or 0.0,
+                                'mrp': getattr(v_item, 'mrp', None) or data.mrp,
                                 'type': 'INCREMENT',
                                 'entity_name': 'OPENING_STOCK',
                                 'entity_id': ui_id,
@@ -365,6 +372,7 @@ class ProductInventoryService:
                             'buy_price': data.buy_price or 0.0,
                             'sell_price': data.sell_price or 0.0,
                             'online_sell_price': data.online_sell_price or 0.0,
+                            'mrp': data.mrp,
                             'type': 'INCREMENT',
                             'entity_name': 'OPENING_STOCK',
                             'entity_id': ui_id,
@@ -473,16 +481,19 @@ class ProductInventoryService:
                 ic(f"Notification error: {notification_error}")
             raise e
 
-    async def create_bulk_prodinv_items(self, data: List[CreateProdInvSchema], executing_user_id: Optional[str] = None) -> List[dict]:
+    async def create_bulk_prodinv_items(self, data: List[CreateProdInvSchema], executing_user_id: Optional[str] = None):
         results = []
+        errors = []
         for item in data:
             try:
                 res = await self.create(data=item, executing_user_id=executing_user_id)
                 if res:
                     results.append(res)
             except Exception as e:
+                err_msg = f"'{item.name}': {str(e)}"
                 ic(f"Error in bulk creating product item '{item.name}': {e}")
-        return results
+                errors.append(err_msg)
+        return results, errors
     
 
     async def update(self, data: UpdateProdInvSchema, executing_user_id: Optional[str] = None):

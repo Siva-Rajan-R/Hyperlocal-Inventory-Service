@@ -40,16 +40,18 @@ async def get_shop_unit(shop_id: str, unit_id: str) -> Dict[str, Any]:
 
 
 async def get_ui_id(shop_id:str,entity_name:str="PRODUCT"):
+    if not shop_id:
+        return {}
     try:
-        async with httpx.AsyncClient() as request:
+        async with httpx.AsyncClient(timeout=5) as request:
             response=await request.get(f"{BASE_URL}/shop-ui-ids/next/{shop_id}/{entity_name}")
             ic("product ui id => ",response)
             if response.status_code == 200:
                 data = response.json()
-                if data and "data" in data:
+                if data and "data" in data and isinstance(data["data"], dict):
                     return data["data"]
 
-            return False
+            return {}
     except Exception as e:
         ic(f"Error fetching product ui id: {e}")
     return {}

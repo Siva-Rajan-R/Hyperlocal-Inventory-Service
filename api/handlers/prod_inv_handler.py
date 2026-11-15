@@ -337,22 +337,26 @@ class HandleProdInvRequest:
             item_data["custom_fields"] = {**raw_cf, **valid_custom_fields}
             valid_items.append(CreateProdInvSchema(**item_data))
             
-        res = await ProductInventoryService(session=self.session).create_bulk_prodinv_items(data=valid_items, executing_user_id=executing_user_id)
+        res, errors = await ProductInventoryService(session=self.session).create_bulk_prodinv_items(data=valid_items, executing_user_id=executing_user_id)
         if res:
             await self.session.commit()
+            msg = "Bulk Inventory Products Created Successfully"
+            if errors:
+                msg += f" ({len(res)} created, {len(errors)} failed: {'; '.join(errors[:3])})"
             return SuccessResponseTypDict(
                 detail=BaseResponseTypDict(
                     status_code=201,
                     success=True,
-                    msg="Bulk Inventory Products Created Successfully"
+                    msg=msg
                 ),
                 data=res
             )
+        error_description = "; ".join(errors[:5]) if errors else "Failed to create products in bulk"
         raise HTTPException(
             status_code=400,
             detail=ErrorResponseTypDict(
                 msg="Error => Creating Bulk Inventory Products",
-                description="Failed to create products in bulk",
+                description=error_description,
                 success=False,
                 status_code=400
             )
