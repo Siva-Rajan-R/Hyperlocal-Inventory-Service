@@ -23,6 +23,8 @@ async def init_inventory_pg_db():
         async with ENGINE.begin() as conn:
             from sqlalchemy import text
             await conn.execute(text("ALTER TABLE product_custom_fields ADD COLUMN IF NOT EXISTS category_id VARCHAR;"))
+            await conn.execute(text("ALTER TABLE product_custom_fields ADD COLUMN IF NOT EXISTS options JSONB;"))
+            await conn.execute(text("ALTER TABLE product_custom_fields ADD COLUMN IF NOT EXISTS default_value VARCHAR;"))
 
         ic("...Databse initialized successfully...")
     except Exception as e:

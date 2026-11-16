@@ -326,59 +326,154 @@ class ProductInventoryService:
                 
                 # Handle initial opening stock update if provided (> 0)
                 stock_update_payloads = []
-                if data.type_infos.has_variant and data.variant_infos and variants_toadd:
+                has_batch = bool(data.type_infos and data.type_infos.has_batch)
+                has_variant = bool(data.type_infos and data.type_infos.has_variant)
+
+                if has_variant and data.variant_infos and variants_toadd:
                     for v_item, v_obj in zip(data.variant_infos, variants_toadd):
-                        stock_val = getattr(v_item, 'stocks', None)
+                        # Check variant-level batches
+                        v_batches = getattr(v_item, 'batches', None) or getattr(v_item, 'batch_infos', None)
+                        if v_batches and isinstance(v_batches, dict):
+                            v_batches = [v_batches]
+
+                        if has_batch and v_batches:
+                            for b in v_batches:
+                                b_dict = b if isinstance(b, dict) else (b.model_dump() if hasattr(b, 'model_dump') else b.__dict__)
+                                b_name = b_dict.get('name') or b_dict.get('batch_name')
+                                b_exp = b_dict.get('expiry_date') or b_dict.get('exp_date')
+                                b_mfg = b_dict.get('manufacturing_date') or b_dict.get('mfg_date')
+                                b_stock = float(b_dict.get('stocks') or b_dict.get('stock') or 0.0)
+                                if b_name and b_stock > 0:
+                                    stock_update_payloads.append({
+                                        'shop_id': data.shop_id,
+                                        'product_id': product_id,
+                                        'variant_id': v_obj.id,
+                                        'batch_infos': {
+                                            'name': str(b_name),
+                                            'expiry_date': str(b_exp) if b_exp else str(date.today()),
+                                            'manufacturing_date': str(b_mfg) if b_mfg else str(date.today()),
+                                        },
+                                        'serialno_infos': [],
+                                        'stocks': b_stock,
+                                        'storage_location': b_dict.get('storage_location') or v_item.storage_location or None,
+                                        'reorder_point': v_item.reorder_point or 5,
+                                        'online_reorder_point': v_item.online_reorder_point or 0.0,
+                                        'name': data.name,
+                                        'gst': data.gst or "0%",
+                                        'description': data.description,
+                                        'buy_price': float(b_dict.get('buy_price') or v_item.buy_price or 0.0),
+                                        'sell_price': float(b_dict.get('sell_price') or v_item.sell_price or 0.0),
+                                        'online_sell_price': float(v_item.online_sell_price or 0.0),
+                                        'mrp': float(b_dict.get('mrp') or getattr(v_item, 'mrp', None) or data.mrp or 0.0) if (b_dict.get('mrp') or getattr(v_item, 'mrp', None) or data.mrp) else None,
+                                        'type': 'INCREMENT',
+                                        'entity_name': 'OPENING_STOCK',
+                                        'entity_id': ui_id,
+                                        'ui_id': ui_id,
+                                        'create_stock_mov_adj': True
+                                    })
+                        else:
+                            stock_val = getattr(v_item, 'stocks', None)
+                            if stock_val is not None and float(stock_val) > 0:
+                                stock_update_payloads.append({
+                                    'shop_id': data.shop_id,
+                                    'product_id': product_id,
+                                    'variant_id': v_obj.id,
+                                    'batch_infos': None,
+                                    'serialno_infos': [],
+                                    'stocks': float(stock_val),
+                                    'storage_location': v_item.storage_location or None,
+                                    'reorder_point': v_item.reorder_point or 5,
+                                    'online_reorder_point': v_item.online_reorder_point or 0.0,
+                                    'name': data.name,
+                                    'gst': data.gst or "0%",
+                                    'description': data.description,
+                                    'buy_price': v_item.buy_price or 0.0,
+                                    'sell_price': v_item.sell_price or 0.0,
+                                    'online_sell_price': v_item.online_sell_price or 0.0,
+                                    'mrp': getattr(v_item, 'mrp', None) or data.mrp,
+                                    'type': 'INCREMENT',
+                                    'entity_name': 'OPENING_STOCK',
+                                    'entity_id': ui_id,
+                                    'ui_id': ui_id,
+                                    'create_stock_mov_adj': True
+                                })
+                else:
+                    p_batches = getattr(data, 'batches', None) or getattr(data, 'batch_infos', None)
+                    if not p_batches and isinstance(data.custom_fields, dict):
+                        if data.custom_fields.get("batch_info"):
+                            p_batches = [data.custom_fields["batch_info"]]
+                        elif data.custom_fields.get("batches"):
+                            p_batches = data.custom_fields["batches"]
+
+                    if p_batches and isinstance(p_batches, dict):
+                        p_batches = [p_batches]
+
+                    if has_batch and p_batches:
+                        for b in p_batches:
+                            b_dict = b if isinstance(b, dict) else (b.model_dump() if hasattr(b, 'model_dump') else b.__dict__)
+                            b_name = b_dict.get('name') or b_dict.get('batch_name')
+                            b_exp = b_dict.get('expiry_date') or b_dict.get('exp_date')
+                            b_mfg = b_dict.get('manufacturing_date') or b_dict.get('mfg_date')
+                            b_stock = float(b_dict.get('stocks') or b_dict.get('stock') or data.stocks or 0.0)
+                            if b_name and b_stock > 0:
+                                stock_update_payloads.append({
+                                    'shop_id': data.shop_id,
+                                    'product_id': product_id,
+                                    'variant_id': None,
+                                    'batch_infos': {
+                                        'name': str(b_name),
+                                        'expiry_date': str(b_exp) if b_exp else str(date.today()),
+                                        'manufacturing_date': str(b_mfg) if b_mfg else str(date.today()),
+                                    },
+                                    'serialno_infos': [],
+                                    'stocks': b_stock,
+                                    'storage_location': b_dict.get('storage_location') or data.storage_location or None,
+                                    'reorder_point': data.reorder_point or 5,
+                                    'online_reorder_point': data.online_reorder_point or 0.0,
+                                    'name': data.name,
+                                    'gst': data.gst or "0%",
+                                    'description': data.description,
+                                    'buy_price': float(b_dict.get('buy_price') or data.buy_price or 0.0),
+                                    'sell_price': float(b_dict.get('sell_price') or data.sell_price or 0.0),
+                                    'online_sell_price': float(data.online_sell_price or 0.0),
+                                    'mrp': float(b_dict.get('mrp') or data.mrp or 0.0) if (b_dict.get('mrp') or data.mrp) else None,
+                                    'type': 'INCREMENT',
+                                    'entity_name': 'OPENING_STOCK',
+                                    'entity_id': ui_id,
+                                    'ui_id': ui_id,
+                                    'create_stock_mov_adj': True
+                                })
+                    else:
+                        stock_val = getattr(data, 'stocks', None)
+                        if (stock_val is None or float(stock_val) == 0) and isinstance(data.custom_fields, dict):
+                            cf_stock = data.custom_fields.get("opening_stock")
+                            if cf_stock is not None and float(cf_stock) > 0:
+                                stock_val = cf_stock
+
                         if stock_val is not None and float(stock_val) > 0:
                             stock_update_payloads.append({
                                 'shop_id': data.shop_id,
                                 'product_id': product_id,
-                                'variant_id': v_obj.id,
+                                'variant_id': None,
                                 'batch_infos': None,
                                 'serialno_infos': [],
                                 'stocks': float(stock_val),
-                                'storage_location': v_item.storage_location or None,
-                                'reorder_point': v_item.reorder_point or 5,
-                                'online_reorder_point': v_item.online_reorder_point or 0.0,
+                                'storage_location': data.storage_location or None,
+                                'reorder_point': data.reorder_point or 5,
+                                'online_reorder_point': data.online_reorder_point or 0.0,
                                 'name': data.name,
                                 'gst': data.gst or "0%",
                                 'description': data.description,
-                                'buy_price': v_item.buy_price or 0.0,
-                                'sell_price': v_item.sell_price or 0.0,
-                                'online_sell_price': v_item.online_sell_price or 0.0,
-                                'mrp': getattr(v_item, 'mrp', None) or data.mrp,
+                                'buy_price': data.buy_price or 0.0,
+                                'sell_price': data.sell_price or 0.0,
+                                'online_sell_price': data.online_sell_price or 0.0,
+                                'mrp': data.mrp,
                                 'type': 'INCREMENT',
                                 'entity_name': 'OPENING_STOCK',
                                 'entity_id': ui_id,
                                 'ui_id': ui_id,
                                 'create_stock_mov_adj': True
                             })
-                else:
-                    stock_val = getattr(data, 'stocks', None)
-                    if stock_val is not None and float(stock_val) > 0:
-                        stock_update_payloads.append({
-                            'shop_id': data.shop_id,
-                            'product_id': product_id,
-                            'variant_id': None,
-                            'batch_infos': None,
-                            'serialno_infos': [],
-                            'stocks': float(stock_val),
-                            'storage_location': data.storage_location or None,
-                            'reorder_point': data.reorder_point or 5,
-                            'online_reorder_point': data.online_reorder_point or 0.0,
-                            'name': data.name,
-                            'gst': data.gst or "0%",
-                            'description': data.description,
-                            'buy_price': data.buy_price or 0.0,
-                            'sell_price': data.sell_price or 0.0,
-                            'online_sell_price': data.online_sell_price or 0.0,
-                            'mrp': data.mrp,
-                            'type': 'INCREMENT',
-                            'entity_name': 'OPENING_STOCK',
-                            'entity_id': ui_id,
-                            'ui_id': ui_id,
-                            'create_stock_mov_adj': True
-                        })
 
                 if stock_update_payloads:
                     try:

@@ -1,5 +1,6 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
+from ..request_schemas.customfield_schema import GetFieldByShopIdSchema
 
 class CreateCustomFieldDbSchema(BaseModel):
     id: str
@@ -10,6 +11,8 @@ class CreateCustomFieldDbSchema(BaseModel):
     type: str
     required: bool = False
     visible_online: bool = False
+    options: Optional[Any] = None
+    default_value: Optional[str] = None
 
 class CreateCustomFieldValueDbSchema(BaseModel):
     id: str
@@ -27,6 +30,8 @@ class UpdateCustomFieldDbSchema(BaseModel):
     type: Optional[str]=None
     required: Optional[bool] = None
     visible_online: Optional[bool] = None
+    options: Optional[Any] = None
+    default_value: Optional[str] = None
 
 class DeleteCustomFieldDbSchema(BaseModel):
     id:str

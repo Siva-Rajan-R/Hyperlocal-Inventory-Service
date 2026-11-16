@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
-from typing import Annotated
+from fastapi import APIRouter, Depends, Query
+from typing import Annotated, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from infras.primary_db.main import get_pg_async_session
 from schemas.v1.request_schemas.customfield_schema import (
@@ -16,15 +16,35 @@ PG_ASYNC_SESSION=Annotated[AsyncSession,Depends(get_pg_async_session)]
 async def create_field(data: CreateCustomFieldSchema, session:PG_ASYNC_SESSION):
     return await CustomFieldsHandler.create_field(data=data, session=session)
 
-from typing import Optional
-
 @router.get("/{shop_id}")
-async def get_all_fields(shop_id: str, session:PG_ASYNC_SESSION, category_id: Optional[str] = None):
-    return await CustomFieldsHandler.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=shop_id, category_id=category_id), session=session)
+async def get_all_fields(
+    shop_id: str,
+    session: PG_ASYNC_SESSION,
+    search: Optional[str] = None,
+    category_id: Optional[str] = None,
+    field_type: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+):
+    return await CustomFieldsHandler.get_field_by_shop_id(
+        data=GetFieldByShopIdSchema(
+            shop_id=shop_id,
+            category_id=category_id,
+            search=search,
+            field_type=field_type,
+            page=page,
+            limit=limit,
+        ),
+        session=session,
+    )
 
 @router.get("/{shop_id}/{field_id}")
 async def get_field(field_id: str, shop_id: str, session:PG_ASYNC_SESSION):
     return await CustomFieldsHandler.get_field_by_id(data=GetFieldById(shop_id=shop_id,id=field_id), session=session)
+
+@router.get("/{shop_id}/{field_id}/usage")
+async def get_field_usage(field_id: str, shop_id: str, session: PG_ASYNC_SESSION):
+    return await CustomFieldsHandler.get_field_by_id(data=GetFieldById(shop_id=shop_id, id=field_id), session=session)
 
 @router.put("")
 async def update_field(data: UpdateCustomFieldSchema, session: PG_ASYNC_SESSION):

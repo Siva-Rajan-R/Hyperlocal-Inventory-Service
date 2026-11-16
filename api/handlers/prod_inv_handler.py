@@ -54,6 +54,40 @@ class HandleProdInvRequest:
     def __init__(self,session:AsyncSession):
         self.session=session
 
+    def _has_opening_stock(self, item) -> bool:
+        if getattr(item, 'stocks', None) is not None and float(item.stocks) > 0:
+            return True
+        if getattr(item, 'type_infos', None) and getattr(item.type_infos, 'has_variant', False) and getattr(item, 'variant_infos', None):
+            for v in item.variant_infos:
+                if getattr(v, 'stocks', None) is not None and float(v.stocks) > 0:
+                    return True
+                v_batches = getattr(v, 'batches', None) or getattr(v, 'batch_infos', None)
+                if v_batches:
+                    if isinstance(v_batches, dict):
+                        v_batches = [v_batches]
+                    for b in v_batches:
+                        b_stock = (getattr(b, 'stocks', None) if not isinstance(b, dict) else b.get('stocks')) or 0
+                        if float(b_stock) > 0:
+                            return True
+        p_batches = getattr(item, 'batches', None) or getattr(item, 'batch_infos', None)
+        if not p_batches and isinstance(getattr(item, 'custom_fields', None), dict):
+            if item.custom_fields.get("batch_info"):
+                p_batches = [item.custom_fields["batch_info"]]
+            elif item.custom_fields.get("batches"):
+                p_batches = item.custom_fields["batches"]
+        if p_batches:
+            if isinstance(p_batches, dict):
+                p_batches = [p_batches]
+            for b in p_batches:
+                b_stock = (getattr(b, 'stocks', None) if not isinstance(b, dict) else b.get('stocks')) or 0
+                if float(b_stock) > 0:
+                    return True
+        if isinstance(getattr(item, 'custom_fields', None), dict):
+            cf_stock = item.custom_fields.get("opening_stock")
+            if cf_stock is not None and float(cf_stock) > 0:
+                return True
+        return False
+
     def _validate_pricing_against_mrp(
         self,
         data,
@@ -242,13 +276,7 @@ class HandleProdInvRequest:
         self._validate_pricing_against_mrp(data)
 
         # Check if opening stock is provided and if initial stock import is already completed
-        has_stock = False
-        if data.type_infos and data.type_infos.has_variant and data.variant_infos:
-            has_stock = any(v.stocks is not None and float(v.stocks) > 0 for v in data.variant_infos)
-        elif data.stocks is not None and float(data.stocks) > 0:
-            has_stock = True
-
-        if has_stock:
+        if self._has_opening_stock(data):
             from integrations.shop_service import is_initial_stock_imported
             if await is_initial_stock_imported(data.shop_id):
                 raise HTTPException(
@@ -299,15 +327,7 @@ class HandleProdInvRequest:
         from integrations.shop_service import is_initial_stock_imported
         for shop_id in shops_to_check:
             shop_items = [item for item in data if item.shop_id == shop_id]
-            has_opening_stock = False
-            for item in shop_items:
-                if item.type_infos and item.type_infos.has_variant and item.variant_infos:
-                    if any(v.stocks is not None and float(v.stocks) > 0 for v in item.variant_infos):
-                        has_opening_stock = True
-                        break
-                elif item.stocks is not None and float(item.stocks) > 0:
-                    has_opening_stock = True
-                    break
+            has_opening_stock = any(self._has_opening_stock(item) for item in shop_items)
 
             if has_opening_stock and await is_initial_stock_imported(shop_id):
                 raise HTTPException(

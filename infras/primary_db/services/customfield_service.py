@@ -27,11 +27,15 @@ class CustomFieldsService:
             if field_data.field_name in existing_names:
                 continue
             field_id = generate_uuid()
+            f_dump = field_data.model_dump()
+            cat_id = f_dump.get("category_id")
+            if cat_id in ("ALL", "all", "", "null", None):
+                f_dump["category_id"] = None
             data_toadd.append(
                 CreateCustomFieldDbSchema(
                     id=field_id,
                     shop_id=shop_id,
-                    **field_data.model_dump()
+                    **f_dump
                 )
             )
         
@@ -56,6 +60,8 @@ class CustomFieldsService:
             )
 
         update_data = data.model_dump(exclude_unset=True, exclude_none=True, exclude=['field_id', 'id', 'shop_id'])
+        if 'category_id' in update_data and update_data['category_id'] in ("ALL", "all", "", "null"):
+            update_data['category_id'] = None
         if has_data and 'type' in update_data:
             del update_data['type']
 
@@ -77,27 +83,68 @@ class CustomFieldsService:
         if not existing:
             raise HTTPException(status_code=404, detail="Custom field not found")
 
-        value_exists = await self.repo.get_values_by_field_id(field_id=field_id, shop_id=data.shop_id)
-        has_data = any(v.get("value") is not None and str(v.get("value")).strip() != "" for v in value_exists)
-        if has_data:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot delete custom field because it already contains saved values."
-            )
-
-        deleted = await self.repo.delete_field(data=DeleteCustomFieldDbSchema(id=field_id, shop_id=data.shop_id))
-        if not deleted:
+        field_name = existing.get("field_name")
+        res = await self.repo.cascade_delete_field(field_id=field_id, shop_id=data.shop_id, field_name=field_name)
+        if not res.get("success"):
             raise HTTPException(status_code=500, detail="Failed to delete custom field")
-            
-        return {"success": True, "message": "Custom field deleted successfully"}
+
+        affected_product_ids = res.get("affected_product_ids", [])
+
+        # Cascade-clean MongoDB read DB if available
+        try:
+            from infras.read_db.main import DB
+            if DB is not None:
+                prod_col = DB["products"]
+                unset_doc = {
+                    f"custom_fields.{field_id}": "",
+                    f"additional_infos.{field_id}": ""
+                }
+                if field_name:
+                    unset_doc[f"custom_fields.{field_name}"] = ""
+                    unset_doc[f"additional_infos.{field_name}"] = ""
+                await prod_col.update_many(
+                    {"shop_id": data.shop_id},
+                    {"$unset": unset_doc}
+                )
+        except Exception as mongo_err:
+            from icecream import ic
+            ic("Mongo cascade clean error:", mongo_err)
+
+        # Trigger read DB sync for affected products
+        if affected_product_ids:
+            try:
+                from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
+                await ProdInvReadDbRepo.add_updatereaddb(
+                    shop_id=data.shop_id,
+                    product_ids=affected_product_ids,
+                    session=self.session
+                )
+            except Exception as sync_err:
+                from icecream import ic
+                ic("Read db sync error after custom field delete:", sync_err)
+
+        return {
+            "success": True,
+            "message": "Custom field deleted successfully",
+            "field_id": field_id,
+            "affected_products_count": res.get("usage_count", 0)
+        }
 
     async def get_all_fields(self) -> list:
         return await self.repo.get_fields()
 
-    async def get_field_by_shop_id(self,data:GetFieldByShopIdSchema) -> list:
+    async def get_field_by_shop_id(self, data: GetFieldByShopIdSchema) -> Any:
         field = await self.repo.get_fields_by_shop_id(data=data)
         if not field:
-            return []
+            if getattr(data, 'paginate', True) is False:
+                return []
+            return {
+                "items": [],
+                "total": 0,
+                "page": max(1, getattr(data, 'page', 1) or 1),
+                "limit": max(1, getattr(data, 'limit', 10) or 10),
+                "total_pages": 0,
+            }
         return field
     
     async def get_field_by_id(self,data:GetFieldById):
@@ -121,7 +168,8 @@ class CustomFieldsService:
             return {"success": True}
 
         # Validate that field_id actually exists in custom_fields table for this shop
-        existing_fields = await self.repo.get_fields_by_shop_id(GetFieldByShopIdSchema(shop_id=shop_id))
+        existing_res = await self.repo.get_fields_by_shop_id(GetFieldByShopIdSchema(shop_id=shop_id, paginate=False))
+        existing_fields = existing_res.get("items", []) if isinstance(existing_res, dict) else (existing_res or [])
         fields_by_id = {f.get("id"): f for f in existing_fields} if existing_fields else {}
         # Also map field_name to field in case field_name was passed
         fields_by_name = {f.get("field_name"): f for f in existing_fields} if existing_fields else {}

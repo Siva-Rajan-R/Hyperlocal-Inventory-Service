@@ -44,6 +44,8 @@ class CreateProdInvVariantType(BaseModel):
     sku: Optional[str] = None
     is_active: Optional[bool] = None
     stocks: Optional[float] = None
+    batches: Optional[List[dict]] = None
+    batch_infos: Optional[Union[dict, List[dict]]] = None
 
     @model_validator(mode='after')
     def validate_prices(self):
@@ -110,6 +112,8 @@ class CreateProdInvSchema(BaseModel):
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
     stocks: Optional[float] = None
+    batches: Optional[List[dict]] = None
+    batch_infos: Optional[Union[dict, List[dict]]] = None
     is_active: Optional[bool] = False
 
     @model_validator(mode='after')
@@ -244,8 +248,8 @@ class CreateUpdateInvAll(BaseModel):
 class BatchInfosProdInvType(BaseModel):
     id:Optional[str]=None
     name:Optional[str]=None
-    expiry_date:Optional[date]=None
-    manufacturing_date:Optional[date]=None
+    expiry_date:Optional[Union[str, date]]=None
+    manufacturing_date:Optional[Union[str, date]]=None
 
 class SerialnoInfosProdInvType(BaseModel):
     id:Optional[str]=None

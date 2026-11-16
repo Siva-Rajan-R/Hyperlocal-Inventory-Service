@@ -15,6 +15,8 @@ class ProductCustomFields(BASE):
     type=Column(String)
     required=Column(Boolean)
     visible_online=Column(Boolean)
+    options=Column(JSONB, nullable=True)
+    default_value=Column(String, nullable=True)
 
     created_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now())
     updated_at=Column(TIMESTAMP(timezone=True),nullable=False,server_default=func.now(),onupdate=func.now())

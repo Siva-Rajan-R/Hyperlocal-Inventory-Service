@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 
 
 class CustomFieldInfos(BaseModel):
@@ -9,6 +9,8 @@ class CustomFieldInfos(BaseModel):
     required: bool = False
     visible_online: bool = False
     category_id: Optional[str] = None
+    options: Optional[Any] = None
+    default_value: Optional[str] = None
 
     
 # --- Custom Fields (Definitions) ---
@@ -26,6 +28,8 @@ class UpdateCustomFieldSchema(BaseModel):
     required: Optional[bool] = None
     visible_online: Optional[bool] = None
     category_id: Optional[str] = None
+    options: Optional[Any] = None
+    default_value: Optional[str] = None
 
 
 class DeleteCustomFieldSchema(BaseModel):
@@ -35,8 +39,13 @@ class DeleteCustomFieldSchema(BaseModel):
 
 
 class GetFieldByShopIdSchema(BaseModel):
-    shop_id:str
+    shop_id: str
     category_id: Optional[str] = None
+    search: Optional[str] = None
+    field_type: Optional[str] = None
+    page: int = 1
+    limit: int = 10
+    paginate: bool = True
 
 class GetFieldById(BaseModel):
     id:str
