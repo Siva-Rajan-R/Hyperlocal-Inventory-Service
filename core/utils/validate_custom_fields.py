@@ -1,11 +1,11 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from fastapi import HTTPException
 from icecream import ic
 from hyperlocal_platform.core.models.req_res_models import ErrorResponseTypDict
 
 def validate_and_filter_custom_fields(
-    payload_custom_fields: Dict, 
-    defined_custom_fields: List[Dict],
+    payload_custom_fields: Optional[Dict], 
+    defined_custom_fields: Any,
     category_id: Optional[str] = None
 ) -> Dict:
     """
@@ -18,7 +18,17 @@ def validate_and_filter_custom_fields(
     if not defined_custom_fields:
         return {}
 
-    payload_custom_fields = payload_custom_fields or {}
+    # Handle paginated dict {"items": [...], ...} or dict mapping
+    if isinstance(defined_custom_fields, dict):
+        if "items" in defined_custom_fields and isinstance(defined_custom_fields["items"], list):
+            defined_custom_fields = defined_custom_fields["items"]
+        else:
+            defined_custom_fields = list(defined_custom_fields.values())
+
+    if not isinstance(defined_custom_fields, (list, tuple, set)):
+        return {}
+
+    payload_custom_fields = dict(payload_custom_fields) if payload_custom_fields and isinstance(payload_custom_fields, dict) else {}
 
     # Separate applicable fields (global or matching this product's category)
     applicable_fields_by_name = {}
@@ -26,14 +36,18 @@ def validate_and_filter_custom_fields(
     applicable_field_list = []
 
     for field in defined_custom_fields:
+        if not isinstance(field, dict):
+            continue
         field_cat = field.get("category_id")
         # Global field if category_id is missing, None, or empty string / "all"
         is_global = not field_cat or str(field_cat).strip() == "" or str(field_cat).strip().lower() == "all"
         is_category_match = bool(category_id and str(field_cat).strip() == str(category_id).strip())
 
         if is_global or is_category_match:
-            applicable_fields_by_name[field['field_name']] = field
-            applicable_fields_by_id[field['id']] = field
+            if field.get('field_name'):
+                applicable_fields_by_name[field['field_name']] = field
+            if field.get('id'):
+                applicable_fields_by_id[field['id']] = field
             applicable_field_list.append(field)
 
     ic(defined_custom_fields, category_id, applicable_field_list, payload_custom_fields)

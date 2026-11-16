@@ -1,4 +1,4 @@
-from sqlalchemy import func
+from sqlalchemy import func, select
 from hyperlocal_platform.core.enums.timezone_enum import TimeZoneEnum
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -290,7 +290,7 @@ class HandleProdInvRequest:
                 )
         
         cust_field_obj=CustomFieldsService(session=self.session)
-        fields=await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
+        fields=await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id, paginate=False))
         
         raw_cf = dict(data.custom_fields) if data.custom_fields and isinstance(data.custom_fields, dict) else {}
         valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields, category_id=data.category_id)
@@ -350,7 +350,7 @@ class HandleProdInvRequest:
             if item.type_infos.has_variant and not item.variant_infos:
                 continue
 
-            fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=item.shop_id))
+            fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=item.shop_id, paginate=False))
             raw_cf = dict(item.custom_fields) if item.custom_fields and isinstance(item.custom_fields, dict) else {}
             valid_custom_fields = validate_and_filter_custom_fields(item.custom_fields, fields, category_id=item.category_id)
             item_data = item.model_dump()
@@ -455,7 +455,7 @@ class HandleProdInvRequest:
         raw_cf = dict(data.custom_fields) if data.custom_fields and isinstance(data.custom_fields, dict) else None
         if data.custom_fields is not None:
             cust_field_obj = CustomFieldsService(session=self.session)
-            fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id))
+            fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=data.shop_id, paginate=False))
             cat_id = data.category_id
             if not cat_id:
                 from infras.primary_db.models.product_model import Products
