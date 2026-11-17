@@ -155,6 +155,25 @@ async def custom_validation_exception_handler(request: Request, exc: RequestVali
         }
     )
 
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    error_details = str(exc)
+    request.state.error_detail = error_details
+    logger.error(f"{RED}❌ ValueError on {request.method} {request.url.path}:{RESET} {error_details}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "detail": {
+                "msg": "Validation Error",
+                "status_code": 400,
+                "success": False,
+                "status_type": "error",
+                "title": "Validation Error",
+                "description": error_details
+            }
+        }
+    )
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     error_details = str(exc)

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from integrations.utility_service import upload_assets,delete_assets
 from sqlalchemy import select
 from infras.primary_db.models.product_model import Products
+from core.utils.similarity_check import find_similar_name
 
 
 class UploadImagesSchema(BaseModel):
@@ -54,8 +55,6 @@ from core.utils.user_info import get_current_user_id
 async def check_product_name(data: CheckProductNameSchema, session: PG_ASYNC_SESSION):
     repo = ProductRepo(session=session)
     existing_names = await repo.get_product_names_by_shop_id(shop_id=data.shop_id)
-    
-    from core.utils.similarity_check import find_similar_name
     similar_name = find_similar_name(data.name, existing_names)
     
     if similar_name:
@@ -71,6 +70,13 @@ async def check_product_name(data: CheckProductNameSchema, session: PG_ASYNC_SES
     }
 
 
+@router.get('/names/{shop_id}')
+async def get_product_names(shop_id: str, session: PG_ASYNC_SESSION):
+    repo = ProductRepo(session=session)
+    existing_names = await repo.get_product_names_by_shop_id(shop_id=shop_id)
+    return {"data": existing_names}
+
+
 @router.post('')
 async def create(data:CreateProdInvSchema,session:PG_ASYNC_SESSION,user_id: Optional[str] = Depends(get_current_user_id)):
     return await HandleProdInvRequest(session=session).create(data=data, executing_user_id=user_id)
@@ -78,6 +84,11 @@ async def create(data:CreateProdInvSchema,session:PG_ASYNC_SESSION,user_id: Opti
 
 @router.post('/bulk')
 async def create_bulk(data:List[CreateProdInvSchema],session:PG_ASYNC_SESSION,user_id: Optional[str] = Depends(get_current_user_id)):
+    return await HandleProdInvRequest(session=session).create_bulk(data=data, executing_user_id=user_id)
+
+
+@router.post('/bulk-import')
+async def create_bulk_import(data:List[CreateProdInvSchema],session:PG_ASYNC_SESSION,user_id: Optional[str] = Depends(get_current_user_id)):
     return await HandleProdInvRequest(session=session).create_bulk(data=data, executing_user_id=user_id)
 
 
@@ -157,6 +168,24 @@ async def delete_images(session:PG_ASYNC_SESSION,data:DeleteImagesSchema):
 @router.put('')
 async def update(data:UpdateProdInvSchema,session:PG_ASYNC_SESSION,user_id: Optional[str] = Depends(get_current_user_id)):
     return await HandleProdInvRequest(session=session).update(data=data, executing_user_id=user_id)
+
+class BulkDeleteRequest(BaseModel):
+    ids: List[str]
+    shop_id: Optional[str] = None
+
+@router.post('/{shop_id}/bulk-delete')
+async def bulk_delete_by_shop(shop_id: str, data: BulkDeleteRequest, session: PG_ASYNC_SESSION, user_id: Optional[str] = Depends(get_current_user_id)):
+    return await HandleProdInvRequest(session=session).bulk_delete(shop_id=shop_id, ids=data.ids, executing_user_id=user_id)
+
+@router.delete('/{shop_id}/bulk')
+async def bulk_delete_by_shop_del(shop_id: str, data: BulkDeleteRequest, session: PG_ASYNC_SESSION, user_id: Optional[str] = Depends(get_current_user_id)):
+    return await HandleProdInvRequest(session=session).bulk_delete(shop_id=shop_id, ids=data.ids, executing_user_id=user_id)
+
+@router.post('/bulk-delete')
+async def bulk_delete_generic(data: BulkDeleteRequest, session: PG_ASYNC_SESSION, user_id: Optional[str] = Depends(get_current_user_id)):
+    if not data.shop_id:
+        raise HTTPException(status_code=400, detail="shop_id is required")
+    return await HandleProdInvRequest(session=session).bulk_delete(shop_id=data.shop_id, ids=data.ids, executing_user_id=user_id)
 
 @router.delete('/{shop_id}/{id}')
 async def delete(session:PG_ASYNC_SESSION,data:DeleteProductSchema=Depends(),user_id: Optional[str] = Depends(get_current_user_id)):

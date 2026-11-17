@@ -296,7 +296,18 @@ class HandleProdInvRequest:
         valid_custom_fields = validate_and_filter_custom_fields(data.custom_fields, fields, category_id=data.category_id)
         merged_custom_fields = {**raw_cf, **valid_custom_fields}
         
-        res=await ProductInventoryService(session=self.session).create(data=CreateProdInvSchema(custom_fields=merged_custom_fields,**data.model_dump(exclude=['custom_fields'])), executing_user_id=executing_user_id)
+        try:
+            res=await ProductInventoryService(session=self.session).create(data=CreateProdInvSchema(custom_fields=merged_custom_fields,**data.model_dump(exclude=['custom_fields'])), executing_user_id=executing_user_id)
+        except ValueError as val_err:
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponseTypDict(
+                    msg="Validation Error",
+                    description=str(val_err),
+                    success=False,
+                    status_code=400
+                )
+            )
         ic(res)
         
         if res:
@@ -346,11 +357,14 @@ class HandleProdInvRequest:
 
         valid_items = []
         cust_field_obj = CustomFieldsService(session=self.session)
+        fields_cache = {}
         for item in data:
-            if item.type_infos.has_variant and not item.variant_infos:
+            if getattr(item, 'type_infos', None) and getattr(item.type_infos, 'has_variant', False) and not getattr(item, 'variant_infos', None):
                 continue
 
-            fields = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=item.shop_id, paginate=False))
+            if item.shop_id not in fields_cache:
+                fields_cache[item.shop_id] = await cust_field_obj.get_field_by_shop_id(data=GetFieldByShopIdSchema(shop_id=item.shop_id, paginate=False))
+            fields = fields_cache[item.shop_id]
             raw_cf = dict(item.custom_fields) if item.custom_fields and isinstance(item.custom_fields, dict) else {}
             valid_custom_fields = validate_and_filter_custom_fields(item.custom_fields, fields, category_id=item.category_id)
             item_data = item.model_dump()
@@ -527,6 +541,32 @@ class HandleProdInvRequest:
                 status_code=400,
                 detail=ErrorResponseTypDict(
                     msg="Error => Deleting Inventory",
+                    description=str(e),
+                    success=False,
+                    status_code=400
+                )
+            )
+
+    async def bulk_delete(self, shop_id: str, ids: List[str], executing_user_id: Optional[str] = None):
+        try:
+            res = await ProductInventoryService(session=self.session).bulk_delete(
+                shop_id=shop_id, ids=ids, executing_user_id=executing_user_id
+            )
+            return {
+                "detail": {
+                    "status_code": 200,
+                    "success": True,
+                    "msg": f"Bulk delete completed: {res['deleted_count']} deleted, {res['failed_count']} failed"
+                },
+                "data": res
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=ErrorResponseTypDict(
+                    msg="Error => Bulk Deleting Inventory",
                     description=str(e),
                     success=False,
                     status_code=400

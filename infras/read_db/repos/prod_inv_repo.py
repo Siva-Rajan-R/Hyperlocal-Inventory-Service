@@ -164,6 +164,33 @@ class ProdInvReadDbRepo:
             existing_map = {p["id"]: p for p in existing_products}
 
             bulk_ops = []
+            category_cache: dict = {}
+            unit_cache: dict = {}
+
+            # Prefetch custom fields for all products in 1 query to avoid N+1 queries in the loop
+            cf_by_product: dict = {}
+            if product_ids:
+                try:
+                    from infras.primary_db.models.customfield_model import ProductCustomFieldsValues, ProductCustomFields
+                    cf_stmt = (
+                        select(
+                            ProductCustomFieldsValues.product_id,
+                            ProductCustomFieldsValues.value,
+                            ProductCustomFields.field_name
+                        )
+                        .join(ProductCustomFields, ProductCustomFields.id == ProductCustomFieldsValues.field_id)
+                        .where(
+                            ProductCustomFieldsValues.product_id.in_(product_ids),
+                            ProductCustomFieldsValues.shop_id == shop_id
+                        )
+                    )
+                    cf_rows = (await session.execute(cf_stmt)).all()
+                    for r_pid, r_val, r_fname in cf_rows:
+                        if r_pid not in cf_by_product:
+                            cf_by_product[r_pid] = {}
+                        cf_by_product[r_pid][r_fname] = r_val
+                except Exception as cf_err:
+                    ic(f"Error prefetching custom fields for read db: {cf_err}")
 
             for p_data in primary_products:
                 prod_id = p_data["id"]
@@ -174,33 +201,42 @@ class ProdInvReadDbRepo:
                 
                 category_name = ""
                 unit_name = ""
+                sub_units = []
 
                 # Reuse existing names if ID matches
                 if existing_prod:
                     ext_cat = existing_prod.get("category_infos", {})
-                    ext_unit = existing_prod.get("unit_infos", {})
-                    
                     if ext_cat and ext_cat.get("id") == category_id:
                         category_name = ext_cat.get("name", "")
                     
-                sub_units = []
-                if existing_prod:
                     ext_unit = existing_prod.get("unit_infos", {})
                     if ext_unit and ext_unit.get("id") == unit_id:
                         unit_name = ext_unit.get("name", "")
                         sub_units = ext_unit.get("sub_units") or []
 
-                # Fetch from Utility Service if not matched/found
+                # Fetch from Utility Service if not matched/found (with in-memory cache)
                 if not category_name and category_id:
-                    cat_res = await get_shop_category(shop_id=shop_id, category_id=category_id)
-                    if isinstance(cat_res, dict):
-                        category_name = cat_res.get("name", "")
+                    if category_id in category_cache:
+                        category_name = category_cache[category_id]
+                    else:
+                        cat_res = await get_shop_category(shop_id=shop_id, category_id=category_id)
+                        if isinstance(cat_res, dict):
+                            category_name = cat_res.get("name", "")
+                        category_cache[category_id] = category_name
+                elif category_id and category_name:
+                    category_cache[category_id] = category_name
                     
                 if (not unit_name or not sub_units) and unit_id:
-                    unit_res = await get_shop_unit(shop_id=shop_id, unit_id=unit_id)
-                    if isinstance(unit_res, dict):
-                        unit_name = unit_res.get("name", "")
-                        sub_units = unit_res.get("sub_units") or []
+                    if unit_id in unit_cache:
+                        unit_name, sub_units = unit_cache[unit_id]
+                    else:
+                        unit_res = await get_shop_unit(shop_id=shop_id, unit_id=unit_id)
+                        if isinstance(unit_res, dict):
+                            unit_name = unit_res.get("name", "")
+                            sub_units = unit_res.get("sub_units") or []
+                        unit_cache[unit_id] = (unit_name, sub_units)
+                elif unit_id and unit_name:
+                    unit_cache[unit_id] = (unit_name, sub_units)
 
                 # Add infos to the primary DB structure
                 p_data["category_infos"] = {
@@ -213,19 +249,13 @@ class ProdInvReadDbRepo:
                     "sub_units": sub_units
                 }
                 
-                # Fetch Custom Fields
-                from infras.primary_db.services.customfield_service import CustomFieldsService
-                cf_service = CustomFieldsService(session=session)
+                # Custom Fields
                 existing_cf = p_data.get("custom_fields") or {}
                 if not isinstance(existing_cf, dict):
                     existing_cf = {}
-                try:
-                    cf_values = await cf_service.get_values_by_product(product_id=prod_id, shop_id=shop_id)
-                    if cf_values:
-                        for v in cf_values:
-                            existing_cf[v["field_name"]] = v["value"]
-                except Exception as e:
-                    ic(f"Error fetching custom fields for read db: {e}")
+                if prod_id in cf_by_product:
+                    existing_cf.update(cf_by_product[prod_id])
+
                 # Clean up legacy refund_policy
                 _clean_doc(p_data)
                 existing_cf.pop("refund_policy", None)
@@ -536,6 +566,17 @@ class ProdInvReadDbRepo:
         except Exception as e:
             ic(f"Error deleting product from read DB: {e}")
             return False
+
+    @classmethod
+    async def delete_product_bulk(cls, product_ids: list, shop_id: str) -> int:
+        try:
+            if not product_ids:
+                return 0
+            result = await PROD_INV_COLLECTION.delete_many({"id": {"$in": product_ids}, "shop_id": shop_id})
+            return result.deleted_count
+        except Exception as e:
+            ic(f"Error bulk deleting products from read DB: {e}")
+            return 0
 
         
 

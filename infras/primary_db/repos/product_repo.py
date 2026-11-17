@@ -131,6 +131,12 @@ class ProductRepo:
     
     
     @start_db_transaction
+    async def create_bulk_products(self, data: List[Products]):
+        if data:
+            self.session.add_all(data)
+        return True
+
+    @start_db_transaction
     async def create_bulk_variant(self,data: List[ProductVariants]):
         if data:
             self.session.add_all(data)

@@ -30,7 +30,7 @@ def _extract_schema_mrp(mrp: Optional[float], custom_fields: Optional[dict] = No
 class CreateProdInvVariantType(BaseModel):
     name:str
     storage_location:Optional[str]=None
-    reorder_point:Optional[float]=5
+    reorder_point:Optional[float]=1
     online_reorder_point:Optional[float]=0.0
     buy_price:Optional[float]=None
     sell_price:Optional[float]=None
@@ -41,11 +41,12 @@ class CreateProdInvVariantType(BaseModel):
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
     barcode: Optional[str] = None
-    sku: Optional[str] = None
     is_active: Optional[bool] = None
     stocks: Optional[float] = None
     batches: Optional[List[dict]] = None
     batch_infos: Optional[Union[dict, List[dict]]] = None
+    serial_numbers: Optional[List[str]] = None
+    serialno_infos: Optional[List[Union[dict, str]]] = None
 
     @model_validator(mode='after')
     def validate_prices(self):
@@ -104,7 +105,7 @@ class CreateProdInvSchema(BaseModel):
     mrp:Optional[float]=None
     discount_percent:Optional[float]=None
     offer_valid_until:Optional[Union[str, date]]=None
-    reorder_point:Optional[float]=5
+    reorder_point:Optional[float]=1
     online_reorder_point:Optional[float]=0.0
     custom_fields:Optional[dict]={}
     additional_infos:Optional[dict]=None
@@ -114,7 +115,10 @@ class CreateProdInvSchema(BaseModel):
     stocks: Optional[float] = None
     batches: Optional[List[dict]] = None
     batch_infos: Optional[Union[dict, List[dict]]] = None
-    is_active: Optional[bool] = False
+    serial_numbers: Optional[List[str]] = None
+    serialno_infos: Optional[List[Union[dict, str]]] = None
+    is_active: Optional[bool] = None
+    is_initial_stock: Optional[bool] = False
 
     @model_validator(mode='after')
     def validate_prices(self):
@@ -273,6 +277,7 @@ class UpdateAllProdInvSchema(BaseModel):
     sell_price:Optional[float]=None
     online_sell_price:Optional[float]=None
     mrp:Optional[float]=None
+    is_active:Optional[bool]=None
     type:str
 
     @model_validator(mode='after')

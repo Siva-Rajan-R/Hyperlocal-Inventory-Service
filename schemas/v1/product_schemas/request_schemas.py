@@ -19,6 +19,7 @@ class CreateProductSchema(BaseModel):
     reorder_point:Optional[float]=0
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class UpdateProductSchema(BaseModel):
@@ -49,6 +50,7 @@ class CreateProductVariantSchema(BaseModel):
     name:str
     visible_online:Optional[bool]=False
     sku: Optional[str] = None
+    is_active: Optional[bool] = None
     barcode: Optional[str] = None
 
 class UpdateProductVariantSchema(BaseModel):

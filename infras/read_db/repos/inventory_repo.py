@@ -86,3 +86,10 @@ class InventoryReadDbRepo:
     async def delete_inventory(inventory_id: str, shop_id: str):
         result = await INVENTORY_COLLECTION.delete_one({"id": inventory_id, "shop_id": shop_id})
         return result.deleted_count > 0
+
+    @staticmethod
+    async def delete_inventory_bulk(inventory_ids: list, shop_id: str):
+        if not inventory_ids:
+            return 0
+        result = await INVENTORY_COLLECTION.delete_many({"id": {"$in": inventory_ids}, "shop_id": shop_id})
+        return result.deleted_count

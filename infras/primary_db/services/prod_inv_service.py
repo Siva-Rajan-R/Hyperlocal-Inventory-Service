@@ -1,6 +1,7 @@
 from core.utils.user_context import get_activity_log_user_info
 from models.repo_models.base_repo_model import BaseRepoModel
 import asyncio
+import re
 from models.service_models.base_service_model import BaseServiceModel
 from ..models.inventory_model import InventoryPricings,InventoryStocks,InventoryStoragelocations,InventoryReorderPoint
 from ..models.product_model import ProductBatches,Products,ProductSerialNumbers,ProductVariants
@@ -31,6 +32,7 @@ from helpers.sku_generator import (
 )
 from ..services.customfield_service import CustomFieldsService
 from schemas.v1.request_schemas.customfield_schema import CreateCustomFieldSchema,UpdateCustomFieldSchema,UpdateCustomFieldValueSchema,CreateCustomFieldValueSchema,BulkCreateCustomFieldValuesSchema,GetvaluesByProductId
+from core.utils.similarity_check import find_similar_name
 
 def is_same_batch(b1, b2) -> bool:
     if not b1 and not b2:
@@ -70,8 +72,71 @@ class ProductInventoryService:
     def __init__(self,session:AsyncSession):
         self.session=session
 
-    async def create(self,data:CreateProdInvSchema, executing_user_id: Optional[str] = None):
+    async def create(self,data:CreateProdInvSchema, executing_user_id: Optional[str] = None, emit_notif: bool = True):
         try:
+            # Initial stock validation
+            if getattr(data, "is_initial_stock", False):
+                has_var = bool(data.type_infos and data.type_infos.has_variant) or bool(data.variant_infos)
+                has_batch = bool(data.type_infos and data.type_infos.has_batch) or bool(data.batches)
+
+                if not has_var and not has_batch:
+                    if data.buy_price is None or float(data.buy_price) <= 0:
+                        raise ValueError("Buy price is mandatory and must be greater than 0 for initial stock.")
+                    if data.sell_price is None or float(data.sell_price) <= 0:
+                        raise ValueError("Sell price is mandatory and must be greater than 0 for initial stock.")
+                    if data.have_tracking:
+                        stock_val = data.stocks
+                        if (stock_val is None or float(stock_val) <= 0) and isinstance(data.custom_fields, dict):
+                            stock_val = data.custom_fields.get("opening_stock")
+                        if stock_val is None or float(stock_val) <= 0:
+                            raise ValueError("Opening stock is mandatory and must be greater than 0 for tracked initial stock.")
+
+                if has_var and data.variant_infos:
+                    for v in data.variant_infos:
+                        v_name = v.name or "Variant"
+                        v_buy = v.buy_price if (v.buy_price is not None and float(v.buy_price) > 0) else data.buy_price
+                        if v_buy is None or float(v_buy) <= 0:
+                            raise ValueError(f"Buy price is mandatory and must be greater than 0 for variant '{v_name}'.")
+                        v_sell = v.sell_price if (v.sell_price is not None and float(v.sell_price) > 0) else data.sell_price
+                        if v_sell is None or float(v_sell) <= 0:
+                            raise ValueError(f"Sell price is mandatory and must be greater than 0 for variant '{v_name}'.")
+                        if data.have_tracking:
+                            v_batches = getattr(v, 'batches', None) or getattr(v, 'batch_infos', None)
+                            if v_batches and isinstance(v_batches, dict):
+                                v_batches = [v_batches]
+                            if v_batches:
+                                for vb in v_batches:
+                                    vb_dict = vb if isinstance(vb, dict) else (vb.model_dump() if hasattr(vb, 'model_dump') else vb.__dict__)
+                                    vb_name = vb_dict.get('name') or vb_dict.get('batch_name') or 'Batch'
+                                    vb_buy = vb_dict.get('buy_price') if (vb_dict.get('buy_price') is not None and float(vb_dict.get('buy_price')) > 0) else v_buy
+                                    if vb_buy is None or float(vb_buy) <= 0:
+                                        raise ValueError(f"Buy price is mandatory and must be greater than 0 for batch '{vb_name}'.")
+                                    vb_sell = vb_dict.get('sell_price') if (vb_dict.get('sell_price') is not None and float(vb_dict.get('sell_price')) > 0) else v_sell
+                                    if vb_sell is None or float(vb_sell) <= 0:
+                                        raise ValueError(f"Sell price is mandatory and must be greater than 0 for batch '{vb_name}'.")
+                                    vb_stock = vb_dict.get('stocks') or vb_dict.get('stock')
+                                    if vb_stock is None or float(vb_stock) <= 0:
+                                        raise ValueError(f"Opening stock is mandatory and must be greater than 0 for tracked initial stock (variant '{v_name}', batch '{vb_name}').")
+                            else:
+                                v_stock = v.stocks
+                                if v_stock is None or float(v_stock) <= 0:
+                                    raise ValueError(f"Opening stock is mandatory and must be greater than 0 for tracked initial stock (variant '{v_name}').")
+
+                if has_batch and data.batches:
+                    for b in data.batches:
+                        b_dict = b if isinstance(b, dict) else (b.model_dump() if hasattr(b, 'model_dump') else b.__dict__)
+                        b_name = b_dict.get('name') or 'Batch'
+                        b_buy = b_dict.get('buy_price') if (b_dict.get('buy_price') is not None and float(b_dict.get('buy_price')) > 0) else data.buy_price
+                        if b_buy is None or float(b_buy) <= 0:
+                            raise ValueError(f"Buy price is mandatory and must be greater than 0 for batch '{b_name}'.")
+                        b_sell = b_dict.get('sell_price') if (b_dict.get('sell_price') is not None and float(b_dict.get('sell_price')) > 0) else data.sell_price
+                        if b_sell is None or float(b_sell) <= 0:
+                            raise ValueError(f"Sell price is mandatory and must be greater than 0 for batch '{b_name}'.")
+                        if data.have_tracking:
+                            b_stock = b_dict.get('stocks') or b_dict.get('stock')
+                            if b_stock is None or float(b_stock) <= 0:
+                                raise ValueError(f"Opening stock is mandatory and must be greater than 0 for tracked initial stock (batch '{b_name}').")
+
             variants_toadd=[]
             storage_location_toadd=[]
             pricing_toadd=[]
@@ -79,6 +144,17 @@ class ProductInventoryService:
 
             product_id=generate_uuid()
             
+            # Product Name Uniqueness Check
+            if data.name:
+                name_stmt = select(Products.name).where(Products.shop_id == data.shop_id)
+                existing_names = list((await self.session.execute(name_stmt)).scalars().all())
+                clean_name = data.name.strip()
+                if clean_name.lower() in {n.strip().lower() for n in existing_names if n}:
+                    raise ValueError(f"Product '{data.name}' already exists in this shop.")
+                similar = find_similar_name(clean_name, existing_names)
+                if similar:
+                    raise ValueError(f"A product with a similar name '{similar}' already exists.")
+
             # Product SKU & Barcode Resolution
             if data.sku:
                 if not await validate_sku_uniqueness(self.session, data.shop_id, data.sku):
@@ -257,7 +333,6 @@ class ProductInventoryService:
             if isinstance(ui_id_res, dict) and ui_id_res.get("prefix") and ui_id_res.get("current_number") is not None:
                 ui_id = f"{ui_id_res.get('prefix')}-{ui_id_res.get('current_number')}"
             else:
-                from sqlalchemy import select, func
                 prod_count_stmt = select(func.count(Products.id)).where(Products.shop_id == data.shop_id)
                 count = (await self.session.execute(prod_count_stmt)).scalar() or 0
                 ui_id = f"PRD-{count + 1:05d}"
@@ -278,15 +353,60 @@ class ProductInventoryService:
                 cf_data["return_policy"] = ret_pol
                 cf_data.pop("refund_policy", None)
 
+            have_tracking = getattr(data, 'have_tracking', True) if getattr(data, 'have_tracking', None) is not None else True
+            has_stock = False
+            if getattr(data, 'stocks', None) and float(data.stocks) > 0:
+                has_stock = True
+            elif isinstance(data.custom_fields, dict) and data.custom_fields.get("opening_stock") and float(data.custom_fields.get("opening_stock")) > 0:
+                has_stock = True
+            elif getattr(data, 'serial_numbers', None) or getattr(data, 'serialno_infos', None):
+                has_stock = True
+            elif getattr(data, 'batches', None) or getattr(data, 'batch_infos', None):
+                b_list = getattr(data, 'batches', None) or getattr(data, 'batch_infos', None)
+                if isinstance(b_list, dict):
+                    b_list = [b_list]
+                for b in (b_list or []):
+                    b_dict = b if isinstance(b, dict) else (b.model_dump() if hasattr(b, 'model_dump') else getattr(b, '__dict__', {}))
+                    if float(b_dict.get('stocks') or b_dict.get('stock') or 0) > 0:
+                        has_stock = True
+                        break
+            if not has_stock and getattr(data, 'type_infos', None) and getattr(data.type_infos, 'has_variant', False) and getattr(data, 'variant_infos', None):
+                for v in data.variant_infos:
+                    v_stock = getattr(v, 'stocks', None)
+                    if v_stock and float(v_stock) > 0:
+                        has_stock = True
+                        break
+                    v_serials = getattr(v, 'serial_numbers', None) or getattr(v, 'serialno_infos', None)
+                    if v_serials:
+                        has_stock = True
+                        break
+                    v_batches = getattr(v, 'batches', None) or getattr(v, 'batch_infos', None)
+                    if isinstance(v_batches, dict):
+                        v_batches = [v_batches]
+                    for b in (v_batches or []):
+                        b_dict = b if isinstance(b, dict) else (b.model_dump() if hasattr(b, 'model_dump') else getattr(b, '__dict__', {}))
+                        if float(b_dict.get('stocks') or b_dict.get('stock') or 0) > 0:
+                            has_stock = True
+                            break
+                    if has_stock:
+                        break
+
+            if getattr(data, "is_initial_stock", False):
+                is_active = True
+                if isinstance(cf_data, dict):
+                    cf_data["is_active"] = True
+            else:
+                is_active = data.is_active if getattr(data, 'is_active', None) is not None else (True if (has_stock or not have_tracking) else False)
+
             product_toadd=CreateProductDbSchema(
                 id=product_id,
                 ui_id=ui_id,
-                is_active=data.is_active if getattr(data, 'is_active', None) is not None else False,
+                is_active=is_active,
                 sku=product_sku,
                 barcode=product_barcode,
                 brand=data.brand or None,
                 additional_infos=cf_data,
-                **data.model_dump(exclude=["stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields","additional_infos","is_active","return_policy","mrp","discount_percent","offer_valid_until"])
+                **data.model_dump(exclude=["is_initial_stock","stocks","variant_types","variant_infos","storage_location","buy_price","sell_price","sku","barcode","online_sell_price","online_reorder_point","brand","custom_fields","additional_infos","is_active","return_policy","mrp","discount_percent","offer_valid_until","batches","batch_infos","serial_numbers","serialno_infos"])
             )
 
             product_repo_obj=ProductRepo(session=self.session)
@@ -342,7 +462,11 @@ class ProductInventoryService:
                                 b_name = b_dict.get('name') or b_dict.get('batch_name')
                                 b_exp = b_dict.get('expiry_date') or b_dict.get('exp_date')
                                 b_mfg = b_dict.get('manufacturing_date') or b_dict.get('mfg_date')
-                                b_stock = float(b_dict.get('stocks') or b_dict.get('stock') or 0.0)
+                                raw_serials = b_dict.get('serial_numbers') or b_dict.get('serialno_infos') or []
+                                if isinstance(raw_serials, (str, int, dict)):
+                                    raw_serials = [raw_serials]
+                                serialno_infos = [{'name': str(s).strip()} if isinstance(s, (str, int)) else s for s in raw_serials]
+                                b_stock = float(b_dict.get('stocks') or b_dict.get('stock') or (len(serialno_infos) if serialno_infos else 0.0))
                                 if b_name and b_stock > 0:
                                     stock_update_payloads.append({
                                         'shop_id': data.shop_id,
@@ -353,10 +477,10 @@ class ProductInventoryService:
                                             'expiry_date': str(b_exp) if b_exp else str(date.today()),
                                             'manufacturing_date': str(b_mfg) if b_mfg else str(date.today()),
                                         },
-                                        'serialno_infos': [],
+                                        'serialno_infos': serialno_infos,
                                         'stocks': b_stock,
                                         'storage_location': b_dict.get('storage_location') or v_item.storage_location or None,
-                                        'reorder_point': v_item.reorder_point or 5,
+                                        'reorder_point': v_item.reorder_point or 1,
                                         'online_reorder_point': v_item.online_reorder_point or 0.0,
                                         'name': data.name,
                                         'gst': data.gst or "0%",
@@ -372,17 +496,24 @@ class ProductInventoryService:
                                         'create_stock_mov_adj': True
                                     })
                         else:
+                            raw_serials = getattr(v_item, 'serial_numbers', None) or (v_item.get('serial_numbers') if isinstance(v_item, dict) else None) or getattr(v_item, 'serialno_infos', None) or (v_item.get('serialno_infos') if isinstance(v_item, dict) else None) or []
+                            if isinstance(raw_serials, (str, int, dict)):
+                                raw_serials = [raw_serials]
+                            serialno_infos = [{'name': str(s).strip()} if isinstance(s, (str, int)) else s for s in raw_serials]
                             stock_val = getattr(v_item, 'stocks', None)
-                            if stock_val is not None and float(stock_val) > 0:
+                            if (stock_val is None or float(stock_val) == 0) and serialno_infos:
+                                stock_val = len(serialno_infos)
+                            have_tracking = getattr(data, 'have_tracking', True)
+                            if have_tracking and stock_val is not None and float(stock_val) > 0:
                                 stock_update_payloads.append({
                                     'shop_id': data.shop_id,
                                     'product_id': product_id,
                                     'variant_id': v_obj.id,
                                     'batch_infos': None,
-                                    'serialno_infos': [],
+                                    'serialno_infos': serialno_infos,
                                     'stocks': float(stock_val),
                                     'storage_location': v_item.storage_location or None,
-                                    'reorder_point': v_item.reorder_point or 5,
+                                    'reorder_point': v_item.reorder_point or 1,
                                     'online_reorder_point': v_item.online_reorder_point or 0.0,
                                     'name': data.name,
                                     'gst': data.gst or "0%",
@@ -414,7 +545,11 @@ class ProductInventoryService:
                             b_name = b_dict.get('name') or b_dict.get('batch_name')
                             b_exp = b_dict.get('expiry_date') or b_dict.get('exp_date')
                             b_mfg = b_dict.get('manufacturing_date') or b_dict.get('mfg_date')
-                            b_stock = float(b_dict.get('stocks') or b_dict.get('stock') or data.stocks or 0.0)
+                            raw_serials = b_dict.get('serial_numbers') or b_dict.get('serialno_infos') or []
+                            if isinstance(raw_serials, (str, int, dict)):
+                                raw_serials = [raw_serials]
+                            serialno_infos = [{'name': str(s).strip()} if isinstance(s, (str, int)) else s for s in raw_serials]
+                            b_stock = float(b_dict.get('stocks') or b_dict.get('stock') or data.stocks or (len(serialno_infos) if serialno_infos else 0.0))
                             if b_name and b_stock > 0:
                                 stock_update_payloads.append({
                                     'shop_id': data.shop_id,
@@ -425,10 +560,10 @@ class ProductInventoryService:
                                         'expiry_date': str(b_exp) if b_exp else str(date.today()),
                                         'manufacturing_date': str(b_mfg) if b_mfg else str(date.today()),
                                     },
-                                    'serialno_infos': [],
+                                    'serialno_infos': serialno_infos,
                                     'stocks': b_stock,
                                     'storage_location': b_dict.get('storage_location') or data.storage_location or None,
-                                    'reorder_point': data.reorder_point or 5,
+                                    'reorder_point': data.reorder_point or 1,
                                     'online_reorder_point': data.online_reorder_point or 0.0,
                                     'name': data.name,
                                     'gst': data.gst or "0%",
@@ -444,22 +579,31 @@ class ProductInventoryService:
                                     'create_stock_mov_adj': True
                                 })
                     else:
+                        raw_serials = getattr(data, 'serial_numbers', None) or getattr(data, 'serialno_infos', None) or (data.custom_fields.get("serial_numbers") if isinstance(data.custom_fields, dict) else None) or (data.custom_fields.get("serialno_infos") if isinstance(data.custom_fields, dict) else None) or []
+                        if isinstance(raw_serials, (str, int, dict)):
+                            raw_serials = [raw_serials]
+                        serialno_infos = [{'name': str(s).strip()} if isinstance(s, (str, int)) else s for s in raw_serials]
+
                         stock_val = getattr(data, 'stocks', None)
                         if (stock_val is None or float(stock_val) == 0) and isinstance(data.custom_fields, dict):
                             cf_stock = data.custom_fields.get("opening_stock")
                             if cf_stock is not None and float(cf_stock) > 0:
                                 stock_val = cf_stock
 
-                        if stock_val is not None and float(stock_val) > 0:
+                        if (stock_val is None or float(stock_val) == 0) and serialno_infos:
+                            stock_val = len(serialno_infos)
+
+                        have_tracking = getattr(data, 'have_tracking', True)
+                        if have_tracking and stock_val is not None and float(stock_val) > 0:
                             stock_update_payloads.append({
                                 'shop_id': data.shop_id,
                                 'product_id': product_id,
                                 'variant_id': None,
                                 'batch_infos': None,
-                                'serialno_infos': [],
+                                'serialno_infos': serialno_infos,
                                 'stocks': float(stock_val),
                                 'storage_location': data.storage_location or None,
-                                'reorder_point': data.reorder_point or 5,
+                                'reorder_point': data.reorder_point or 1,
                                 'online_reorder_point': data.online_reorder_point or 0.0,
                                 'name': data.name,
                                 'gst': data.gst or "0%",
@@ -477,8 +621,13 @@ class ProductInventoryService:
 
                 if stock_update_payloads:
                     try:
+                        for p in stock_update_payloads:
+                            p['is_active'] = is_active
                         update_payload = [UpdateAllProdInvSchema(**payload) for payload in stock_update_payloads]
                         await self.update_all(data=update_payload, executing_user_id=executing_user_id)
+                        if not is_active:
+                            await product_repo_obj.update_bulk_product(data=[UpdateProductDbSchema(id=product_id, shop_id=data.shop_id, is_active=False)])
+                            await self.session.flush()
                     except Exception as e:
                         ic(f"Error applying opening stock during product creation: {e}")
 
@@ -547,50 +696,403 @@ class ProductInventoryService:
                 except Exception as e:
                     ic(f"Failed to publish analytics event: {e}")
             
-            # Emit Success Notification
-            try:
-                from helpers.emit_notification import emit_notification
-                asyncio.create_task(emit_notification(
-                    title="Product Created",
-                    message=f"Product '{data.name}' has been successfully created.",
-                    type="info",
-                    user_id=executing_user_id or data.shop_id,
-                    additional_metadata={"product_id": product_id}
-                ))
-            except Exception as notification_error:
-                ic(f"Notification error: {notification_error}")
+            # Emit Success Notification (suppressed during bulk import)
+            if emit_notif:
+                try:
+                    from helpers.emit_notification import emit_notification
+                    asyncio.create_task(emit_notification(
+                        title="Product Created",
+                        message=f"Product '{data.name}' has been successfully created.",
+                        type="info",
+                        user_id=executing_user_id or data.shop_id,
+                        additional_metadata={"product_id": product_id}
+                    ))
+                except Exception as notification_error:
+                    ic(f"Notification error: {notification_error}")
             
             return product_add_res
 
         except Exception as e:
-            # Emit Error Notification
-            try:
-                from helpers.emit_notification import emit_notification
-                asyncio.create_task(emit_notification(
-                    title="Product Creation Failed",
-                    message=f"Failed to create product '{data.name}': {str(e)}",
-                    type="error",
-                    user_id=executing_user_id or data.shop_id
-                ))
-            except Exception as notification_error:
-                ic(f"Notification error: {notification_error}")
+            # Emit Error Notification (suppressed during bulk import)
+            if emit_notif:
+                try:
+                    from helpers.emit_notification import emit_notification
+                    asyncio.create_task(emit_notification(
+                        title="Product Creation Failed",
+                        message=f"Failed to create product '{data.name}': {str(e)}",
+                        type="error",
+                        user_id=executing_user_id or data.shop_id
+                    ))
+                except Exception as notification_error:
+                    ic(f"Notification error: {notification_error}")
             raise e
 
     async def create_bulk_prodinv_items(self, data: List[CreateProdInvSchema], executing_user_id: Optional[str] = None):
+        if not data:
+            return [], []
+
+        shop_id = data[0].shop_id
         results = []
         errors = []
-        for item in data:
-            try:
-                res = await self.create(data=item, executing_user_id=executing_user_id)
-                if res:
-                    results.append(res)
-            except Exception as e:
-                err_msg = f"'{item.name}': {str(e)}"
-                ic(f"Error in bulk creating product item '{item.name}': {e}")
-                errors.append(err_msg)
-        return results, errors
-    
 
+        try:
+            # 1. Pre-fetch Barcode baseline in 1 query
+            bc_stmt = select(Products.barcode).where(
+                Products.shop_id == shop_id,
+                Products.barcode.like("BAR%")
+            ).order_by(Products.barcode.desc()).limit(1)
+            max_bc = (await self.session.execute(bc_stmt)).scalars().first()
+            current_bc_num = 0
+            if max_bc and max_bc.startswith("BAR") and max_bc[3:].isdigit():
+                current_bc_num = int(max_bc[3:])
+
+            # 2. Pre-fetch existing Barcodes & SKUs for this shop in 2 fast queries
+            existing_bc_stmt = select(Products.barcode).where(Products.shop_id == shop_id)
+            existing_barcodes = set((await self.session.execute(existing_bc_stmt)).scalars().all())
+
+            existing_skus_stmt = select(Products.sku).where(Products.shop_id == shop_id)
+            existing_skus = set((await self.session.execute(existing_skus_stmt)).scalars().all())
+
+            var_bc_stmt = select(ProductVariants.barcode).where(ProductVariants.shop_id == shop_id)
+            existing_barcodes.update((await self.session.execute(var_bc_stmt)).scalars().all())
+
+            var_skus_stmt = select(ProductVariants.sku).where(ProductVariants.shop_id == shop_id)
+            existing_skus.update((await self.session.execute(var_skus_stmt)).scalars().all())
+
+            existing_names_stmt = select(Products.name).where(Products.shop_id == shop_id)
+            existing_names_list = list((await self.session.execute(existing_names_stmt)).scalars().all())
+            existing_names_set = {n.strip().lower() for n in existing_names_list if n}
+            seen_batch_names = set()
+
+            # 3. Pre-fetch UI ID baseline in 1 query
+            ui_stmt = select(Products.ui_id).where(
+                Products.shop_id == shop_id,
+                Products.ui_id.like("PRD-%")
+            ).order_by(Products.ui_id.desc()).limit(1)
+            last_ui = (await self.session.execute(ui_stmt)).scalars().first()
+            current_ui_num = 0
+            if last_ui and "-" in last_ui:
+                try:
+                    current_ui_num = int(last_ui.split("-")[-1])
+                except Exception:
+                    current_ui_num = 0
+            if current_ui_num == 0:
+                cnt_stmt = select(func.count(Products.id)).where(Products.shop_id == shop_id)
+                current_ui_num = (await self.session.execute(cnt_stmt)).scalar() or 0
+
+            # 4. Pre-fetch category names in memory
+            distinct_cat_ids = {item.category_id for item in data if item.category_id}
+            cat_name_map = {}
+            for cid in distinct_cat_ids:
+                try:
+                    cdata = await get_shop_category(shop_id, cid)
+                    if cdata and isinstance(cdata, dict):
+                        cat_name_map[cid] = cdata.get("name", "GEN")
+                except Exception:
+                    cat_name_map[cid] = "GEN"
+
+            # 5. Build models in memory
+            products_to_add = []
+            variants_to_add = []
+            pricing_to_add = []
+            storage_location_to_add = []
+            rop_to_add = []
+            stocks_to_add = []
+            stock_movement_payloads = []
+            all_product_ids = []
+
+            for item in data:
+                try:
+                    raw_name = (item.name or "").strip()
+                    if not raw_name:
+                        raise ValueError("Product name is required.")
+
+                    lower_name = raw_name.lower()
+                    if lower_name in existing_names_set:
+                        raise ValueError(f"Product '{raw_name}' already exists in this shop.")
+
+                    similar = find_similar_name(raw_name, existing_names_list)
+                    if similar:
+                        raise ValueError(f"Product '{raw_name}' already exists in this shop (matches existing '{similar}').")
+
+                    if lower_name in seen_batch_names:
+                        raise ValueError(f"Duplicate product name '{raw_name}' found in the import file.")
+
+                    seen_batch_names.add(lower_name)
+                    existing_names_set.add(lower_name)
+                    existing_names_list.append(raw_name)
+
+                    product_id = generate_uuid()
+                    current_ui_num += 1
+                    ui_id = f"PRD-{current_ui_num:05d}"
+
+                    # Barcode resolution
+                    if item.barcode and item.barcode not in existing_barcodes:
+                        product_barcode = item.barcode
+                        existing_barcodes.add(product_barcode)
+                    else:
+                        while True:
+                            current_bc_num += 1
+                            cand_bc = f"BAR{current_bc_num:06d}"
+                            if cand_bc not in existing_barcodes:
+                                product_barcode = cand_bc
+                                existing_barcodes.add(product_barcode)
+                                break
+
+                    # SKU resolution
+                    if item.sku and item.sku not in existing_skus:
+                        product_sku = item.sku
+                        existing_skus.add(product_sku)
+                    else:
+                        cat_name = cat_name_map.get(item.category_id, "GEN")
+                        cat_clean = re.sub(r'[^A-Z]', '', cat_name.upper())
+                        cat_code = (cat_clean[:3] if len(cat_clean) >= 3 else (cat_clean + "XXX")[:3])
+                        name_words = [w for w in item.name.split() if w]
+                        main_word = name_words[0] if name_words else "PROD"
+                        name_clean = re.sub(r'[^A-Z]', '', main_word.upper())
+                        name_code = (name_clean[:4] if len(name_clean) >= 3 else (name_clean + "XXX")[:3])
+                        base_sku = f"{cat_code}-{name_code}"
+                        counter = 1
+                        while f"{base_sku}-{counter:04d}" in existing_skus:
+                            counter += 1
+                        product_sku = f"{base_sku}-{counter:04d}"
+                        existing_skus.add(product_sku)
+
+                    # Custom fields
+                    cf_data = item.custom_fields or {}
+                    if item.mrp is not None:
+                        cf_data["mrp"] = item.mrp
+                    if item.discount_percent is not None:
+                        cf_data["discount_percent"] = item.discount_percent
+                    if item.offer_valid_until is not None:
+                        cf_data["offer_valid_until"] = str(item.offer_valid_until) if item.offer_valid_until else None
+
+                    # Check opening stock
+                    raw_serials = getattr(item, 'serial_numbers', None) or getattr(item, 'serialno_infos', None) or (item.custom_fields.get("serial_numbers") if isinstance(item.custom_fields, dict) else None) or (item.custom_fields.get("serialno_infos") if isinstance(item.custom_fields, dict) else None) or []
+                    if isinstance(raw_serials, (str, int, dict)):
+                        raw_serials = [raw_serials]
+                    serialno_infos = [{'name': str(s).strip()} if isinstance(s, (str, int)) else s for s in raw_serials]
+
+                    stock_val = getattr(item, 'stocks', None)
+                    if (stock_val is None or float(stock_val) == 0) and isinstance(item.custom_fields, dict):
+                        cf_stock = item.custom_fields.get("opening_stock")
+                        if cf_stock is not None and float(cf_stock) > 0:
+                            stock_val = cf_stock
+                    if (stock_val is None or float(stock_val) == 0) and serialno_infos:
+                        stock_val = len(serialno_infos)
+
+                    try:
+                        stock_qty = float(stock_val) if (stock_val is not None and str(stock_val).strip() != "") else 0.0
+                    except (ValueError, TypeError):
+                        stock_qty = 0.0
+
+                    have_tracking = item.have_tracking if getattr(item, 'have_tracking', None) is not None else True
+                    if not have_tracking:
+                        stock_qty = 0.0
+                        has_stock = False
+                        default_active = True
+                    else:
+                        has_stock = (stock_qty > 0)
+
+                    if getattr(item, "is_initial_stock", False):
+                        is_active = True
+                        if isinstance(cf_data, dict):
+                            cf_data["is_active"] = True
+                    else:
+                        is_active = item.is_active if getattr(item, 'is_active', None) is not None else (True if has_stock else False)
+
+                    prod_dict = {
+                        "id": product_id,
+                        "ui_id": ui_id,
+                        "shop_id": item.shop_id,
+                        "barcode": product_barcode,
+                        "sku": product_sku,
+                        "category_id": item.category_id,
+                        "unit_id": item.unit_id,
+                        "name": item.name,
+                        "brand": item.brand or None,
+                        "description": item.description,
+                        "type_infos": item.type_infos.model_dump() if hasattr(item.type_infos, 'model_dump') else item.type_infos,
+                        "is_active": is_active,
+                        "have_tracking": have_tracking,
+                        "additional_infos": cf_data,
+                        "gst": item.gst or "0%",
+                        "image_url": getattr(item, 'image_url', None) or [],
+                        "visible_online": getattr(item, 'visible_online', False) or False,
+                    }
+                    products_to_add.append(Products(**prod_dict))
+
+                    # Pricing
+                    buy_price = item.buy_price or 0.0
+                    sell_price = item.sell_price or 0.0
+                    pricing_additional = {}
+                    if item.mrp is not None:
+                        pricing_additional["mrp"] = item.mrp
+                    if item.discount_percent is not None:
+                        pricing_additional["discount_percent"] = item.discount_percent
+                    if item.offer_valid_until is not None:
+                        pricing_additional["offer_valid_until"] = str(item.offer_valid_until) if item.offer_valid_until else None
+
+                    pricing_to_add.append(InventoryPricings(
+                        id=generate_uuid(),
+                        product_id=product_id,
+                        shop_id=item.shop_id,
+                        buy_price=buy_price,
+                        sell_price=sell_price,
+                        online_sell_price=item.online_sell_price or 0.0,
+                        additional_infos=pricing_additional or None
+                    ))
+
+                    # Storage location
+                    if item.storage_location:
+                        storage_location_to_add.append(InventoryStoragelocations(
+                            id=generate_uuid(),
+                            product_id=product_id,
+                            shop_id=item.shop_id,
+                            name=item.storage_location
+                        ))
+
+                    # Reorder point
+                    rop_to_add.append(InventoryReorderPoint(
+                        id=generate_uuid(),
+                        product_id=product_id,
+                        shop_id=item.shop_id,
+                        reorder_point=item.reorder_point or 1,
+                        online_reorder_point=item.online_reorder_point or 0.0
+                    ))
+
+                    # Handle opening stocks directly via bulk insert
+                    if has_stock:
+                        stocks_to_add.append(InventoryStocks(
+                            id=generate_uuid(),
+                            shop_id=item.shop_id,
+                            product_id=product_id,
+                            variant_id=None,
+                            batch_id=None,
+                            physical_stocks=stock_qty,
+                            available_stocks=stock_qty,
+                            reserved_stocks=0.0
+                        ))
+                        stock_movement_payloads.append({
+                            'shop_id': item.shop_id,
+                            'product_id': product_id,
+                            'variant_id': None,
+                            'batch_infos': None,
+                            'serialno_infos': serialno_infos,
+                            'stocks': stock_qty,
+                            'stocks_before': 0.0,
+                            'stocks_after': stock_qty,
+                            'storage_location': item.storage_location or None,
+                            'reorder_point': item.reorder_point or 1,
+                            'online_reorder_point': item.online_reorder_point or 0.0,
+                            'name': item.name,
+                            'gst': item.gst or "0%",
+                            'description': item.description,
+                            'buy_price': buy_price,
+                            'sell_price': sell_price,
+                            'online_sell_price': item.online_sell_price or 0.0,
+                            'mrp': item.mrp,
+                            'type': 'INCREMENT',
+                            'entity_name': 'OPENING_STOCK',
+                            'entity_id': ui_id,
+                            'ui_id': ui_id,
+                            'create_stock_mov_adj': True
+                        })
+
+                    all_product_ids.append(product_id)
+                    results.append({"id": product_id, "ui_id": ui_id, "name": item.name, "sku": product_sku, "barcode": product_barcode})
+
+                except Exception as item_err:
+                    err_msg = f"'{item.name}': {str(item_err)}"
+                    ic(f"Error processing bulk item '{item.name}': {item_err}")
+                    errors.append(err_msg)
+
+            # 6. Database Execution: Bulk add all entities in 1 flush
+            if products_to_add:
+                self.session.add_all(products_to_add)
+            if variants_to_add:
+                self.session.add_all(variants_to_add)
+            if pricing_to_add:
+                self.session.add_all(pricing_to_add)
+            if storage_location_to_add:
+                self.session.add_all(storage_location_to_add)
+            if rop_to_add:
+                self.session.add_all(rop_to_add)
+            if stocks_to_add:
+                self.session.add_all(stocks_to_add)
+
+            await self.session.flush()
+
+            # 7. For products with stock, emit stock movements via emit_stock_mov_adj in ONE single batch call
+            if stock_movement_payloads:
+                try:
+                    await emit_stock_mov_adj(session=self.session, data=stock_movement_payloads)
+                except Exception as stock_err:
+                    ic(f"Error emitting stock movements in bulk: {stock_err}")
+
+            # 8. Sync ALL products in the batch to the Read DB in ONE single call to ProdInvReadDbRepo.add_updatereaddb
+            if all_product_ids:
+                try:
+                    await ProdInvReadDbRepo.add_updatereaddb(
+                        shop_id=shop_id,
+                        product_ids=all_product_ids,
+                        session=self.session
+                    )
+                except Exception as read_err:
+                    ic(f"Error syncing products to Read DB: {read_err}")
+                except Exception as read_err:
+                    ic(f"Error syncing zero-stock products to Read DB: {read_err}")
+
+            # 9. Emit Exactly ONE Batch Summary Activity Log
+            try:
+                from messaging.main import RabbitMQMessagingConfig
+                rabbitmq_msg_obj = RabbitMQMessagingConfig()
+                await rabbitmq_msg_obj.publish_event(
+                    routing_key="activity_logs.routing.key",
+                    exchange_name="activity_logs.exchange",
+                    payload={
+                        "shop_id": shop_id,
+                        **get_activity_log_user_info(),
+                        "service": "Inventory",
+                        "action": "CREATED",
+                        "entity_type": "PRODUCTS",
+                        "entity_id": "BULK_IMPORT",
+                        "entity_name": f"{len(results)} Products",
+                        "description": f"Bulk imported {len(results)} products",
+                        "changes": []
+                    },
+                    headers={}
+                )
+            except Exception as act_err:
+                ic(f"Bulk activity log error: {act_err}")
+
+            # 10. Emit Exactly ONE Notification
+            if results and shop_id:
+                try:
+                    from helpers.emit_notification import emit_notification
+                    notif_msg = f"Successfully imported {len(results)} products."
+                    if errors:
+                        notif_msg += f" ({len(errors)} failed)"
+                    asyncio.create_task(emit_notification(
+                        title="Bulk Import Completed",
+                        message=notif_msg,
+                        type="success" if not errors else "warning",
+                        user_id=executing_user_id or shop_id,
+                        additional_metadata={
+                            "count": len(results),
+                            "failed_count": len(errors),
+                            "module": "inventory",
+                            "bulk": True
+                        }
+                    ))
+                except Exception as notif_err:
+                    ic(f"Bulk notification error: {notif_err}")
+
+            return results, errors
+
+        except Exception as e:
+            ic(f"Critical error in create_bulk_prodinv_items: {e}")
+            raise e
     async def update(self, data: UpdateProdInvSchema, executing_user_id: Optional[str] = None):
         try:
             product_repo_obj = ProductRepo(session=self.session)
@@ -607,6 +1109,15 @@ class ProductInventoryService:
             
             for field in ["name", "description", "category_id", "unit_id", "gst", "sku", "barcode", "brand", "visible_online", "have_tracking", "type_infos", "is_active"]:
                 if field in sent_fields and sent_fields[field] is not None:
+                    if field == "name" and sent_fields["name"]:
+                        name_stmt = select(Products.name).where(Products.shop_id == data.shop_id, Products.id != data.id)
+                        existing_names = list((await self.session.execute(name_stmt)).scalars().all())
+                        clean_name = sent_fields["name"].strip()
+                        if clean_name.lower() in {n.strip().lower() for n in existing_names if n}:
+                            raise ValueError(f"Product '{clean_name}' already exists in this shop.")
+                        similar = find_similar_name(clean_name, existing_names)
+                        if similar:
+                            raise ValueError(f"A product with a similar name '{similar}' already exists.")
                     if field == "sku":
                         if not await validate_sku_uniqueness(self.session, data.shop_id, sent_fields["sku"], exclude_product_id=data.id):
                             raise ValueError(f"Product SKU '{sent_fields['sku']}' already exists.")
@@ -1316,6 +1827,128 @@ class ProductInventoryService:
             ic(f"Notification error: {notification_error}")
 
         return res
+
+    async def bulk_delete(self, shop_id: str, ids: List[str], executing_user_id: Optional[str] = None):
+        deleted_ids = []
+        failed_items = []
+        all_image_urls = []
+
+        for pid in ids:
+            try:
+                prod_get = await ProductRepo(session=self.session).get_products_by_id(GetProductsById(shop_id=shop_id, id=pid))
+                if not prod_get:
+                    failed_items.append({
+                        "id": pid,
+                        "name": pid,
+                        "reason": "Product not found"
+                    })
+                    continue
+
+                prod_name = prod_get.get("name", pid) if isinstance(prod_get, dict) else getattr(prod_get, "name", pid)
+
+                stock_stmt = select(
+                    func.coalesce(func.sum(InventoryStocks.physical_stocks), 0.0).label("total_physical"),
+                    func.coalesce(func.sum(InventoryStocks.available_stocks), 0.0).label("total_available"),
+                    func.coalesce(func.sum(InventoryStocks.reserved_stocks), 0.0).label("total_reserved")
+                ).where(
+                    InventoryStocks.product_id == pid,
+                    InventoryStocks.shop_id == shop_id
+                )
+                stock_res = (await self.session.execute(stock_stmt)).one_or_none()
+                if stock_res:
+                    total_physical = float(stock_res.total_physical or 0.0)
+                    total_available = float(stock_res.total_available or 0.0)
+                    total_reserved = float(stock_res.total_reserved or 0.0)
+                    if total_physical > 0 or total_available > 0 or total_reserved > 0:
+                        failed_items.append({
+                            "id": pid,
+                            "name": prod_name,
+                            "reason": f"Stock is not zero (Physical: {total_physical}, Available: {total_available}, Reserved: {total_reserved}). Stock must be 0 before deletion."
+                        })
+                        continue
+
+                await self.session.execute(delete(InventoryStocks).where(InventoryStocks.product_id == pid, InventoryStocks.shop_id == shop_id))
+                await self.session.execute(delete(InventoryPricings).where(InventoryPricings.product_id == pid, InventoryPricings.shop_id == shop_id))
+                await self.session.execute(delete(InventoryStoragelocations).where(InventoryStoragelocations.product_id == pid, InventoryStoragelocations.shop_id == shop_id))
+                await self.session.execute(delete(InventoryReorderPoint).where(InventoryReorderPoint.product_id == pid, InventoryReorderPoint.shop_id == shop_id))
+
+                try:
+                    from ..models.customfield_model import ProductCustomFieldsValues
+                    await self.session.execute(delete(ProductCustomFieldsValues).where(ProductCustomFieldsValues.product_id == pid, ProductCustomFieldsValues.shop_id == shop_id))
+                except Exception as e:
+                    ic(f"Error cleaning up custom fields values on product bulk delete: {e}")
+
+                product_del_data = DeleteProductDbSchema(id=pid, shop_id=shop_id)
+                res = await ProductRepo(session=self.session).delete_product(data=product_del_data)
+                if not res:
+                    failed_items.append({
+                        "id": pid,
+                        "name": prod_name,
+                        "reason": "Failed to delete product record"
+                    })
+                    continue
+
+                if res.image_url:
+                    all_image_urls.extend(res.image_url)
+
+                deleted_ids.append(pid)
+
+            except Exception as e:
+                failed_items.append({
+                    "id": pid,
+                    "name": pid,
+                    "reason": str(e)
+                })
+
+        try:
+            await self.session.commit()
+        except Exception as e:
+            ic(f"Error committing bulk delete session: {e}")
+
+        if deleted_ids:
+            try:
+                from infras.read_db.repos.inventory_repo import InventoryReadDbRepo
+                from infras.read_db.repos.prod_inv_repo import ProdInvReadDbRepo
+                await InventoryReadDbRepo.delete_inventory_bulk(inventory_ids=deleted_ids, shop_id=shop_id)
+                await ProdInvReadDbRepo.delete_product_bulk(product_ids=deleted_ids, shop_id=shop_id)
+                ic(f"Bulk Read DB sync: {len(deleted_ids)} products deleted from read DB")
+            except Exception as e:
+                ic(f"Error syncing bulk delete to read DB: {e}")
+
+        if all_image_urls:
+            try:
+                from integrations.utility_service import delete_assets
+                asyncio.create_task(delete_assets(urls=all_image_urls))
+            except Exception as e:
+                ic(f"Failed to delete assets in bulk delete: {e}")
+
+        if deleted_ids or failed_items:
+            try:
+                from helpers.emit_notification import emit_notification
+                if not failed_items:
+                    msg = f"Successfully deleted {len(deleted_ids)} product(s)."
+                    ntype = "info"
+                else:
+                    msg = f"Deleted {len(deleted_ids)} product(s). {len(failed_items)} product(s) could not be deleted (existing stock)."
+                    ntype = "warning"
+
+                asyncio.create_task(emit_notification(
+                    title="Bulk Product Deletion",
+                    message=msg,
+                    type=ntype,
+                    user_id=executing_user_id or shop_id
+                ))
+            except Exception as notification_error:
+                ic(f"Notification error in bulk delete: {notification_error}")
+
+        return {
+            "total": len(ids),
+            "deleted_count": len(deleted_ids),
+            "failed_count": len(failed_items),
+            "deleted_ids": deleted_ids,
+            "failed_items": failed_items,
+        }
+
     
 
     async def create_batch_serialno(self,data:List[CreateProdInvBatchSerialnoSchema]):
@@ -1988,8 +2621,8 @@ class ProductInventoryService:
                             )
 
                     # Reorder Metric Point Triggers
-                    if inc_rop:
-                        if is_rop_exists:
+                    if is_rop_exists:
+                        if inc_rop is not None and inc_rop != "":
                             rop_toupdate.append(
                                 UpdateInventoryReorderPointDbSchema(
                                     shop_id=inc_shop_id,
@@ -2000,18 +2633,21 @@ class ProductInventoryService:
                                     online_reorder_point=0.0
                                 )
                             )
-                        else:
-                            rop_toadd.append(
-                                InventoryReorderPoint(
-                                    id=generate_uuid(),
-                                    shop_id=inc_shop_id,
-                                    product_id=existing_product_id,
-                                    variant_id=inc_variant_id,
-                                    batch_id=inc_batch_id,
-                                    reorder_point=inc_rop,
-                                    online_reorder_point=0.0
-                                )
+                    else:
+                        rop_val = inc_rop if (inc_rop is not None and inc_rop != "") else 1
+                        rop_id = generate_uuid()
+                        rop_toadd.append(
+                            InventoryReorderPoint(
+                                id=rop_id,
+                                shop_id=inc_shop_id,
+                                product_id=existing_product_id,
+                                variant_id=inc_variant_id,
+                                batch_id=inc_batch_id,
+                                reorder_point=rop_val,
+                                online_reorder_point=0.0
                             )
+                        )
+                        existing_rop_info['id'] = rop_id
 
                     # Serial Handling Lifecycle
                     if inc_serialnos:
@@ -2152,12 +2788,13 @@ class ProductInventoryService:
                         'description': inc_item.get('description') if isinstance(inc_item, dict) else getattr(inc_item, 'description', None),
                     })
 
+                    explicit_active = inc_item.get('is_active') if isinstance(inc_item, dict) else getattr(inc_item, 'is_active', None)
                     product_toupdate.append(
                         UpdateProductDbSchema(
                             id=existing_product_id,
                             shop_id=inc_shop_id,
                             gst=inc_gst,
-                            is_active=True
+                            is_active=explicit_active if explicit_active is not None else True
                         )
                     )
 
