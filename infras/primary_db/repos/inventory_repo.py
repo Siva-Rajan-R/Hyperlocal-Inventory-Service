@@ -552,10 +552,8 @@ class InventoryRepo:
             prev_serialno_infos+=serialno_infos
             reservation.serialno_infos=prev_serialno_infos
 
-        ic(stock_record.physical_stocks,stock_record.reserved_stocks)
-        readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=[product_id])
+        await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=[product_id])
         await self.session.commit()
-        ic(readdb_res)
         
         return True
 
@@ -593,14 +591,16 @@ class InventoryRepo:
                     ]
                 )
             stock_record = (await self.session.execute(stmt_stock)).scalars().first()
+            if stock_record:
+                stock_record.reserved_stocks = max(0, (stock_record.reserved_stocks or 0) - res.qty)
+                stock_record.available_stocks = stock_record.physical_stocks - stock_record.reserved_stocks
 
             product_ids.append(res.product_id) 
             shop_id=res.shop_id  
             res.status = "RELEASED"
         
         if product_ids and shop_id:
-            readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
-            ic(readdb_res)
+            await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
             
         return True
 
@@ -646,8 +646,7 @@ class InventoryRepo:
             stock_record.reserved_stocks = max(0, (stock_record.reserved_stocks or 0) - reservation.qty)
             stock_record.available_stocks = stock_record.physical_stocks - stock_record.reserved_stocks
             
-            readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=reservation.shop_id,product_ids=[reservation.product_id])
-            ic(readdb_res)
+            await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=reservation.shop_id,product_ids=[reservation.product_id])
             
         reservation.status = "RELEASED"
             
@@ -722,17 +721,14 @@ class InventoryRepo:
                 ic(f"Non-tracking product {res.product_id}: no stock record to update, still creating adj entry")
 
             product_ids.append(res.product_id) 
-            ic(res.shop_id)
             shop_id=res.shop_id  
             res.status = "COMPLETED"
         
         await self.session.flush()
         if product_ids and shop_id:
-            readdb_res=await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
-            ic(readdb_res)
+            await ProdInvReadDbRepo.add_updatereaddb(session=self.session,shop_id=shop_id,product_ids=product_ids)
 
         if data.record_stock and stock_adj_mov_data:
-            stock_mov_adj_res=await emit_stock_mov_adj(session=self.session,data=stock_adj_mov_data)
-            ic(stock_mov_adj_res)
+            await emit_stock_mov_adj(session=self.session,data=stock_adj_mov_data)
             
         return True

@@ -11,7 +11,6 @@ async def cleanup_expired_reservations():
     """Background task to periodically release expired inventory reservations."""
     while True:
         try:
-            ic("Running expired reservation cleanup job...")
             async with AsyncInventoryLocalSession() as session:
                 # Find distinct session_ids with expired ACTIVE reservations
                 stmt = select(InventoryReservation.session_id).where(
@@ -23,11 +22,11 @@ async def cleanup_expired_reservations():
                 expired_sessions = result.scalars().all()
                 
                 if expired_sessions:
-                    ic(f"Found {len(expired_sessions)} expired sessions. Releasing reservations...")
                     repo = InventoryRepo(session=session)
                     for session_id in expired_sessions:
                         await repo.release_reservations(data=ReleaseInventorySchema(session_id=session_id))
-                        ic(f"Released reservations for session: {session_id}")
+                    await session.commit()
+                    print(f"[INVENTORY] Successfully released {len(expired_sessions)} expired reservation session(s).")
                     
         except Exception as e:
             ic(f"Error in cleanup_expired_reservations: {e}")

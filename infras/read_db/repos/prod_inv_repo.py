@@ -54,7 +54,6 @@ class ProdInvReadDbRepo:
                 id=product_ids
             )
             primary_products = await primary_repo.get_bulk_products_by_id(data=request_data)
-            ic(primary_products)
             if not primary_products:
                 return False
 
@@ -75,7 +74,6 @@ class ProdInvReadDbRepo:
                     {"pids": list(product_ids), "shop_id": shop_id}
                 )).mappings().all()
 
-                ic("Fresh serialno count from DB:", len(sn_rows))
                 for row in sn_rows:
                     pid = row["product_id"]
                     if pid not in fresh_serialnos:
@@ -88,8 +86,6 @@ class ProdInvReadDbRepo:
                         "status": row["status"],
                         "visible_online": row["visible_online"],
                     })
-
-            ic("fresh_serialnos per product:", {k: len(v) for k, v in fresh_serialnos.items()})
 
             # Inject the fresh serialno_infos into each product's data structure
             for p_data in primary_products:
@@ -152,7 +148,6 @@ class ProdInvReadDbRepo:
                                         break
                             else:
                                 p_data.setdefault("serialno_infos", []).append(sn_item)
-                    ic(f"Injected serials for product {prod_id} successfully.")
 
 
             # Fetch existing read models to compare and reuse category/unit names
@@ -278,7 +273,6 @@ class ProdInvReadDbRepo:
             # Execute bulk write
             if bulk_ops:
                 res = await PROD_INV_COLLECTION.bulk_write(bulk_ops)
-                ic(f"Read DB Bulk Write Result: inserted={res.inserted_count}, modified={res.modified_count}, upserted={res.upserted_count}")
                 return True
 
             return False
